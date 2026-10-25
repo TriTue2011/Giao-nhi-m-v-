@@ -1,0 +1,13 @@
+<!doctype html><meta charset="utf-8"><body style="margin:0;background:#fff"><canvas id="a"></canvas><canvas id="b"></canvas>
+<script type="module">
+import { taoXuong } from './fe_x/lich-bloc-xua-xuong.js';
+const cfg = await (await fetch('./fe_x/xuong/cho.json')).json();
+const tai = (u) => new Promise((r) => { const i = new Image(); i.onload = () => r(i); i.src = u; });
+const chinh = await tai('./fe_x/xuong/' + cfg.chinh.tep), xa = await tai('./fe_x/xuong/' + cfg.xa.tep);
+const trong = document.createElement('canvas'); trong.width = cfg.anh.rong; trong.height = cfg.anh.cao;
+const A = taoXuong(document.getElementById('a'), cfg, { chinh, xa: trong });   // chỉ lớp chính (thân + chân gần)
+const B = taoXuong(document.getElementById('b'), cfg, { chinh: trong, xa });   // chỉ lớp chân xa
+window.cfg = cfg;
+window.chup = (t) => { A.ve(t); B.ve(t); return [document.getElementById('a').toDataURL('image/png'), document.getElementById('b').toDataURL('image/png')]; };
+window.san = 1;
+</script>

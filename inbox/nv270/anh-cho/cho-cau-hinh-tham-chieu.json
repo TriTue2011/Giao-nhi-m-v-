@@ -1,0 +1,103 @@
+{
+ "ghi_chu": "Cấu hình tham chiếu cho ảnh cho-chinh.png / cho-xa.png (rộng 800 px) = hệ toạ độ ảnh gốc cho-goc-1200.png (rộng 1200 px); hệ số K = 800/1200. Góc tính bằng rad, dương = chân ra trước. Đây là cấu hình đã chạy trong xuong-tham-chieu/rig2.html và đo được: 143/143 khung đổi hình, hệ số biến thiên 0,19, lớn nhất/trung vị 1,47.",
+ "he_toa_do": 1200,
+ "K": 0.6667,
+ "canvas": {
+  "rong": 920,
+  "cao": 692,
+  "le_x": 60,
+  "le_y": 30
+ },
+ "chu_ky_s": 1.2,
+ "stance": 0.6,
+ "gap_goi": 0.62,
+ "nhun_than_px": 3,
+ "chan": {
+  "sau_xa": {
+   "lop": "xa",
+   "hip": [
+    210,
+    575
+   ],
+   "knee": [
+    86,
+    735
+   ],
+   "paw": [
+    72,
+    890
+   ],
+   "r": 150,
+   "c": -0.25,
+   "a": 0.17,
+   "ph": 0.5,
+   "rong": 90
+  },
+  "truoc_xa": {
+   "lop": "xa",
+   "hip": [
+    952,
+    687
+   ],
+   "knee": [
+    1021,
+    790
+   ],
+   "paw": [
+    1103,
+    908
+   ],
+   "r": 150,
+   "c": 0.45,
+   "a": 0.14,
+   "ph": 0.5,
+   "rong": 94
+  },
+  "sau_gan": {
+   "lop": "chinh",
+   "hip": [
+    331,
+    632
+   ],
+   "knee": [
+    276,
+    777
+   ],
+   "paw": [
+    366,
+    908
+   ],
+   "r": 105,
+   "c": 0.0,
+   "a": 0.17,
+   "ph": 0.0,
+   "rong": 98
+  },
+  "truoc_gan": {
+   "lop": "chinh",
+   "hip": [
+    793,
+    687
+   ],
+   "knee": [
+    759,
+    811
+   ],
+   "paw": [
+    814,
+    908
+   ],
+   "r": 78,
+   "c": 0.0,
+   "a": 0.15,
+   "ph": 0.0,
+   "rong": 102
+  }
+ },
+ "do_duoc": {
+  "khoang_cach_ngang_bang_chan_nho_nhat_px_he1200": {
+   "cap_sau": 117,
+   "cap_truoc": 218
+  }
+ }
+}
