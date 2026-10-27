@@ -1,0 +1,801 @@
+From 498c6b67caddbf6ee4d23ff7f946d3eca87ca30c Mon Sep 17 00:00:00 2001
+From: Muse <muse@localhost>
+Date: Tue, 27 Oct 2026 17:13:37 +0000
+Subject: [PATCH] NV273: lam_moi_model cho claude-web, grok-web, openaicodex,
+ muse2api
+
+Lop loi: 4 module AI chua co lam_moi_model() trong khi loi va giao dien
+da goi phuong thuc nay theo hop dong chung (app/lam_moi_model.py).
+Grep cung lop: grep -rln lam_moi_model modules/*/module.py -> truoc 5,
+sau 9; ls modules/*/manifest.json -> 43.
+Theo nguyen tac, khong theo danh sach: loi chi goi lam_moi_model() neu
+callable, khong nhac ten nha cung cap; moi module tu chua du logic cua
+no, khong import cheo module khac, khong sua app/ hay web/.
+
+Moi module them lam_moi_model() sau models() + khai model_tinh trong
+manifest. TRUNG THUC: ca 4 deu KHONG co endpoint liet ke model hop le
+cho dung loai xac thuc web cua chung trong repo (xem hoi-nv273-
+endpoint-liet-ke.md), nen nguon la danh sach tinh khai trong manifest,
+buoc 'lay lai' la kiem phien that cua module do; hong thi nem
+RuntimeError mang ma xac_thuc/mang/sai_khuon va giu danh sach cu.
+- claude-web: kiem qua GET /api/organizations (lay_org_id).
+- grok-web: kiem qua /api/auth/session (lay_uid_tu_phien); thu thach
+  truy cap khong vuot, bao mang va dung.
+- openaicodex: lam moi token OAuth that qua _lam_moi_tai_khoan(ep=True).
+- muse2api: kiem cookie that qua _kiem_cookie (auth/check + session).
+
+Test: test/test_web2api_nv273_lam_moi_model.py, 21 test (5/module +
+bang 9 module), qua dich vu gia cuc bo; toan bo test/ khong co do moi
+so voi main sach (xem nv273-bao-cao.md).
+---
+ modules/claude-web/manifest.json         |  16 +
+ modules/claude-web/module.py             |  59 ++++
+ modules/grok-web/manifest.json           |   6 +
+ modules/grok-web/module.py               |  67 ++++
+ modules/muse2api/manifest.json           |   3 +
+ modules/muse2api/module.py               |  43 +++
+ modules/openaicodex/manifest.json        |   4 +
+ modules/openaicodex/module.py            |  58 ++++
+ test/test_web2api_nv273_lam_moi_model.py | 406 +++++++++++++++++++++++
+ 9 files changed, 662 insertions(+)
+ create mode 100644 test/test_web2api_nv273_lam_moi_model.py
+
+diff --git a/modules/claude-web/manifest.json b/modules/claude-web/manifest.json
+index 538df56..448c6fc 100644
+--- a/modules/claude-web/manifest.json
++++ b/modules/claude-web/manifest.json
+@@ -42,6 +42,22 @@
+   },
+   "ten": "Claude Web (claude.ai)",
+   "tien_to": "clw",
++  "model_tinh": [
++    "clw/auto",
++    "clw/fable-5",
++    "clw/haiku",
++    "clw/haiku-4.5",
++    "clw/opus",
++    "clw/opus-3",
++    "clw/opus-4.1",
++    "clw/opus-4.6",
++    "clw/opus-4.7",
++    "clw/opus-4.8",
++    "clw/sonnet",
++    "clw/sonnet-4.5",
++    "clw/sonnet-4.6",
++    "clw/sonnet-5"
++  ],
+   "truong_cau_hinh": [
+     {
+       "bat_buoc": true,
+diff --git a/modules/claude-web/module.py b/modules/claude-web/module.py
+index a977a61..ea777be 100644
+--- a/modules/claude-web/module.py
++++ b/modules/claude-web/module.py
+@@ -842,6 +842,65 @@ class Module:
+                 }
+         return list(ra_dict.values())
+ 
++    async def lam_moi_model(self) -> None:
++        """NV273: làm mới danh sách model (hợp đồng lõi, xem app/lam_moi_model.py).
++
++        NGUỒN — TRUNG THỰC: claude.ai KHÔNG có endpoint liệt kê model cho
++        cookie web trong repo này: GET /api/organizations chỉ trả tổ chức và
++        capability «chat», không trả model; endpoint /v1/models của Anthropic
++        cần API key, không phải cookie của module này, nên KHÔNG dùng làm
++        nguồn và KHÔNG bịa endpoint. Nguồn là danh sách tĩnh đã khai trong
++        manifest («model_tinh», khớp bảng của converter).
++        Bước «lấy lại» là kiểm phiên thật của từng tài khoản qua
++        GET /api/organizations đã có của module: ít nhất một phiên còn dùng
++        được thì giữ danh sách tĩnh; mọi phiên đều hỏng thì ném RuntimeError
++        mang mã lỗi rõ (xac_thuc / mang / sai_khuon) và KHÔNG xoá hay thay
++        danh sách đang có. Chưa có tài khoản nào thì trả về im lặng (như
++        chatgpt-web): models() vẫn trả bảng tĩnh.
++        """
++        hien = [m["id"] for m in await self.models()]
++        khai = (self.manifest or {}).get("model_tinh")
++        if khai is not None:
++            if (not isinstance(khai, list) or not khai
++                    or not all(isinstance(x, str) and x for x in khai)):
++                raise RuntimeError(
++                    "claude-web: sai_khuon — «model_tinh» trong manifest "
++                    "không phải danh sách chuỗi khác rỗng; giữ danh sách cũ")
++            if not set(khai) <= set(hien):
++                raise RuntimeError(
++                    "claude-web: sai_khuon — danh sách hiện tại thiếu model "
++                    "đã khai trong manifest; giữ danh sách cũ")
++        accs = list(self._accs)
++        if not accs:
++            return
++        loi_xac_thuc = None
++        loi_sai_khuon = None
++        loi_mang = None
++        for acc in accs:
++            try:
++                await acc.may_khach.lay_org_id()
++                return  # ít nhất một phiên còn dùng được → giữ danh sách tĩnh
++            except LoiClaudeWeb as e:
++                if e.ma in (401, 403):
++                    loi_xac_thuc = e
++                elif "JSON hỏng" in (e.thong_bao or ""):
++                    loi_sai_khuon = e
++                else:
++                    loi_mang = e
++            except Exception as e:  # noqa: BLE001 — mạng lạ: coi là tạm thời
++                loi_mang = e
++        if loi_sai_khuon is not None:
++            raise RuntimeError(
++                "claude-web: sai_khuon — claude.ai trả JSON hỏng ở bước lấy "
++                "tổ chức; giữ danh sách cũ") from loi_sai_khuon
++        if loi_xac_thuc is not None:
++            raise RuntimeError(
++                "claude-web: xac_thuc — cookie bị claude.ai từ chối; "
++                "giữ danh sách cũ") from loi_xac_thuc
++        raise RuntimeError(
++            "claude-web: mang — không nối được claude.ai lúc làm mới; "
++            "giữ danh sách cũ") from loi_mang
++
+     async def suc_khoe(self) -> dict:
+         return {
+             "ok": any(a.khoe for a in self._accs),
+diff --git a/modules/grok-web/manifest.json b/modules/grok-web/manifest.json
+index 5a79412..aa52151 100644
+--- a/modules/grok-web/manifest.json
++++ b/modules/grok-web/manifest.json
+@@ -44,6 +44,12 @@
+   },
+   "ten": "Grok Web",
+   "tien_to": "grok",
++  "model_tinh": [
++    "grok/fast",
++    "grok/auto",
++    "grok/expert",
++    "grok/heavy"
++  ],
+   "truong_cau_hinh": [
+     {
+       "bat_buoc": true,
+diff --git a/modules/grok-web/module.py b/modules/grok-web/module.py
+index 4550224..ccc0ccd 100644
+--- a/modules/grok-web/module.py
++++ b/modules/grok-web/module.py
+@@ -1039,6 +1039,73 @@ class Module:
+ 
+     # ── Sức khoẻ ──────────────────────────────────────────────────────
+ 
++    async def lam_moi_model(self) -> None:
++        """NV273: làm mới danh sách model (hợp đồng lõi, xem app/lam_moi_model.py).
++
++        NGUỒN — TRUNG THỰC: grok.com KHÔNG có endpoint HTTP liệt kê model
++        cho cookie web trong repo này: các «model» của module này thực chất
++        là chế độ của web app (fast/auto/expert/heavy), khai tĩnh trong
++        converter; endpoint /v1/models của xAI cần API key, không phải cookie
++        của module này, nên KHÔNG dùng làm nguồn và KHÔNG bịa endpoint.
++        Nguồn là danh sách tĩnh đã khai trong manifest («model_tinh»).
++        Bước «lấy lại» là kiểm phiên thật của từng tài khoản qua
++        /api/auth/session đã có của module (lay_uid_tu_phien): ít nhất một
++        phiên còn dùng được thì giữ danh sách tĩnh; mọi phiên đều hỏng thì
++        ném RuntimeError mang mã lỗi rõ (xac_thuc / mang / sai_khuon) và
++        KHÔNG xoá hay thay danh sách đang có. Thử thách truy cập (Cloudflare)
++        coi là cần người, không vượt: báo mang mã «mang» kèm lý do thử thách
++        và dừng. Chưa có tài khoản nào thì trả về im lặng: models() vẫn trả
++        4 chế độ.
++        """
++        hien = [m["id"] for m in await self.models()]
++        khai = (self._manifest or {}).get("model_tinh")
++        if khai is not None:
++            if (not isinstance(khai, list) or not khai
++                    or not all(isinstance(x, str) and x for x in khai)):
++                raise RuntimeError(
++                    "grok-web: sai_khuon — «model_tinh» trong manifest "
++                    "không phải danh sách chuỗi khác rỗng; giữ danh sách cũ")
++            if not set(khai) <= set(hien):
++                raise RuntimeError(
++                    "grok-web: sai_khuon — danh sách hiện tại thiếu model "
++                    "đã khai trong manifest; giữ danh sách cũ")
++        jars = list(self._tai_khoan)
++        if not jars:
++            return
++        loi_xac_thuc = None
++        loi_sai_khuon = None
++        loi_mang = None
++        for jar in jars:
++            try:
++                await lay_uid_tu_phien(jar, self._goc_https)
++                return  # ít nhất một phiên còn dùng được → giữ danh sách tĩnh
++            except LoiPhienGrokWeb as e:
++                # Phân loại theo thông điệp của chính client này (client.py):
++                # «không lấy được uid» = lỗi kết nối (mạng), «không chứa
++                # userId» = phản hồi sai khuôn, còn lại = cookie bị từ chối.
++                if "không chứa userId" in str(e):
++                    loi_sai_khuon = e
++                elif "không lấy được uid" in str(e):
++                    loi_mang = e
++                else:
++                    loi_xac_thuc = e
++            except LoiThuThachTruyCap as e:
++                # Thử thách truy cập: không vượt, báo rõ và dừng.
++                loi_mang = e
++            except Exception as e:  # noqa: BLE001 — mạng lạ: coi là tạm thời
++                loi_mang = e
++        if loi_sai_khuon is not None:
++            raise RuntimeError(
++                "grok-web: sai_khuon — grok.com trả phiên không chứa userId; "
++                "giữ danh sách cũ") from loi_sai_khuon
++        if loi_xac_thuc is not None:
++            raise RuntimeError(
++                "grok-web: xac_thuc — cookie bị grok.com từ chối; "
++                "giữ danh sách cũ") from loi_xac_thuc
++        raise RuntimeError(
++            "grok-web: mang — không nối được grok.com lúc làm mới (hoặc gặp "
++            "thử thách truy cập, không vượt); giữ danh sách cũ") from loi_mang
++
+     async def suc_khoe(self) -> dict:
+         """Tình trạng module — không để lộ cookie."""
+         if not self._tai_khoan:
+diff --git a/modules/muse2api/manifest.json b/modules/muse2api/manifest.json
+index 8de1f33..7491242 100644
+--- a/modules/muse2api/manifest.json
++++ b/modules/muse2api/manifest.json
+@@ -36,6 +36,9 @@
+   },
+   "ten": "Muse Web (muse.ai, direct protocol)",
+   "tien_to": "muse2api",
++  "model_tinh": [
++    "muse2api/muse"
++  ],
+   "truong_cau_hinh": [
+     {
+       "bat_buoc": true,
+diff --git a/modules/muse2api/module.py b/modules/muse2api/module.py
+index 8634251..de2a060 100644
+--- a/modules/muse2api/module.py
++++ b/modules/muse2api/module.py
+@@ -310,6 +310,49 @@ class Module:
+                  "nhan": "Muse", "goi": "khong_ro",
+                  "available_cho": khoa_ds}]
+ 
++    async def lam_moi_model(self) -> None:
++        """NV273: làm mới danh sách model (hợp đồng lõi, xem app/lam_moi_model.py).
++
++        NGUỒN — TRUNG THỰC: giao thức muse.ai hiện tại chỉ có đúng một
++        model («muse», MODEL_ID); repo này không có endpoint HTTP liệt kê
++        model cho cookie hatch_sess, nên KHÔNG bịa endpoint. Nguồn là danh
++        sách tĩnh đã khai trong manifest («model_tinh»).
++        Bước «lấy lại» là kiểm cookie thật của từng tài khoản qua
++        _kiem_cookie đã có của module (auth/check + session, chạy trong
++        luồng riêng như suc_khoe): ít nhất một cookie còn dùng được thì giữ
++        danh sách tĩnh; mọi cookie đều hỏng thì ném RuntimeError mang mã lỗi
++        rõ (xac_thuc / mang / sai_khuon) và KHÔNG xoá hay thay danh sách
++        đang có. Chưa có tài khoản nào thì trả về im lặng: models() vẫn trả
++        đúng một model.
++        """
++        hien = [m["id"] for m in await self.models()]
++        khai = (self.manifest or {}).get("model_tinh")
++        if khai is not None:
++            if (not isinstance(khai, list) or not khai
++                    or not all(isinstance(x, str) and x for x in khai)):
++                raise RuntimeError(
++                    "muse2api: sai_khuon — «model_tinh» trong manifest "
++                    "không phải danh sách chuỗi khác rỗng; giữ danh sách cũ")
++            if not set(khai) <= set(hien):
++                raise RuntimeError(
++                    "muse2api: sai_khuon — danh sách hiện tại thiếu model "
++                    "đã khai trong manifest; giữ danh sách cũ")
++        accs = list(self._accs)
++        if not accs:
++            return
++        ket_qua = await asyncio.gather(
++            *[asyncio.to_thread(self._kiem_cookie, a.cookies) for a in accs])
++        for ok, _loi, bi_tu_choi in ket_qua:
++            if ok:
++                return  # ít nhất một cookie còn dùng được → giữ danh sách
++        if any(bi_tu_choi for _ok, _loi, bi_tu_choi in ket_qua):
++            raise RuntimeError(
++                "muse2api: xac_thuc — cookie bị muse.ai từ chối; "
++                "giữ danh sách cũ")
++        raise RuntimeError(
++            "muse2api: mang — kiểm cookie gặp lỗi tạm thời; "
++            "giữ danh sách cũ")
++
+     async def suc_khoe(self) -> dict:
+         async def _kiem(acc: _TaiKhoan):
+             ok, loi, _ = await asyncio.to_thread(self._kiem_cookie, acc.cookies)
+diff --git a/modules/openaicodex/manifest.json b/modules/openaicodex/manifest.json
+index 40a3afb..f6f228b 100644
+--- a/modules/openaicodex/manifest.json
++++ b/modules/openaicodex/manifest.json
+@@ -42,6 +42,10 @@
+   },
+   "ten": "OpenAI Codex (OAuth)",
+   "tien_to": "openaicodex",
++  "model_tinh": [
++    "openaicodex/gpt-5.5",
++    "openaicodex/gpt-5"
++  ],
+   "truong_cau_hinh": [
+     {
+       "bat_buoc": false,
+diff --git a/modules/openaicodex/module.py b/modules/openaicodex/module.py
+index 3162289..e45cece 100644
+--- a/modules/openaicodex/module.py
++++ b/modules/openaicodex/module.py
+@@ -413,6 +413,64 @@ class Module:
+         with self._khoa:
+             return any(str(tk.email or "").casefold() == em for tk in self._tai_khoan)
+ 
++    async def lam_moi_model(self) -> None:
++        """NV273: làm mới danh sách model (hợp đồng lõi, xem app/lam_moi_model.py).
++
++        NGUỒN — TRUNG THỰC: token Codex OAuth KHÔNG có endpoint liệt kê
++        model trong repo này: các đường đã dùng là /backend-api/codex/responses
++        (chat) và /backend-api/wham/usage (hạn mức), không có đường liệt kê;
++        endpoint /v1/models của OpenAI cần API key, không phải token Codex,
++        nên KHÔNG dùng làm nguồn và KHÔNG bịa đường dẫn kiểu
++        /backend-api/codex/models. Nguồn là danh sách tĩnh đã khai trong
++        manifest («model_tinh», khớp DANH_SACH_MODEL).
++        Bước «lấy lại» là làm mới token thật của từng tài khoản đang hoạt
++        động qua _lam_moi_tai_khoan đã có của module: ít nhất một tài khoản
++        làm mới được thì giữ danh sách tĩnh; mọi tài khoản đều hỏng thì ném
++        RuntimeError mang mã lỗi rõ (xac_thuc / mang / sai_khuon) và KHÔNG
++        xoá hay thay danh sách đang có. Làm mới token ở đây KHÔNG đánh dấu
++        tài khoản hỏng (việc đó thuộc lam_moi_phien/chat); chỉ báo lỗi để
++        lõi ghi lại. Chưa có tài khoản đang hoạt động nào thì trả về im lặng
++        (models() trả [] khi đó).
++        """
++        with self._khoa:
++            ds = list(self._tai_khoan)
++        hoat_dong = [tk for tk in ds if tk.trang_thai == "hoat_dong"]
++        if not hoat_dong:
++            return
++        hien = [m["id"] for m in await self.models()]
++        khai = (self.manifest or {}).get("model_tinh")
++        if khai is not None:
++            if (not isinstance(khai, list) or not khai
++                    or not all(isinstance(x, str) and x for x in khai)):
++                raise RuntimeError(
++                    "openaicodex: sai_khuon — «model_tinh» trong manifest "
++                    "không phải danh sách chuỗi khác rỗng; giữ danh sách cũ")
++            if not set(khai) <= set(hien):
++                raise RuntimeError(
++                    "openaicodex: sai_khuon — danh sách hiện tại thiếu model "
++                    "đã khai trong manifest; giữ danh sách cũ")
++        loi_xac_thuc = None
++        loi_mang = None
++        for tk in hoat_dong:
++            try:
++                kq = await self._lam_moi_tai_khoan(tk, ep=True)
++            except Exception as e:  # noqa: BLE001 — mạng lạ: coi là tạm thời
++                loi_mang = e
++                continue
++            if kq and kq.get("ok"):
++                return  # ít nhất một tài khoản còn dùng được → giữ danh sách
++            if kq and kq.get("loai") == "chet":
++                loi_xac_thuc = kq
++            else:
++                loi_mang = kq
++        if loi_xac_thuc is not None:
++            raise RuntimeError(
++                "openaicodex: xac_thuc — refresh_token bị từ chối "
++                "(không thể khôi phục); giữ danh sách cũ")
++        raise RuntimeError(
++            "openaicodex: mang — làm mới token gặp lỗi tạm thời; "
++            "giữ danh sách cũ")
++
+     async def suc_khoe(self) -> dict:
+         with self._khoa:
+             ds = list(self._tai_khoan)
+diff --git a/test/test_web2api_nv273_lam_moi_model.py b/test/test_web2api_nv273_lam_moi_model.py
+new file mode 100644
+index 0000000..7755c49
+--- /dev/null
++++ b/test/test_web2api_nv273_lam_moi_model.py
+@@ -0,0 +1,406 @@
++"""NV273: lam_moi_model() cho 4 module còn thiếu (claude-web, grok-web,
++openaicodex, muse2api).
++
++Mỗi module độc lập: test của module này không import module kia, không dùng
++logic chung trong lõi. Tất cả qua dịch vụ GIẢ cục bộ (máy chủ giả loopback
++hoặc httpx.MockTransport) — không gọi dịch vụ ngoài thật, không đăng nhập thật.
++
++Bốn ca cho mỗi module, theo đúng file NV273 §2d:
++1. thành công (có model) — danh sách giữ nguyên, không ném;
++2. lỗi xác thực — ném RuntimeError mang mã «xac_thuc», giữ danh sách cũ;
++3. mạng hỏng — ném RuntimeError mang mã «mang», giữ danh sách cũ;
++4. phản hồi sai khuôn — ném RuntimeError mang mã «sai_khuon», giữ danh sách cũ.
++
++LƯU Ý TRUNG THỰC (NV273 §2b): cả 4 module này KHÔNG có endpoint liệt kê
++model hợp lệ cho đúng loại xác thực web của chúng trong repo (claude.ai chỉ
++trả tổ chức, grok.com chỉ trả chế độ tĩnh, Codex OAuth không có endpoint
++liệt kê, muse.ai chỉ có đúng một model trong giao thức hiện tại). Vì vậy
++lam_moi_model() KHÔNG bịa endpoint: nguồn của nó là danh sách tĩnh đã khai
++trong manifest («model_tinh»), và bước «lấy lại» là kiểm phiên thật của
++từng tài khoản qua đường đã có của chính module đó; kiểm hỏng thì giữ
++danh sách cũ và báo mã lỗi rõ. Xem thêm hoi-nv273-endpoint-liet-ke.md.
++"""
++
++from __future__ import annotations
++
++import asyncio
++import base64
++import importlib.util
++import json
++import sys
++import time
++from pathlib import Path
++
++import httpx
++import pytest
++from starlette.applications import Starlette
++from starlette.responses import JSONResponse, PlainTextResponse
++from starlette.routing import Route
++
++from gia import MayChuThat, cong_trong
++
++GOC = Path(__file__).resolve().parents[1]
++
++
++def chay(coro):
++    return asyncio.run(coro)
++
++
++def nap_goi(ten: str, thu_muc: str):
++    """Nạp modules/<thu_muc> như một gói riêng (giống lõi nạp)."""
++    if ten in sys.modules:
++        sys.modules.pop(ten, None)
++    goi = __import__("types").ModuleType(ten)
++    goi.__path__ = [str(GOC / "modules" / thu_muc)]
++    sys.modules[ten] = goi
++    spec = importlib.util.spec_from_file_location(
++        ten + ".module", GOC / "modules" / thu_muc / "module.py",
++        submodule_search_locations=[str(GOC / "modules" / thu_muc)])
++    mod = importlib.util.module_from_spec(spec)
++    sys.modules[ten + ".module"] = mod
++    spec.loader.exec_module(mod)
++    manifest = json.loads((GOC / "modules" / thu_muc / "manifest.json")
++                          .read_text(encoding="utf-8"))
++    return mod, manifest
++
++
++def ids(ds):
++    return [m["id"] for m in ds]
++
++
++# ══════════════════════════════ claude-web ══════════════════════════════
++
++class ClaudeGia:
++    """claude.ai giả: chỉ /api/organizations, hành vi theo chuỗi con cookie."""
++
++    def __init__(self):
++        async def organizations(request):
++            cookie = request.headers.get("Cookie", "")
++            if "het-han" in cookie:
++                return JSONResponse({"detail": "unauthorized"}, status_code=401)
++            if "loi-500" in cookie:
++                return JSONResponse({"detail": "upstream"}, status_code=500)
++            if "json-hong" in cookie:
++                return PlainTextResponse("khong-phai-json", status_code=200)
++            return JSONResponse([{"uuid": "org-gia-1",
++                                  "capabilities": ["chat"],
++                                  "name": "Tổ chức giả"}])
++
++        self.app = Starlette(routes=[Route("/api/organizations", organizations)])
++
++    def __enter__(self):
++        self._srv = MayChuThat(self.app)
++        self._srv.__enter__()
++        self.url = self._srv.url
++        return self
++
++    def __exit__(self, *a):
++        self._srv.__exit__(*a)
++
++
++def claude_module(url, cookie, monkeypatch):
++    monkeypatch.setenv("WEB2API_TEST_CHO_PHEP_LOOPBACK", "1")
++    mod, manifest = nap_goi("nv273_claude_web", "claude-web")
++    m = mod.Module(manifest)
++    m.nap({"cookies": [cookie], "base_url": url})
++    return m
++
++
++def test_claude_lam_moi_thanh_cong_giu_danh_sach(monkeypatch):
++    with ClaudeGia() as srv:
++        m = claude_module(srv.url, "tot-session-key-aaaabbbbcccc", monkeypatch)
++        truoc = ids(chay(m.models()))
++        assert truoc == manifest_ids("claude-web")
++        chay(m.lam_moi_model())
++        assert ids(chay(m.models())) == truoc
++
++
++def test_claude_lam_moi_xac_thuc_giu_danh_sach(monkeypatch):
++    with ClaudeGia() as srv:
++        m = claude_module(srv.url, "het-han-401-jjjj", monkeypatch)
++        truoc = ids(chay(m.models()))
++        with pytest.raises(RuntimeError, match="xac_thuc"):
++            chay(m.lam_moi_model())
++        assert ids(chay(m.models())) == truoc
++
++
++def test_claude_lam_moi_mang_hong_giu_danh_sach(monkeypatch):
++    with ClaudeGia() as srv:
++        m = claude_module(srv.url, "loi-500-mmmm", monkeypatch)
++        truoc = ids(chay(m.models()))
++        with pytest.raises(RuntimeError, match="mang"):
++            chay(m.lam_moi_model())
++        assert ids(chay(m.models())) == truoc
++
++
++def test_claude_lam_moi_sai_khuon_giu_danh_sach(monkeypatch):
++    with ClaudeGia() as srv:
++        m = claude_module(srv.url, "json-hong-zzzz", monkeypatch)
++        truoc = ids(chay(m.models()))
++        with pytest.raises(RuntimeError, match="sai_khuon"):
++            chay(m.lam_moi_model())
++        assert ids(chay(m.models())) == truoc
++
++
++def test_claude_khong_tai_khoan_khong_nem(monkeypatch):
++    monkeypatch.setenv("WEB2API_TEST_CHO_PHEP_LOOPBACK", "1")
++    mod, manifest = nap_goi("nv273_claude_web2", "claude-web")
++    m = mod.Module(manifest)
++    m.nap({})
++    truoc = ids(chay(m.models()))
++    chay(m.lam_moi_model())
++    assert ids(chay(m.models())) == truoc
++
++
++# ══════════════════════════════ grok-web ═══════════════════════════════
++
++class GrokGia:
++    """grok.com giả: chỉ /api/auth/session, hành vi theo giá trị sso."""
++
++    def __init__(self):
++        async def phien(request):
++            cookie = request.headers.get("Cookie", "")
++            sso = ""
++            for phan in cookie.split(";"):
++                phan = phan.strip()
++                if phan.startswith("sso="):
++                    sso = phan[4:]
++            if sso == "het-han":
++                return JSONResponse({"detail": "unauthorized"}, status_code=401)
++            if sso == "sai-khuon":
++                return JSONResponse({"session": {}}, status_code=200)
++            return JSONResponse({"session": {"userId": "uid-gia"}})
++
++        self.app = Starlette(routes=[Route("/api/auth/session", phien)])
++
++    def __enter__(self):
++        self._srv = MayChuThat(self.app)
++        self._srv.__enter__()
++        self.url = self._srv.url
++        return self
++
++    def __exit__(self, *a):
++        self._srv.__exit__(*a)
++
++
++def grok_module(url_gia, sso, monkeypatch):
++    monkeypatch.setenv("WEB2API_TEST_CHO_PHEP_LOOPBACK", "1")
++    mod, manifest = nap_goi("nv273_grok_web", "grok-web")
++    m = mod.Module(manifest)
++    # Không có x-userid → lam_moi_model buộc phải hỏi /api/auth/session.
++    ws_url = url_gia.replace("http://", "ws://")
++    chay(m.nap({"tai_khoan": [f"sso={sso}; phien=abc123"],
++                "ws_url": ws_url}))
++    return m
++
++
++def test_grok_lam_moi_thanh_cong_giu_danh_sach(monkeypatch):
++    with GrokGia() as srv:
++        m = grok_module(srv.url, "tot_1", monkeypatch)
++        truoc = ids(chay(m.models()))
++        assert truoc == manifest_ids("grok-web")
++        chay(m.lam_moi_model())
++        assert ids(chay(m.models())) == truoc
++
++
++def test_grok_lam_moi_xac_thuc_giu_danh_sach(monkeypatch):
++    with GrokGia() as srv:
++        m = grok_module(srv.url, "het-han", monkeypatch)
++        truoc = ids(chay(m.models()))
++        with pytest.raises(RuntimeError, match="xac_thuc"):
++            chay(m.lam_moi_model())
++        assert ids(chay(m.models())) == truoc
++
++
++def test_grok_lam_moi_mang_hong_giu_danh_sach(monkeypatch):
++    monkeypatch.setenv("WEB2API_TEST_CHO_PHEP_LOOPBACK", "1")
++    mod, manifest = nap_goi("nv273_grok_web2", "grok-web")
++    m = mod.Module(manifest)
++    cong = cong_trong()  # cổng trống, không ai nghe → lỗi kết nối thật
++    chay(m.nap({"tai_khoan": ["sso=tot_1; phien=abc123"],
++                "ws_url": f"ws://127.0.0.1:{cong}"}))
++    truoc = ids(chay(m.models()))
++    with pytest.raises(RuntimeError, match="mang"):
++        chay(m.lam_moi_model())
++    assert ids(chay(m.models())) == truoc
++
++
++def test_grok_lam_moi_sai_khuon_giu_danh_sach(monkeypatch):
++    with GrokGia() as srv:
++        m = grok_module(srv.url, "sai-khuon", monkeypatch)
++        truoc = ids(chay(m.models()))
++        with pytest.raises(RuntimeError, match="sai_khuon"):
++            chay(m.lam_moi_model())
++        assert ids(chay(m.models())) == truoc
++
++
++def test_grok_khong_tai_khoan_khong_nem(monkeypatch):
++    mod, manifest = nap_goi("nv273_grok_web3", "grok-web")
++    m = mod.Module(manifest)
++    chay(m.nap({}))
++    truoc = ids(chay(m.models()))
++    chay(m.lam_moi_model())
++    assert ids(chay(m.models())) == truoc
++
++
++# ══════════════════════════════ openaicodex ════════════════════════════
++
++def _b64(obj) -> str:
++    return base64.urlsafe_b64encode(
++        json.dumps(obj, separators=(",", ":")).encode()).decode().rstrip("=")
++
++
++def tao_jwt_codex(email="nguoi.a@example.com"):
++    payload = {
++        "email": email,
++        "exp": int(time.time()) + 8 * 3600,
++        "https://api.openai.com/auth": {
++            "chatgpt_account_id": "acc-123", "chatgpt_plan_type": "plus"},
++        "https://api.openai.com/profile": {"email": email},
++    }
++    return f"{_b64({'alg': 'none'})}.{_b64(payload)}.chu-ky-gia"
++
++
++def codex_module(tmp_path, monkeypatch):
++    monkeypatch.setenv("WEB2API_DATA", str(tmp_path))
++    mod, manifest = nap_goi("nv273_openaicodex", "openaicodex")
++    from app import kho as kho_mod
++    mod.oauth.don_bo_dem_lam_moi()
++    m = mod.Module(dict(manifest))
++    m.kho = kho_mod.kho_rieng("openaicodex")
++    tk = mod._TaiKhoan(tao_jwt_codex(), "refresh-gia-123")
++    tk.trang_thai = "hoat_dong"
++    m._tai_khoan = [tk]
++    return m
++
++
++def _transport_token_ok():
++    def xu_ly(req: httpx.Request) -> httpx.Response:
++        return httpx.Response(200, json={
++            "access_token": tao_jwt_codex(), "refresh_token": "refresh-moi",
++            "expires_in": 28800, "token_type": "Bearer"})
++    return httpx.MockTransport(xu_ly)
++
++
++def test_codex_lam_moi_thanh_cong_giu_danh_sach(tmp_path, monkeypatch):
++    m = codex_module(tmp_path, monkeypatch)
++    m._gan_transport_gia(_transport_token_ok())
++    truoc = ids(chay(m.models()))
++    assert truoc == manifest_ids("openaicodex")
++    chay(m.lam_moi_model())
++    assert ids(chay(m.models())) == truoc
++
++
++def test_codex_lam_moi_xac_thuc_giu_danh_sach(tmp_path, monkeypatch):
++    m = codex_module(tmp_path, monkeypatch)
++
++    def xu_ly(req: httpx.Request) -> httpx.Response:
++        return httpx.Response(400, json={"error": "invalid_grant"})
++    m._gan_transport_gia(httpx.MockTransport(xu_ly))
++    truoc = ids(chay(m.models()))
++    with pytest.raises(RuntimeError, match="xac_thuc"):
++        chay(m.lam_moi_model())
++    assert ids(chay(m.models())) == truoc
++
++
++def test_codex_lam_moi_mang_hong_giu_danh_sach(tmp_path, monkeypatch):
++    m = codex_module(tmp_path, monkeypatch)
++
++    def xu_ly(req: httpx.Request) -> httpx.Response:
++        raise httpx.ConnectError("đứt mạng tạm", request=req)
++    m._gan_transport_gia(httpx.MockTransport(xu_ly))
++    truoc = ids(chay(m.models()))
++    with pytest.raises(RuntimeError, match="mang"):
++        chay(m.lam_moi_model())
++    assert ids(chay(m.models())) == truoc
++
++
++def test_codex_lam_moi_sai_khuon_giu_danh_sach(tmp_path, monkeypatch):
++    m = codex_module(tmp_path, monkeypatch)
++    m._gan_transport_gia(_transport_token_ok())
++    m.manifest = dict(m.manifest)
++    m.manifest["model_tinh"] = "khong-phai-danh-sach"
++    truoc = ids(chay(m.models()))
++    with pytest.raises(RuntimeError, match="sai_khuon"):
++        chay(m.lam_moi_model())
++    assert ids(chay(m.models())) == truoc
++
++
++def test_codex_khong_tai_khoan_khong_nem(tmp_path, monkeypatch):
++    m = codex_module(tmp_path, monkeypatch)
++    m._tai_khoan = []
++    chay(m.lam_moi_model())
++    assert ids(chay(m.models())) == []
++
++
++# ══════════════════════════════ muse2api ══════════════════════════════
++
++def muse_module(monkeypatch, ket_qua_kiem):
++    mod, manifest = nap_goi("nv273_muse2api", "muse2api")
++    m = mod.Module(dict(manifest))
++    m.nap({"cookies": ["hatch_sess=abc123def456; hatch_gw=xyz789"]})
++
++    def kiem_gia(cookies):
++        return ket_qua_kiem
++    m._kiem_cookie = kiem_gia
++    return m
++
++
++def test_muse_lam_moi_thanh_cong_giu_danh_sach(monkeypatch):
++    m = muse_module(monkeypatch, (True, None, False))
++    truoc = ids(chay(m.models()))
++    assert truoc == manifest_ids("muse2api")
++    chay(m.lam_moi_model())
++    assert ids(chay(m.models())) == truoc
++
++
++def test_muse_lam_moi_xac_thuc_giu_danh_sach(monkeypatch):
++    m = muse_module(monkeypatch, (False, "cookie hết hạn", True))
++    truoc = ids(chay(m.models()))
++    with pytest.raises(RuntimeError, match="xac_thuc"):
++        chay(m.lam_moi_model())
++    assert ids(chay(m.models())) == truoc
++
++
++def test_muse_lam_moi_mang_hong_giu_danh_sach(monkeypatch):
++    m = muse_module(monkeypatch, (False, "network error", False))
++    truoc = ids(chay(m.models()))
++    with pytest.raises(RuntimeError, match="mang"):
++        chay(m.lam_moi_model())
++    assert ids(chay(m.models())) == truoc
++
++
++def test_muse_lam_moi_sai_khuon_giu_danh_sach(monkeypatch):
++    m = muse_module(monkeypatch, (True, None, False))
++    m.manifest = dict(m.manifest)
++    m.manifest["model_tinh"] = []
++    truoc = ids(chay(m.models()))
++    with pytest.raises(RuntimeError, match="sai_khuon"):
++        chay(m.lam_moi_model())
++    assert ids(chay(m.models())) == truoc
++
++
++def test_muse_khong_tai_khoan_khong_nem(monkeypatch):
++    mod, manifest = nap_goi("nv273_muse2api2", "muse2api")
++    m = mod.Module(dict(manifest))
++    m.nap({})
++    truoc = ids(chay(m.models()))
++    chay(m.lam_moi_model())
++    assert ids(chay(m.models())) == truoc
++
++
++# ══════════════════════════════ bảng chung ════════════════════════════
++
++def manifest_ids(thu_muc: str) -> list[str]:
++    return list(json.loads((GOC / "modules" / thu_muc / "manifest.json")
++                           .read_text(encoding="utf-8"))["model_tinh"])
++
++
++def test_bang_nv273_moi_module_ai_co_lam_moi_model():
++    """Bảng nghiệm thu NV273: 9 module AI đều có lam_moi_model."""
++    for thu_muc in ("antigravity", "chatgpt-web", "gemini-api", "grok-api",
++                    "gemini-web", "claude-web", "grok-web", "openaicodex",
++                    "muse2api"):
++        mod, manifest = nap_goi(f"nv273_bang_{thu_muc}", thu_muc)
++        assert callable(getattr(mod.Module(dict(manifest)), "lam_moi_model",
++                                None)), thu_muc
+-- 
+2.43.0
+
