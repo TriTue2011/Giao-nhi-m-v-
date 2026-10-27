@@ -1,5 +1,19 @@
 # Hỏi thêm — NV273: endpoint liệt kê model thật cho 4 module
 
+## ĐÃ QUYẾT — đáp án của chủ máy, 2026-10-28 01:29 +07 (đã áp vào code)
+
+1. **Không có endpoint liệt kê model thật → giữ danh sách tĩnh kèm kiểm
+   phiên, ghi rõ «không tự lấy được».** Đã ghi rõ trong docstring
+   `lam_moi_model()` của cả 4 module và trong báo cáo. Không bịa endpoint.
+2. **Hai chỗ khai song song (manifest `model_tinh` và code) → giữ như
+   hiện tại, dọn về một nguồn ở đợt sau.** Không refactor về một nguồn
+   trong đợt này.
+3. **openaicodex không làm mới token thật trong `lam_moi_model()`.**
+   Đã bỏ `_lam_moi_tai_khoan(ep=True)` khỏi `lam_moi_model()`, thay bằng
+   kiểm phiên GET `/backend-api/wham/usage` bằng access_token hiện tại;
+   test `test_codex_lam_moi_khong_xoay_token` chứng minh token không đổi
+   và OAuth không được gọi. Các câu hỏi dưới đây giữ lại làm hồ sơ gốc.
+
 Nhánh: `muse/nv273` (web2api, từ `main` ffb7f3e) — xem `nv273-bao-cao.md`
 đi kèm. Bản này đã làm xong phần khuôn: cả 4 module đều có
 `lam_moi_model()` theo đúng hợp đồng lõi, test 21/21 xanh, và nguồn hiện

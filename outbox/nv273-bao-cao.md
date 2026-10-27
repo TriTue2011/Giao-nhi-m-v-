@@ -1,5 +1,38 @@
 # NV273 — Báo cáo: provider tự lấy danh sách model cho 4 module còn thiếu
 
+## Cập nhật sau đáp án của chủ máy (2026-10-28 01:29 +07) — commit mới trên 498c6b6
+
+Ba đáp án, đã áp hết, không bịa endpoint, không đổi hành vi lõi:
+
+1. **Không có endpoint liệt kê model thật cho cả 4 module → giữ danh
+   sách tĩnh kèm kiểm phiên, ghi rõ «không tự lấy được».** Đã ghi rõ
+   cụm này trong docstring `lam_moi_model()` của cả 4 module (claude-web,
+   grok-web, openaicodex, muse2api) và trong báo cáo này. Nút «Làm mới
+   danh sách» với 4 module này chỉ kiểm phiên và giữ danh sách tĩnh —
+   không tự lấy được model mới từ nhà cung cấp cho tới khi có endpoint
+   thật.
+2. **Hai chỗ khai song song (manifest `model_tinh` và danh sách tĩnh
+   trong code) → GIỮ NGUYÊN như hiện tại, không dọn về một nguồn trong
+   đợt này.** Dọn về một nguồn được ghi chú hoãn sang đợt sau, trong
+   docstring openaicodex và trong file hỏi lại đã cập nhật.
+3. **openaicodex `lam_moi_model()` KHÔNG làm mới token thật nữa.**
+   Đã bỏ hoàn toàn đường `_lam_moi_tai_khoan(ep=True)` khỏi
+   `lam_moi_model()`; thay bằng kiểm phiên duy nhất: GET
+   `/backend-api/wham/usage` bằng chính access_token hiện tại (đường đã
+   có trong `han_muc.py`), 200 → giữ danh sách, 401/403 → `xac_thuc`,
+   lỗi khác/mạng → `mang`. Việc làm mới token vẫn nằm ở các đường cũ
+   của nó (`lam_moi_phien`, đường 401 của chat, hành động quản trị) và
+   không bị chạm; riêng `lam_moi_model()` giờ không có tác dụng phụ nào
+   lên token hay trạng thái tài khoản.
+   Test mới chứng minh điều này:
+   `test_codex_lam_moi_khong_xoay_token` — access_token và refresh_token
+   trước/sau không đổi, không có yêu cầu nào tới endpoint OAuth, và
+   `_lam_moi_tai_khoan` có bị gọi thì test nổ ngay. Tổng test NV273 mới:
+   **22 passed** (21 cũ + 1 test mới này), nhóm 4 module + lõi làm mới
+   model: **253 passed, 1 failed** — failed duy nhất là
+   `test_moi_manifest_goi_thieu_rong` do venv thiếu gói `paho` của module
+   mqtt, không liên quan 4 module NV273 (quirk đã ghi ở bản gốc).
+
 - Nguồn nhiệm vụ: `inbox/NV273.md`, repo `TriTue2011/Giao-nhi-m-v-`,
   commit `07a1ba2`.
 - Nền: `TriTue2011/web2api`, nhánh `muse/nv273`, từ `main` `ffb7f3e`.
@@ -37,9 +70,10 @@
 
 ### openaicodex
 - `modules/openaicodex/module.py`: thêm `lam_moi_model()` sau `models()`.
-  Làm mới token OAuth thật của tài khoản đang hoạt động qua
-  `_lam_moi_tai_khoan(ep=True)` đã có; không đánh dấu tài khoản hỏng
-  (việc đó thuộc `lam_moi_phien`/chat).
+  **Sau đáp án 2026-10-28: chỉ kiểm phiên, KHÔNG làm mới token** — GET
+  `/backend-api/wham/usage` bằng access_token hiện tại; trước đó (bản
+  498c6b6) là làm mới token OAuth thật qua `_lam_moi_tai_khoan(ep=True)`,
+  nay đã bỏ khỏi `lam_moi_model()`.
 - `modules/openaicodex/manifest.json`: thêm `model_tinh`
   (`openaicodex/gpt-5.5`, `openaicodex/gpt-5`).
 
@@ -50,9 +84,10 @@
 - `modules/muse2api/manifest.json`: thêm `model_tinh` (`muse2api/muse`).
 
 ### Test mới
-- `test/test_web2api_nv273_lam_moi_model.py`: 21 test — 5 test/module
+- `test/test_web2api_nv273_lam_moi_model.py`: 22 test — 5 test/module
   (thành công, xác thực, mạng hỏng, sai khuôn, không tài khoản) + 1 test
-  bảng 9 module. Tất cả qua dịch vụ giả cục bộ (máy chủ giả loopback,
+  bảng 9 module + 1 test openaicodex không xoay token (sau đáp án
+  2026-10-28). Tất cả qua dịch vụ giả cục bộ (máy chủ giả loopback,
   `httpx.MockTransport`, hoặc chích `_kiem_cookie` giả cho muse2api).
 
 ## Hành vi chung của `lam_moi_model()` mới (cả 4 module)

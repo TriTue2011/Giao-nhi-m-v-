@@ -1,8 +1,8 @@
 From 498c6b67caddbf6ee4d23ff7f946d3eca87ca30c Mon Sep 17 00:00:00 2001
 From: Muse <muse@localhost>
 Date: Tue, 27 Oct 2026 17:13:37 +0000
-Subject: [PATCH] NV273: lam_moi_model cho claude-web, grok-web, openaicodex,
- muse2api
+Subject: [PATCH 1/2] NV273: lam_moi_model cho claude-web, grok-web,
+ openaicodex, muse2api
 
 Lop loi: 4 module AI chua co lam_moi_model() trong khi loi va giao dien
 da goi phuong thuc nay theo hop dong chung (app/lam_moi_model.py).
@@ -796,6 +796,229 @@ index 0000000..7755c49
 +        mod, manifest = nap_goi(f"nv273_bang_{thu_muc}", thu_muc)
 +        assert callable(getattr(mod.Module(dict(manifest)), "lam_moi_model",
 +                                None)), thu_muc
+-- 
+2.43.0
+
+
+From a62694228d05c8f91795ecd332d5fd0ddc5b40d0 Mon Sep 17 00:00:00 2001
+From: Muse <muse@localhost>
+Date: Tue, 27 Oct 2026 18:33:28 +0000
+Subject: [PATCH 2/2] NV273 (dap an 2026-10-28): openaicodex lam_moi_model chi
+ kiem phien, khong xoay token; ghi ro khong tu lay duoc; giu 2 nguon khai song
+ song
+
+---
+ modules/claude-web/module.py             |  2 +-
+ modules/grok-web/module.py               |  2 +-
+ modules/muse2api/module.py               |  2 +-
+ modules/openaicodex/module.py            | 61 ++++++++++++++----------
+ test/test_web2api_nv273_lam_moi_model.py | 41 +++++++++++++---
+ 5 files changed, 73 insertions(+), 35 deletions(-)
+
+diff --git a/modules/claude-web/module.py b/modules/claude-web/module.py
+index ea777be..889c022 100644
+--- a/modules/claude-web/module.py
++++ b/modules/claude-web/module.py
+@@ -850,7 +850,7 @@ class Module:
+         capability «chat», không trả model; endpoint /v1/models của Anthropic
+         cần API key, không phải cookie của module này, nên KHÔNG dùng làm
+         nguồn và KHÔNG bịa endpoint. Nguồn là danh sách tĩnh đã khai trong
+-        manifest («model_tinh», khớp bảng của converter).
++        manifest («model_tinh», khớp bảng của converter). Kết luận của chủ máy ngày 2026-10-28: không có endpoint liệt kê thật → giữ danh sách tĩnh kèm kiểm phiên; lam_moi_model này KHÔNG TỰ LẤY ĐƯỢC model mới.
+         Bước «lấy lại» là kiểm phiên thật của từng tài khoản qua
+         GET /api/organizations đã có của module: ít nhất một phiên còn dùng
+         được thì giữ danh sách tĩnh; mọi phiên đều hỏng thì ném RuntimeError
+diff --git a/modules/grok-web/module.py b/modules/grok-web/module.py
+index ccc0ccd..6ba8eb4 100644
+--- a/modules/grok-web/module.py
++++ b/modules/grok-web/module.py
+@@ -1047,7 +1047,7 @@ class Module:
+         là chế độ của web app (fast/auto/expert/heavy), khai tĩnh trong
+         converter; endpoint /v1/models của xAI cần API key, không phải cookie
+         của module này, nên KHÔNG dùng làm nguồn và KHÔNG bịa endpoint.
+-        Nguồn là danh sách tĩnh đã khai trong manifest («model_tinh»).
++        Nguồn là danh sách tĩnh đã khai trong manifest («model_tinh»). Kết luận của chủ máy ngày 2026-10-28: không có endpoint liệt kê thật → giữ danh sách tĩnh kèm kiểm phiên; lam_moi_model này KHÔNG TỰ LẤY ĐƯỢC model mới.
+         Bước «lấy lại» là kiểm phiên thật của từng tài khoản qua
+         /api/auth/session đã có của module (lay_uid_tu_phien): ít nhất một
+         phiên còn dùng được thì giữ danh sách tĩnh; mọi phiên đều hỏng thì
+diff --git a/modules/muse2api/module.py b/modules/muse2api/module.py
+index de2a060..8625a87 100644
+--- a/modules/muse2api/module.py
++++ b/modules/muse2api/module.py
+@@ -316,7 +316,7 @@ class Module:
+         NGUỒN — TRUNG THỰC: giao thức muse.ai hiện tại chỉ có đúng một
+         model («muse», MODEL_ID); repo này không có endpoint HTTP liệt kê
+         model cho cookie hatch_sess, nên KHÔNG bịa endpoint. Nguồn là danh
+-        sách tĩnh đã khai trong manifest («model_tinh»).
++        sách tĩnh đã khai trong manifest («model_tinh»). Kết luận của chủ máy ngày 2026-10-28: không có endpoint liệt kê thật → giữ danh sách tĩnh kèm kiểm phiên; lam_moi_model này KHÔNG TỰ LẤY ĐƯỢC model mới.
+         Bước «lấy lại» là kiểm cookie thật của từng tài khoản qua
+         _kiem_cookie đã có của module (auth/check + session, chạy trong
+         luồng riêng như suc_khoe): ít nhất một cookie còn dùng được thì giữ
+diff --git a/modules/openaicodex/module.py b/modules/openaicodex/module.py
+index e45cece..52983d3 100644
+--- a/modules/openaicodex/module.py
++++ b/modules/openaicodex/module.py
+@@ -416,21 +416,26 @@ class Module:
+     async def lam_moi_model(self) -> None:
+         """NV273: làm mới danh sách model (hợp đồng lõi, xem app/lam_moi_model.py).
+ 
+-        NGUỒN — TRUNG THỰC: token Codex OAuth KHÔNG có endpoint liệt kê
+-        model trong repo này: các đường đã dùng là /backend-api/codex/responses
+-        (chat) và /backend-api/wham/usage (hạn mức), không có đường liệt kê;
+-        endpoint /v1/models của OpenAI cần API key, không phải token Codex,
+-        nên KHÔNG dùng làm nguồn và KHÔNG bịa đường dẫn kiểu
+-        /backend-api/codex/models. Nguồn là danh sách tĩnh đã khai trong
+-        manifest («model_tinh», khớp DANH_SACH_MODEL).
+-        Bước «lấy lại» là làm mới token thật của từng tài khoản đang hoạt
+-        động qua _lam_moi_tai_khoan đã có của module: ít nhất một tài khoản
+-        làm mới được thì giữ danh sách tĩnh; mọi tài khoản đều hỏng thì ném
+-        RuntimeError mang mã lỗi rõ (xac_thuc / mang / sai_khuon) và KHÔNG
+-        xoá hay thay danh sách đang có. Làm mới token ở đây KHÔNG đánh dấu
+-        tài khoản hỏng (việc đó thuộc lam_moi_phien/chat); chỉ báo lỗi để
+-        lõi ghi lại. Chưa có tài khoản đang hoạt động nào thì trả về im lặng
+-        (models() trả [] khi đó).
++        NGUỒN — TRUNG THỰC, KHÔNG TỰ LẤY ĐƯỢC: token Codex OAuth KHÔNG có
++        endpoint liệt kê model trong repo này: các đường đã dùng là
++        /backend-api/codex/responses (chat) và /backend-api/wham/usage (hạn
++        mức), không có đường liệt kê; endpoint /v1/models của OpenAI cần
++        API key, không phải token Codex, nên KHÔNG dùng làm nguồn và KHÔNG
++        bịa đường dẫn kiểu /backend-api/codex/models. Kết luận của chủ máy
++        ngày 2026-10-28: không có endpoint liệt kê thật → giữ danh sách
++        tĩnh kèm kiểm phiên, và ghi rõ «không tự lấy được». Nguồn là danh
++        sách tĩnh đã khai trong manifest («model_tinh», khớp
++        DANH_SACH_MODEL). Hai chỗ khai song song (manifest và code) được
++        GIỮ NGUYÊN theo quyết định cùng ngày; dọn về một nguồn để đợt sau.
++        Bước «lấy lại» CHỈ LÀ KIỂM PHIÊN, KHÔNG LÀM MỚI TOKEN: với mỗi tài
++        khoản đang hoạt động, gọi GET /backend-api/wham/usage bằng chính
++        access_token hiện tại (đường đã có trong han_muc.py, không qua
++        _lam_moi_tai_khoan, không qua oauth.lam_moi_token, không xoay
++        token, không đổi trạng thái tài khoản). Ít nhất một phiên còn dùng
++        được thì giữ danh sách tĩnh; mọi phiên đều hỏng thì ném RuntimeError
++        mang mã lỗi rõ (xac_thuc / mang / sai_khuon) và KHÔNG xoá hay thay
++        danh sách đang có. Chưa có tài khoản đang hoạt động nào thì trả về
++        im lặng (models() trả [] khi đó).
+         """
+         with self._khoa:
+             ds = list(self._tai_khoan)
+@@ -449,27 +454,33 @@ class Module:
+                 raise RuntimeError(
+                     "openaicodex: sai_khuon — danh sách hiện tại thiếu model "
+                     "đã khai trong manifest; giữ danh sách cũ")
++        goc = (self._co_so_url or "").rstrip("/") or "https://chatgpt.com"
+         loi_xac_thuc = None
+         loi_mang = None
+         for tk in hoat_dong:
+             try:
+-                kq = await self._lam_moi_tai_khoan(tk, ep=True)
++                phan_hoi = await self._goi_http(
++                    "GET", f"{goc}/backend-api/wham/usage",
++                    headers={"Authorization": f"Bearer {tk.access_token}",
++                             "User-Agent": "codex-cli"})
+             except Exception as e:  # noqa: BLE001 — mạng lạ: coi là tạm thời
+                 loi_mang = e
+                 continue
+-            if kq and kq.get("ok"):
+-                return  # ít nhất một tài khoản còn dùng được → giữ danh sách
+-            if kq and kq.get("loai") == "chet":
+-                loi_xac_thuc = kq
++            ma = getattr(phan_hoi, "status_code", None)
++            if ma == 200:
++                return  # ít nhất một phiên còn dùng được → giữ danh sách
++            if ma in (401, 403):
++                loi_xac_thuc = ma
+             else:
+-                loi_mang = kq
++                loi_mang = ma
+         if loi_xac_thuc is not None:
+             raise RuntimeError(
+-                "openaicodex: xac_thuc — refresh_token bị từ chối "
+-                "(không thể khôi phục); giữ danh sách cũ")
++                "openaicodex: xac_thuc — access_token bị từ chối "
++                f"({loi_xac_thuc}) ở /wham/usage; lam_moi_model không làm "
++                "mới token; giữ danh sách cũ")
+         raise RuntimeError(
+-            "openaicodex: mang — làm mới token gặp lỗi tạm thời; "
+-            "giữ danh sách cũ")
++            "openaicodex: mang — kiểm phiên ở /wham/usage gặp lỗi tạm "
++            "thời; lam_moi_model không làm mới token; giữ danh sách cũ")
+ 
+     async def suc_khoe(self) -> dict:
+         with self._khoa:
+diff --git a/test/test_web2api_nv273_lam_moi_model.py b/test/test_web2api_nv273_lam_moi_model.py
+index 7755c49..0a473f8 100644
+--- a/test/test_web2api_nv273_lam_moi_model.py
++++ b/test/test_web2api_nv273_lam_moi_model.py
+@@ -274,28 +274,54 @@ def codex_module(tmp_path, monkeypatch):
+     return m
+ 
+ 
+-def _transport_token_ok():
++def _transport_wham_ok(urls):
+     def xu_ly(req: httpx.Request) -> httpx.Response:
+-        return httpx.Response(200, json={
+-            "access_token": tao_jwt_codex(), "refresh_token": "refresh-moi",
+-            "expires_in": 28800, "token_type": "Bearer"})
++        urls.append(str(req.url))
++        assert "/backend-api/wham/usage" in str(req.url)
++        return httpx.Response(200, json={})
+     return httpx.MockTransport(xu_ly)
+ 
+ 
+ def test_codex_lam_moi_thanh_cong_giu_danh_sach(tmp_path, monkeypatch):
+     m = codex_module(tmp_path, monkeypatch)
+-    m._gan_transport_gia(_transport_token_ok())
++    urls = []
++    m._gan_transport_gia(_transport_wham_ok(urls))
+     truoc = ids(chay(m.models()))
+     assert truoc == manifest_ids("openaicodex")
+     chay(m.lam_moi_model())
+     assert ids(chay(m.models())) == truoc
++    assert urls, "lam_moi_model phai kiem phien qua /wham/usage"
++
++
++def test_codex_lam_moi_khong_xoay_token(tmp_path, monkeypatch):
++    """Quyêt định chủ máy 2026-10-28: lam_moi_model KHÔNG làm mới token.
++
++    Chứng minh bằng 3 cách cùng lúc: token trước/sau không đổi, không có
++    yêu cầu nào tới endpoint OAuth, và _lam_moi_tai_khoan có bị gọi thì
++    test sẽ nổ ngay.
++    """
++    m = codex_module(tmp_path, monkeypatch)
++    urls = []
++    m._gan_transport_gia(_transport_wham_ok(urls))
++    tk = m._tai_khoan[0]
++    access_truoc, refresh_truoc = tk.access_token, tk.refresh_token
++
++    async def _cam_goi(*a, **k):
++        raise AssertionError("lam_moi_model khong duoc goi _lam_moi_tai_khoan")
++    m._lam_moi_tai_khoan = _cam_goi
++
++    chay(m.lam_moi_model())
++    assert tk.access_token == access_truoc
++    assert tk.refresh_token == refresh_truoc
++    assert urls and all("auth.openai.com" not in u and "/oauth/token" not in u
++                        for u in urls)
+ 
+ 
+ def test_codex_lam_moi_xac_thuc_giu_danh_sach(tmp_path, monkeypatch):
+     m = codex_module(tmp_path, monkeypatch)
+ 
+     def xu_ly(req: httpx.Request) -> httpx.Response:
+-        return httpx.Response(400, json={"error": "invalid_grant"})
++        return httpx.Response(401, json={"detail": "unauthorized"})
+     m._gan_transport_gia(httpx.MockTransport(xu_ly))
+     truoc = ids(chay(m.models()))
+     with pytest.raises(RuntimeError, match="xac_thuc"):
+@@ -317,7 +343,8 @@ def test_codex_lam_moi_mang_hong_giu_danh_sach(tmp_path, monkeypatch):
+ 
+ def test_codex_lam_moi_sai_khuon_giu_danh_sach(tmp_path, monkeypatch):
+     m = codex_module(tmp_path, monkeypatch)
+-    m._gan_transport_gia(_transport_token_ok())
++    urls = []
++    m._gan_transport_gia(_transport_wham_ok(urls))
+     m.manifest = dict(m.manifest)
+     m.manifest["model_tinh"] = "khong-phai-danh-sach"
+     truoc = ids(chay(m.models()))
 -- 
 2.43.0
 
