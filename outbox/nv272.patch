@@ -1,0 +1,193 @@
+From 64e741cc6bee2f610736b101014ccc2f2bcc2626 Mon Sep 17 00:00:00 2001
+From: Muse <muse@localhost>
+Date: Tue, 27 Oct 2026 16:43:26 +0000
+Subject: [PATCH] NV272: gemini-web va grok-web khoi dong duoc khi chua co
+ cookie
+
+Lop loi: module co kha nang tu dang nhap (manifest khai dang_nhap_bang)
+bi loi chan o _tao_tu_kho vi thieu truong bi mat bat buoc, nen khong co
+cho chay de dang nhap tu dong tu lay cookie ve (Google tra chua_ho_tro
+vi gemini-web khong nam trong danh sach module dang chay).
+Da grep cho cung lop: duyet modules/*/manifest.json, loc truong bat_buoc
+co kieu chua 'bi_mat' -> 25 module; trong do 5 module khai dang_nhap_bang
+(antigravity, chatgpt-web, claude-web, gemini-web, grok-web), 20 module
+khong khai thi giu bat buoc nhu cu.
+Theo nguyen tac (cau truc manifest), khong theo danh sach ten module/nha
+cung cap trong loi: loi chi kiem tra manifest co dang_nhap_bang hay khong;
+moi module tu tra can_dang_nhap khi chat chua co phien, khong phu thuoc cheo.
+---
+ app/so_module.py                              | 12 +++-
+ modules/gemini-web/module.py                  |  8 ++-
+ modules/grok-web/module.py                    |  8 ++-
+ test/test_web2api_gemini-web.py               |  5 +-
+ test/test_web2api_grok-web.py                 |  3 +-
+ ...st_web2api_nv272_khoi_dong_khong_cookie.py | 65 +++++++++++++++++++
+ 6 files changed, 94 insertions(+), 7 deletions(-)
+ create mode 100644 test/test_web2api_nv272_khoi_dong_khong_cookie.py
+
+diff --git a/app/so_module.py b/app/so_module.py
+index 43d14ed..1274ad8 100644
+--- a/app/so_module.py
++++ b/app/so_module.py
+@@ -678,7 +678,17 @@ class SoModule:
+         if muc is None:
+             return None
+         cau_hinh = kho.doc_cau_hinh(km.id, km.truong_cau_hinh, muc)
+-        thieu = [t["khoa"] for t in km.truong_cau_hinh if t.get("bat_buoc") and not cau_hinh.get(t["khoa"])]
++        # NV272 — nguyên tắc, theo cấu trúc manifest (không nhắc tên module/nhà
++        # cung cấp trong lõi): module khai `dang_nhap_bang` thì tự đăng nhập
++        # lấy bí mật về được, nên trường bí mật bị thiếu KHÔNG chặn khởi động
++        # — bí mật là thứ đăng nhập phải lấy về, không phải điều kiện chạy.
++        # Module vẫn chạy ở trạng thái chưa có phiên và chat trả can_dang_nhap
++        # cho tới khi đăng nhập thành công. Trường bắt buộc KHÔNG phải bí mật
++        # vẫn chặn như cũ; module chưa có mục trong modules.json vẫn chưa chạy.
++        tu_dang_nhap = bool(km.manifest.get("dang_nhap_bang"))
++        thieu = [t["khoa"] for t in km.truong_cau_hinh
++                 if t.get("bat_buoc") and not cau_hinh.get(t["khoa"])
++                 and not (tu_dang_nhap and "bi_mat" in str(t.get("kieu") or ""))]
+         if thieu:
+             log.warning("Module %s: cấu hình đã lưu thiếu trường bắt buộc %s — coi như chưa liên kết", km.id, thieu)
+             return None
+diff --git a/modules/gemini-web/module.py b/modules/gemini-web/module.py
+index eb312b8..1bb3ece 100644
+--- a/modules/gemini-web/module.py
++++ b/modules/gemini-web/module.py
+@@ -886,9 +886,13 @@ class Module:
+         ds = self._tai_khoan_cho_model(ten_model)
+         if not ds:
+             if not self._thu_tu_tai_khoan():
++                # NV272: module đã chạy ở trạng thái chưa có phiên (lõi không
++                # còn chặn vì thiếu cookie). Mã rõ can_dang_nhap để đăng nhập
++                # tự động có chỗ chạy và tự lấy cookie về.
+                 return 401, {"Content-Type": "application/json"}, \
+-                    json.dumps(than_loi(401, "gemini-web chưa có tài khoản nào: "
+-                                             "thêm cookie Google ở trường cookies rồi cài lại."),
++                    json.dumps(than_loi(401, "gemini-web chưa có phiên: đăng nhập "
++                                        "tự động để lấy cookie Google về rồi gọi lại.",
++                                        code="can_dang_nhap"),
+                                ensure_ascii=False).encode("utf-8")
+             goi_can = "pro" if ten_model == "gemini-3-pro" else "free"
+             thong_diep = (f"model {model_id} không có cho tài khoản nào "
+diff --git a/modules/grok-web/module.py b/modules/grok-web/module.py
+index 4550224..5f3bc2d 100644
+--- a/modules/grok-web/module.py
++++ b/modules/grok-web/module.py
+@@ -935,8 +935,12 @@ class Module:
+         """Chuyển tiếp yêu cầu chat OpenAI tới Grok web."""
+         if not self._tai_khoan:
+             return 404, {"content-type": "application/json"}, _loi_openai(
+-                "Module grok-web chưa được cấu hình tài khoản («tai_khoan»).",
+-                "module_not_configured", "missing_credentials",
++                # NV272: module đã chạy ở trạng thái chưa có phiên (lõi không
++                # còn chặn vì thiếu cookie). Mã rõ can_dang_nhap để đăng nhập
++                # tự động có chỗ chạy và tự lấy cookie về.
++                "Module grok-web chưa có phiên: đăng nhập tự động để lấy cookie "
++                "Grok về rồi gọi lại.",
++                "invalid_request_error", "can_dang_nhap",
+             )
+         model = str(body.get("model") or "")
+         biet_them = {b.get("id", "").split("/", 1)[-1].strip().lower() for b in model_bo_sung.doc("grok-web") if isinstance(b, dict) and b.get("id")}
+diff --git a/test/test_web2api_gemini-web.py b/test/test_web2api_gemini-web.py
+index fcc9bd8..c2a2f98 100644
+--- a/test/test_web2api_gemini-web.py
++++ b/test/test_web2api_gemini-web.py
+@@ -355,7 +355,10 @@ class TestKhongCoTaiKhoan:
+         mod = nap_module(monkeypatch, {}, [])
+         ma, _, raw = chay(mod.chat(than_chat(), False))
+         assert ma == 401
+-        assert "chưa có tài khoản" in json.loads(raw.decode())["error"]["message"]
++        # NV272: chat chưa có phiên trả mã rõ can_dang_nhap (thay thông điệp cũ).
++        err = json.loads(raw.decode())["error"]
++        assert err["code"] == "can_dang_nhap"
++        assert "chưa có phiên" in err["message"]
+ 
+     def test_models_va_suc_khoe_khong_tai_khoan(self, monkeypatch):
+         mod = nap_module(monkeypatch, {}, [])
+diff --git a/test/test_web2api_grok-web.py b/test/test_web2api_grok-web.py
+index ac80235..0083413 100644
+--- a/test/test_web2api_grok-web.py
++++ b/test/test_web2api_grok-web.py
+@@ -457,7 +457,8 @@ def test_khong_co_tai_khoan_nao(bo_module, may_chu):
+     chay(md.nap({}))
+     ma, _, noi_dung = chay(md.chat(than({}), stream=False))
+     assert ma == 404
+-    assert json.loads(noi_dung)["error"]["code"] == "missing_credentials"
++    # NV272: chat chưa có phiên trả mã rõ can_dang_nhap (thay mã chung cũ).
++    assert json.loads(noi_dung)["error"]["code"] == "can_dang_nhap"
+     suc_khoe = chay(md.suc_khoe())
+     assert suc_khoe["trang_thai"] == "chưa cấu hình"
+     assert len(chay(md.models())) == 4
+diff --git a/test/test_web2api_nv272_khoi_dong_khong_cookie.py b/test/test_web2api_nv272_khoi_dong_khong_cookie.py
+new file mode 100644
+index 0000000..85a41e0
+--- /dev/null
++++ b/test/test_web2api_nv272_khoi_dong_khong_cookie.py
+@@ -0,0 +1,65 @@
++"""NV272: gemini-web và grok-web khởi động được khi chưa có cookie.
++
++Lớp lỗi: module có khả năng tự đăng nhập (manifest khai ``dang_nhap_bang``)
++bị lõi chặn ở ``_tao_tu_kho`` vì thiếu trường bí mật bắt buộc, nên không có
++chỗ chạy để đăng nhập tự động tự lấy cookie về.
++Đã grep chỗ cùng lớp: lệnh liệt kê 25 module có trường bí mật bắt buộc
++trong ``modules/*/manifest.json`` (xem báo cáo), trong đó 5 module khai
++``dang_nhap_bang``; sửa theo nguyên tắc (cấu trúc manifest), không theo
++danh sách tên module/nhà cung cấp trong lõi.
++"""
++
++import json
++import shutil
++from pathlib import Path
++
++import pytest
++from fastapi.testclient import TestClient
++
++from app import so_module
++from app.main import app
++
++GOC = Path(__file__).resolve().parents[1]
++KHOA_QT = "khoa-qt-nv272"
++QT = {"Authorization": f"Bearer {KHOA_QT}"}
++
++
++@pytest.fixture
++def du_lieu(tmp_path, monkeypatch):
++    monkeypatch.setenv("WEB2API_DATA", str(tmp_path))
++    monkeypatch.setenv("WEB2API_ADMIN_KEY", KHOA_QT)
++    monkeypatch.setattr(so_module, "THU_MUC_ANH", tmp_path / "anh-rong")
++    for ten in ("gemini-web", "grok-web", "gemini-api"):
++        shutil.copytree(GOC / "modules" / ten, tmp_path / "modules" / ten)
++    # Module ĐÃ CÀI nhưng KHÔNG có bí mật: gemini-web/grok-web trống cookie,
++    # gemini-api (không tự đăng nhập) trống api_keys — làm đối chứng.
++    (tmp_path / "modules.json").write_text(json.dumps({"modules": [
++        {"id": "gemini-web"},
++        {"id": "grok-web"},
++        {"id": "gemini-api"},
++    ]}))
++    return tmp_path
++
++
++def _muc(mods, id_):
++    return next((m for m in mods if m.get("id") == id_), None)
++
++
++def test_khoi_dong_khong_cookie_va_chat_tra_can_dang_nhap(du_lieu):
++    with TestClient(app) as c:
++        mods = c.get("/api/modules", headers=QT).json()["modules"]
++        # 1. Khởi động: hai module tự đăng nhập chạy, module đối chứng không.
++        assert _muc(mods, "gemini-web")["da_cau_hinh"] is True
++        assert _muc(mods, "grok-web")["da_cau_hinh"] is True
++        assert _muc(mods, "gemini-api")["da_cau_hinh"] is False
++        # 2. Gọi chat chưa có phiên: mã rõ can_dang_nhap, không phải lỗi chung.
++        r = c.post("/v1/chat/completions", headers=QT, json={
++            "model": "gemini-web/gemini-3-flash",
++            "messages": [{"role": "user", "content": "alo"}],
++        })
++        assert r.json()["error"]["code"] == "can_dang_nhap", r.text
++        r = c.post("/v1/chat/completions", headers=QT, json={
++            "model": "grok/fast",
++            "messages": [{"role": "user", "content": "alo"}],
++        })
++        assert r.json()["error"]["code"] == "can_dang_nhap", r.text
+-- 
+2.43.0
+
