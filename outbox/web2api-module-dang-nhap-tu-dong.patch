@@ -1,0 +1,2729 @@
+From 7457fbdaa74e8927650b0767bd8088724743f968 Mon Sep 17 00:00:00 2001
+From: Muse <muse@localhost>
+Date: Tue, 27 Oct 2026 14:20:53 +0000
+Subject: [PATCH 1/2] Sua dang nhap tu dong web2api: noi MCP qua thang khoi
+ phuc T0-T3, controller that NV92, ma loi rieng
+
+P0: dang_ky_trinh_duyet_that / lay_trinh_duyet_da_dang_ky, chatgpt-web va
+gemini-web tra trinh_duyet_none / thu_thach_truoc_khi_dien / het_gio rieng
+thay vi chim chung thanh can_nguoi.
+P1: cong_mcp_cong_cu._thu_khoi_phuc_tang dua dang_nhap MCP qua
+khoi_phuc_theo_tang_c2a; module khong co tang khoi phuc hoac tai khoan
+dang nhap qua tai khoan luu khac van giu duong cu (tuyen).
+P2: khoa serial T2, cua so hoan captcha theo module, gian cach T2.
+Giu nguyen cac cong MCP: allowlist id@module mac dinh rong, mot phien,
+nghi 3600s, toi da 3 thanh cong/ngay, khoa sau 2 hong, timeout 300s.
+CAPTCHA / selfie / dien thoai / khoa / tap / code khong co TOTP van
+dung o can_nguoi, khong co vuot. Khong bia endpoint lam moi cong khai
+cho chatgpt-web / gemini-web (tang a chi kiem).
+---
+ app/cong_mcp_cong_cu.py                 |  82 +++++++++++
+ app/khoi_phuc_phien.py                  | 183 ++++++++++++++++++++++--
+ app/tu_lam_moi.py                       |  54 ++++++-
+ modules/chatgpt-web/module.py           |  35 ++++-
+ modules/gemini-web/module.py            |  27 +++-
+ test/test_web2api_mcp_khoi_phuc_tang.py | 171 ++++++++++++++++++++++
+ 6 files changed, 530 insertions(+), 22 deletions(-)
+ create mode 100644 test/test_web2api_mcp_khoi_phuc_tang.py
+
+diff --git a/app/cong_mcp_cong_cu.py b/app/cong_mcp_cong_cu.py
+index f2ac163..09a158c 100644
+--- a/app/cong_mcp_cong_cu.py
++++ b/app/cong_mcp_cong_cu.py
+@@ -431,11 +431,93 @@ async def _hoi_tien_do(phien: dict, so: Any, tk_id: str, module_id: str) -> None
+             return
+ 
+ 
++async def _thu_khoi_phuc_tang(phien: dict, so: Any, tk_id: str, module_id: str) -> bool:
++    """P1 — thử đăng nhập qua thang khôi phục T0–T3 thay vì một phát duy nhất.
++
++    Trả True nếu phiên đã kết thúc ở đây, False nếu người gọi phải dùng
++    đường cũ (``tuyen``) vì module không có tầng khôi phục, hoặc tài khoản
++    ở chế độ «đăng nhập qua tài khoản lưu khác» (đường cũ mới giữ đúng
++    bí mật của tài khoản hộ). Các cổng MCP (allowlist, một phiên, nghỉ,
++    trần ngày, khóa sau 2 hỏng) vẫn ở ``dang_nhap_bat_dau`` / ``_chay_dang_nhap``,
++    không thay đổi ở đây.
++
++    Giới hạn cố ý, ghi rõ để không bị hiểu sai thành «tự động hoàn toàn»:
++    - Khoa truyền cho c2a là id tài khoản ``tk-…`` của kho MCP, KHÔNG
++      phải khoa nội bộ suy từ token/cookie của module, nên T0/T1 chỉ là
++      kiểm lại rẻ (không xác nhận đúng tài khoản đó) và T3 được bỏ qua
++      (``xac_nhan_lai_sau_dang_nhap=False``); thành công của T2 đã do
++      chính module xác minh khi đăng nhập trình duyệt.
++    - Thang c2a không có kênh TOTP, nên mật khẩu đã lưu là thứ duy nhất
++      được đưa vào; TOTP (nếu có) bị xoá ngay, không đưa vào c2a, và
++      tài khoản nào gặp 2FA vẫn dừng ở can_nguoi như cũ.
++    - CAPTCHA / selfie / điện thoại / khoá / tap / code không có TOTP
++      vẫn dừng ở can_nguoi, không cố vượt, không thử lại dồn dập.
++    """
++    from app import khoi_phuc_phien as kp_mod  # nhập muộn: tránh vòng nhập
++
++    try:
++        ban_ghi = kho_tai_khoan.tim_theo_id(tk_id)
++    except Exception:
++        _ket_thuc_phien(phien, "that_bai", "kho_loi")
++        return True
++    if not isinstance(ban_ghi, dict):
++        _ket_thuc_phien(phien, "that_bai", "khong_tim_thay")
++        return True
++    if ban_ghi.get("trang_thai") == kho_tai_khoan.TRANG_THAI_TAM_DUNG:
++        _ket_thuc_phien(phien, "that_bai", "tam_dung")
++        return True
++    if ban_ghi.get("dang_nhap_bang") == kho_tai_khoan.DANG_NHAP_BANG_QUA_TAI_KHOAN_LUU:
++        return False
++    dang_chay = getattr(so, "dang_chay", None) if so is not None else None
++    mod = dang_chay.get(module_id) if isinstance(dang_chay, dict) else None
++    if mod is None:
++        _ket_thuc_phien(phien, "that_bai", "chua_ho_tro")
++        return True
++    if not callable(getattr(mod, "lam_moi_phien", None)) and not callable(
++            getattr(mod, "dang_nhap_tu_dong", None)):
++        # Module không có tầng khôi phục (vd: module giả trong test chỉ
++        # có dang_nhap): giữ đường cũ, không ép c2a rồi báo hoan_phien_ban.
++        return False
++    try:
++        bi_mat = kho_tai_khoan.lay_bi_mat_dang_nhap(tk_id)
++    except Exception:
++        _ket_thuc_phien(phien, "that_bai", "kho_loi")
++        return True
++    if bi_mat is None:
++        _ket_thuc_phien(phien, "that_bai", "khong_tim_thay")
++        return True
++    mat_khau, totp = bi_mat
++    if totp is not None:
++        totp.xoa()
++    try:
++        kq = await kp_mod.khoi_phuc_theo_tang_c2a(
++            mod,
++            kp_mod.TaiKhoanCanKhoiPhuc(khoa=tk_id, email=ban_ghi.get("email") or "",
++                                       mat_khau=mat_khau),
++            dang_chay=dang_chay,
++            xac_nhan_lai_sau_dang_nhap=False,
++            nghi_t1_giay=0.0,
++        )
++    finally:
++        if mat_khau is not None:
++            mat_khau.xoa()
++    _ap_ket_qua(phien, {
++        "thanh_cong": bool(kq.thanh_cong),
++        "can_nguoi": bool(kq.can_nguoi),
++        "cho_2fa": False,
++        "ma_loi": kq.ma_loi or "",
++        "huong_dan": kq.huong_dan or "",
++    })
++    return True
++
++
+ async def _chay_dang_nhap(phien: dict, so: Any, tk_id: str, module_id: str) -> None:
+     from app import tuyen  # nhập muộn: tránh vòng nhập với app.main
+ 
+     try:
+         async with asyncio.timeout(_so_thuc("WEB2API_MCP_DANG_NHAP_TOI_DA_GIAY", MAC_DINH_TOI_DA_DANG_NHAP_GIAY, 1.0)):
++            if await _thu_khoi_phuc_tang(phien, so, tk_id, module_id):
++                return
+             kq = await tuyen.dang_nhap_tai_khoan_da_luu_noi_bo(so, tk_id, module_id, False)
+             if not _ap_ket_qua(phien, kq):
+                 await _hoi_tien_do(phien, so, tk_id, module_id)
+diff --git a/app/khoi_phuc_phien.py b/app/khoi_phuc_phien.py
+index 849da2f..0b95099 100644
+--- a/app/khoi_phuc_phien.py
++++ b/app/khoi_phuc_phien.py
+@@ -152,12 +152,18 @@ def _chuan_hoa_ket_qua(kq: Any, tang: str) -> KetQuaKhoiPhuc:
+ 
+ 
+ async def _goi_an_toan(fn, tang: str, *args) -> KetQuaKhoiPhuc:
+-    """Gọi khả năng của module; ngoại lệ lạ → hỏng tầng đó, không vỡ lõi."""
++    """Gọi khả năng của module; ngoại lệ lạ → hỏng tầng đó, không vỡ lõi.
++
++    Hết thời gian là mã RIÊNG ``het_gio`` (không chìm thành loi_module):
++    người sửa phân biệt được «chờ quá lâu» với «module hỏng».
++    """
+     try:
+         ket_qua = fn(*args)
+         if asyncio.iscoroutine(ket_qua):
+             ket_qua = await ket_qua
+         return _chuan_hoa_ket_qua(ket_qua, tang)
++    except (TimeoutError, asyncio.TimeoutError):
++        return KetQuaKhoiPhuc(False, tang=tang, ma_loi="het_gio")
+     except Exception as e:
+         log.warning("khoi-phuc: ngoại lệ ở tầng %s: %s", tang, type(e).__name__)
+         return KetQuaKhoiPhuc(False, tang=tang, ma_loi="loi_module")
+@@ -446,6 +452,37 @@ def _ho_so_that_cua(module: Any, khoa: str) -> str | None:
+     return None
+ 
+ 
++def lay_trinh_duyet_that_theo_email(email: str, dang_chay: dict | None = None,
++                                    ) -> BoDieuKhienTrinhDuyet | None:
++    """Bộ điều khiển trình duyệt THẬT cho một tài khoản, qua email (NV92 P0).
++
++    email → danh tính (app/danh_tinh.tim_theo_email) → bản ghi danh tính →
++    ``ho_so_trinh_duyet`` hex → cầu nối ``lay_trinh_duyet_that`` (module
++    vnc-xa, qua dịch vụ trình duyệt; dịch vụ dùng BrowserPool với hồ sơ
++    bền vững, ``force_recreate=False``). Không có danh tính/hồ sơ/module
++    trình duyệt → None (fail-closed). Giá trị cookie/phiên không bao giờ
++    vào log ở đây — chỉ mã hồ sơ đã kiểm khuôn được dùng.
++    """
++    try:
++        ban_ghi = danh_tinh_mod.tim_theo_email(email)
++    except Exception as e:
++        log.warning("lay-trinh-duyet-that-theo-email: tim_theo_email lỗi: %s",
++                    type(e).__name__)
++        return None
++    if not isinstance(ban_ghi, dict):
++        return None
++    try:
++        day_du = danh_tinh_mod.lay(ban_ghi.get("id"))
++    except Exception as e:
++        log.warning("lay-trinh-duyet-that-theo-email: doc danh tính lỗi: %s",
++                    type(e).__name__)
++        return None
++    ho_so = (day_du or {}).get("ho_so_trinh_duyet") or ""
++    if not isinstance(ho_so, str) or not MAU_HO_SO_TRINH_DUYET.fullmatch(ho_so):
++        return None
++    return lay_trinh_duyet_that(ho_so, dang_chay)
++
++
+ def lay_trinh_duyet_that(ho_so: str, dang_chay: dict | None = None,
+                          ) -> BoDieuKhienTrinhDuyet | None:
+     """Xin bộ điều khiển trình duyệt THẬT cho một hồ sơ (NV92 P1).
+@@ -964,20 +1001,82 @@ def _ghi_debounce(module_id: str, khoa: str) -> None:
+     _LAN_KHOI_PHUC_THEO_KHOA[_khoa_debounce(module_id, khoa)] = time.time()
+ 
+ 
++#: P2 — khóa serial cho T2 (một lượt đăng nhập lại tại một thời điểm,
++#: theo c2a _freshen_google): tránh nhiều lượt cùng bắn login và cùng bị
++#: chặn. Tạo lười trong hàm (không gắn vòng lặp ở lúc import).
++_KHOA_T2: asyncio.Lock | None = None
++#: P2 — cửa sổ hoãn captcha theo module: một tài khoản gặp captcha thì các
++#: tài khoản KHÁC cùng module tạm hoãn T2 (không bắn login dồn dập).
++#: {module_id: (thoi_diem_het_han, khoa_gay_ra)}.
++_CAPTCHA_DEN: dict[str, tuple[float, str]] = {}
++#: P2 — cửa sổ hoãn captcha mặc định (giây); 0 = tắt (test đặt 0).
++CAPTCHA_HOAN_GIAY = 1800.0
++#: P2 — giãn cách tối thiểu giữa hai lượt T2 cùng (module, khoa) (giây);
++#: 0 = không giãn thêm (mặc định; MCP đã có nghỉ 3600s riêng).
++T2_GIAN_CACH_GIAY = 0.0
++_LAN_T2: dict[str, float] = {}
++#: Mã lỗi coi là «gặp captcha» để hoãn các tài khoản khác (không phải mọi
++#: can_nguoi — need_manual/2FA không có TOTP vẫn là chuyện của chính
++#: tài khoản đó).
++_MA_CAPTCHA = {"captcha", "thu_thach_truoc_khi_dien", "need_captcha"}
++
++
++def _khoa_t2() -> asyncio.Lock:
++    global _KHOA_T2
++    if _KHOA_T2 is None:
++        _KHOA_T2 = asyncio.Lock()
++    return _KHOA_T2
++
++
++def dat_lai_trang_thai_t2() -> None:
++    """Dùng cho test: xoá khóa serial, cửa sổ hoãn captcha, mốc T2."""
++    global _KHOA_T2
++    _KHOA_T2 = None
++    _CAPTCHA_DEN.clear()
++    _LAN_T2.clear()
++
++
+ async def khoi_phuc_theo_tang_c2a(
+         module: Any, tai_khoan: TaiKhoanCanKhoiPhuc, *,
+         kiem_phien=None,
+         mo_novnc=None,
+-        nguoi_dung_id: str | None = None) -> KetQuaKhoiPhuc:
++        nguoi_dung_id: str | None = None,
++        trinh_duyet=None,
++        dang_chay: dict | None = None,
++        xac_nhan_lai_sau_dang_nhap: bool = True,
++        nghi_t1_giay: float | None = None) -> KetQuaKhoiPhuc:
+     """Khôi phục một tài khoản theo thang T0–T3 của c2a.
+ 
+     - ``kiem_phien``: hàm async ``-> 'ok'|'mat'|'ban'|'chua_ro'`` do provider
+       định nghĩa, RẺ và không mở trình duyệt (vd: đọc sessionKey trên
+       đĩa + verify thật; kiểm JWT trong kho). None → dùng tầng (a)
+-      ``lam_moi_phien`` của module làm T0.
++      ``lam_moi_phien`` của module làm T0. LƯU Ý: tầng (a) của chatgpt-web
++      (gọi /backend-api/me) và gemini-web (kiểm cookie PSID) chỉ KIỂM,
++      không phải làm mới thật — hai nhà cung cấp này không có endpoint
++      làm mới token/cookie công khai, nên đừng bịa endpoint làm mới.
++    - ``trinh_duyet``: bộ điều khiển trình duyệt cho T2; None → tự phân
++      giải theo thứ tự: cầu nối theo khoa (danh tính) → cầu nối theo
++      email → registry tu_lam_moi đã đăng ký. Trước sửa 2026-10-27, T2
++      luôn truyền None nên module trả can_nguoi ngay chưa điền gì.
++    - ``dang_chay``: ánh xạ id → module đang chạy, để cầu nối tìm module
++      có khả năng ``trinh_duyet`` (vnc-xa).
+     - Mỗi tầng ghi log; hết đường → tầng (d) cần người kèm danh sách đã thử.
+     - Tín hiệu ``need_manual`` → «cần người» + hướng dẫn noVNC,
+       KHÔNG thử lại vòng (đúng c2a).
++    - T2 mà module thật trả ``trinh_duyet_none`` (thiếu controller) →
++      giữ mã riêng đó (không phải can_nguoi, không vào tầng d), để
++      người sửa nối dây thay vì xử lý thử thách không có thật.
++    - ``xac_nhan_lai_sau_dang_nhap`` (mặc định True): sau T2 thành công
++      thì làm T3 kiểm lại. Người gọi ĐƯỢC PHÉP đặt False chỉ khi khoa
++      nó truyền vào không phải khoa nội bộ của module (vd: cổng MCP chỉ
++      biết id tài khoản ``tk-…``, không biết khoa suy từ token/cookie
++      của module, nên ``lam_moi_phien`` không thể xác nhận đúng tài
++      khoản đó) — khi đó thành công của T2 đã do chính module xác minh
++      (đăng nhập trình duyệt đọc được token/cookie), không cần T3 nữa.
++      Đặt False cho người gọi biết khoa nội bộ sẽ làm mất kiểm chứng T3.
++    - ``nghi_t1_giay`` (mặc định ``T1_NGHI_GIAY``): thời gian nghỉ giữa
++      các lần kiểm lại T1/T3. Cổng MCP đặt 0.0 vì nó đã có nghỉ 3600s
++      riêng và T1 không có ý nghĩa khi khoa không phải khoa nội bộ.
+     Không ném ngoại lệ ra ngoài.
+     """
+     module_id = _id_cua_module(module)
+@@ -1032,11 +1131,13 @@ async def khoi_phuc_theo_tang_c2a(
+         return KetQuaKhoiPhuc(True, tang="T0")
+ 
+     # ── T1: nghỉ rồi kiểm lại — rẻ, không mời captcha ──
++    nghi_t1 = T1_NGHI_GIAY if nghi_t1_giay is None else float(nghi_t1_giay)
+     for lan in range(1, T1_KIEM_LAI_TOI_DA + 1):
+         if not _con_gio():
+             break
+         da_thu.append(f"T1-kiem-lai-{lan}")
+-        await asyncio.sleep(T1_NGHI_GIAY)
++        if nghi_t1 > 0:
++            await asyncio.sleep(nghi_t1)
+         tt = await _kiem()
+         if tt == "ok":
+             _dat_lai_hong_b(module_id, khoa)
+@@ -1046,15 +1147,69 @@ async def khoi_phuc_theo_tang_c2a(
+         if tt in ("ban", "chua_ro"):
+             return KetQuaKhoiPhuc(False, tang="T1", ma_loi="hoan_phien_ban")
+ 
+-    # ── T2: đăng nhập lại ──
++    # ── T2: đăng nhập lại (P0 + P2) ──
+     dang_nhap_td = getattr(module, "dang_nhap_tu_dong", None)
+     dang_nhap_ok = False
+     if _con_gio() and callable(dang_nhap_td):
+         da_thu.append("T2-dang-nhap-lai")
+-        tk = TaiKhoanCanKhoiPhuc(khoa=khoa, email=tai_khoan.email,
+-                                 mat_khau=tai_khoan.mat_khau)
+-        kq = await _goi_an_toan(dang_nhap_td, TANG_B, tk, None)
++        # P2 — hoãn captcha: tài khoản khác cùng module gặp captcha thì
++        # tài khoản này hoãn T2, không bắn login dồn dập.
++        den = _CAPTCHA_DEN.get(module_id)
++        if den is not None and den[1] != khoa and time.time() < den[0]:
++            return KetQuaKhoiPhuc(False, tang="T2", ma_loi="hoan_captcha")
++        # P0 — phân giải controller thật, không truyền None như trước.
++        td_noi_bo = False
++        if trinh_duyet is None and dang_chay is not None:
++            ho_so = _ho_so_that_cua(module, khoa)
++            td = lay_trinh_duyet_that(ho_so or "", dang_chay) if ho_so else None
++            if td is None and tai_khoan.email:
++                td = lay_trinh_duyet_that_theo_email(tai_khoan.email, dang_chay)
++            if td is not None:
++                trinh_duyet = td
++                td_noi_bo = True
++        if trinh_duyet is None:
++            try:
++                from app import tu_lam_moi as _tlm
++
++                trinh_duyet = await _tlm.lay_trinh_duyet_da_dang_ky(module_id)
++                td_noi_bo = trinh_duyet is not None
++            except Exception:
++                trinh_duyet = None
++        # Lưu ý: vẫn gọi dang_nhap_tu_dong kể cả khi controller là None,
++        # vì module giả / module không cần trình duyệt vẫn chạy được với
++        # None. Module thật (chatgpt-web, gemini-web) tự trả
++        # ``trinh_duyet_none`` khi thiếu controller — mã đó được giữ
++        # riêng ở dưới, không vào tầng (d) can_nguoi.
++        try:
++            # P2 — serial + giãn cách chỉ quanh lượt đăng nhập lại.
++            async with _khoa_t2():
++                cach = T2_GIAN_CACH_GIAY
++                if cach > 0:
++                    moc = _LAN_T2.get(_khoa_debounce(module_id, khoa), 0.0)
++                    con = cach - (time.time() - moc)
++                    if con > 0:
++                        await asyncio.sleep(con)
++                tk = TaiKhoanCanKhoiPhuc(khoa=khoa, email=tai_khoan.email,
++                                         mat_khau=tai_khoan.mat_khau)
++                kq = await _goi_an_toan(dang_nhap_td, TANG_B, tk, trinh_duyet)
++                _LAN_T2[_khoa_debounce(module_id, khoa)] = time.time()
++        finally:
++            if td_noi_bo:
++                dong = getattr(trinh_duyet, "dong", None)
++                if callable(dong):
++                    try:
++                        await dong()
++                    except Exception:
++                        pass
++        if kq.ma_loi == "trinh_duyet_none":
++            # Thiếu controller là lỗi nối dây, không phải thử thách:
++            # trả mã riêng, KHÔNG vào tầng (d) can_nguoi.
++            return KetQuaKhoiPhuc(False, tang="T2", ma_loi="trinh_duyet_none")
+         if kq.can_nguoi:
++            # P2 — ghi cửa sổ hoãn captcha cho các tài khoản khác.
++            if kq.ma_loi in _MA_CAPTCHA and CAPTCHA_HOAN_GIAY > 0:
++                _CAPTCHA_DEN[module_id] = (
++                    time.time() + CAPTCHA_HOAN_GIAY, khoa)
+             # Tín hiệu need_manual và mọi tín hiệu cần người khác:
+             # dừng ngay, hướng dẫn noVNC, KHÔNG thử lại vòng.
+             return await _can_nguoi(
+@@ -1064,6 +1219,14 @@ async def khoi_phuc_theo_tang_c2a(
+         dang_nhap_ok = kq.thanh_cong
+ 
+     # ── T3: đăng nhập xong kiểm lại vài lượt ──
++    if dang_nhap_ok and not xac_nhan_lai_sau_dang_nhap:
++        # Người gọi đã nói rõ khoa không phải khoa nội bộ của module
++        # (vd: cổng MCP): T2 thành công đã do module xác minh, không
++        # dùng lam_moi_phien(khoa lạ) để phủ nhận thành công đó.
++        _dat_lai_hong_b(module_id, khoa)
++        log.info("khoi-phuc-t0t3: %s/%s xong ở T2 (bỏ T3 theo người gọi)",
++                 module_id, khoa)
++        return KetQuaKhoiPhuc(True, tang="T2")
+     if dang_nhap_ok:
+         for lan in range(1, T1_KIEM_LAI_TOI_DA + 1):
+             if not _con_gio():
+@@ -1076,8 +1239,8 @@ async def khoi_phuc_theo_tang_c2a(
+                 _dat_lai_hong_b(module_id, khoa)
+                 log.info("khoi-phuc-t0t3: %s/%s xong ở T3", module_id, khoa)
+                 return KetQuaKhoiPhuc(True, tang="T3")
+-            if lan < T1_KIEM_LAI_TOI_DA:
+-                await asyncio.sleep(T1_NGHI_GIAY)
++            if lan < T1_KIEM_LAI_TOI_DA and nghi_t1 > 0:
++                await asyncio.sleep(nghi_t1)
+ 
+     # ── Hết đường: nói ĐÃ THỬ GÌ ──
+     return await _can_nguoi(
+diff --git a/app/tu_lam_moi.py b/app/tu_lam_moi.py
+index ddeaccb..b3a778a 100644
+--- a/app/tu_lam_moi.py
++++ b/app/tu_lam_moi.py
+@@ -113,8 +113,11 @@ def gian_cach_tai_khoan_giay() -> float:
+ 
+ # ── Bộ điều khiển trình duyệt cho tầng (b) ────────────────────────────────────
+ #
+-# NV92 sẽ điền bộ điều khiển THẬT qua `dang_ky_trinh_duyet`. Chưa có thì tầng
+-# (b) nhận trinh_duyet=None và module tự quyết (thường → can_nguoi).
++# NV92 (sửa 2026-10-27): bộ điều khiển THẬT được điền qua
++# `dang_ky_trinh_duyet` / `dang_ky_trinh_duyet_that`, module lấy qua
++# `lay_trinh_duyet_da_dang_ky`. Chưa đăng ký thì tầng (b) nhận
++# trinh_duyet=None và module trả mã riêng `trinh_duyet_none`
++# (không còn chìm thành can_nguoi).
+ 
+ _ham_tao_trinh_duyet: dict[str, Callable[[], Any]] = {}
+ 
+@@ -139,12 +142,57 @@ async def _lay_trinh_duyet(module_id: str):
+         return ket_qua
+     except Exception as e:
+         # Không lấy được trình duyệt thì coi như không có (fail-closed):
+-        # module sẽ trả can_nguoi thay vì vỡ.
++        # module sẽ trả trinh_duyet_none thay vì vỡ.
+         log.warning("tu-lam-moi: không tạo được trình duyệt cho %s: %s",
+                     module_id, type(e).__name__)
+         return None
+ 
+ 
++async def lay_trinh_duyet_da_dang_ky(module_id: str):
++    """NV92 — lấy bộ điều khiển trình duyệt THẬT đã đăng ký cho một module.
++
++    Đây là điểm nối P0 cho chatgpt-web/gemini-web: module gọi hàm này khi
++    ``_tao_trinh_duyet`` của nó chưa được gán (mặc định None). Hàm tạo do
++    chủ máy đăng ký qua ``dang_ky_trinh_duyet`` — thường là một factory
++    trả về ``TrinhDuyetThat`` của module vnc-xa, tức bộ điều khiển qua
++    dịch vụ trình duyệt (dich-vu/may-dang-nhap, BrowserPool với hồ sơ bền
++    vững, ``force_recreate=False`` — tái dùng hồ sơ, không tạo mới).
++    Chưa đăng ký hoặc tạo lỗi → None (fail-closed, module trả
++    ``trinh_duyet_none`` rõ ràng, không chìm thành can_nguoi).
++    """
++    return await _lay_trinh_duyet(module_id)
++
++
++def dang_ky_trinh_duyet_that(module_id: str, ham_lay_dang_chay,
++                             ham_lay_ho_so) -> None:
++    """NV92 — đăng ký factory controller thật qua cầu nối lõi, không gọi tên module.
++
++    ``ham_lay_dang_chay``: () -> {module_id: module đang chạy} (lifespan đã
++    có sẵn qua ``QuanLyTuLamMoi.bat_dau``); ``ham_lay_ho_so``: () -> mã hồ
++    sơ trình duyệt hex 16-64 của tài khoản cần đăng nhập. Factory tìm module
++    đầu tiên có khả năng ``trinh_duyet`` trong manifest và gọi
++    ``trinh_duyet_that(ho_so)`` của nó — đúng hợp đồng
++    ``app/khoi_phuc_phien.lay_trinh_duyet_that``. Không tìm được module,
++    hồ sơ sai khuôn, hoặc dịch vụ chưa cấu hình → factory trả None
++    (fail-closed). LƯU Ý: hồ sơ ở đây là mã hex của danh tính, KHÔNG phải
++    id workspace dạng "<module>-<băm>" mà module tự sinh cho noVNC.
++    """
++    if not callable(ham_lay_dang_chay) or not callable(ham_lay_ho_so):
++        raise ValueError("ham_lay_dang_chay và ham_lay_ho_so phải gọi được")
++
++    def _tao():
++        from app import khoi_phuc_phien as kp
++
++        try:
++            dang_chay = ham_lay_dang_chay() or {}
++            ho_so = ham_lay_ho_so() or ""
++        except Exception:
++            return None
++        return kp.lay_trinh_duyet_that(ho_so, dang_chay)
++
++    dang_ky_trinh_duyet(module_id, _tao)
++
++
+ # ── Single-flight: một lượt khôi phục cho mỗi (module, tài khoản) ─────────────
+ 
+ _khoa_luong = threading.Lock()
+diff --git a/modules/chatgpt-web/module.py b/modules/chatgpt-web/module.py
+index 899d9a0..31f9a17 100644
+--- a/modules/chatgpt-web/module.py
++++ b/modules/chatgpt-web/module.py
+@@ -281,7 +281,7 @@ class Module:
+         # Khoá tài khoản đã đánh dấu hỏng (tầng c bỏ qua khi chọn kế).
+         self._hong: set[str] = set()
+         # Bộ điều khiển trình duyệt cho đăng nhập bằng mật khẩu (NV88):
+-        # test gán; triển khai thật nối workspace vnc-xa (chưa có trong lượt này).
++        # test gán; triển khai thật nối qua tu_lam_moi.lay_trinh_duyet_da_dang_ky (NV92).
+         self._tao_trinh_duyet = None
+         # Trình duyệt vừa dùng (test kiểm tra thứ tự bước).
+         self._trinh_duyet_da_dung = None
+@@ -571,17 +571,30 @@ class Module:
+ 
+     async def _dang_nhap_bang_trinh_duyet(self, email: str, mat_khau: BiMatTam,
+                                           trinh_duyet) -> KetQuaDangNhap:
+-        """Điền form đăng nhập trên trình duyệt; đọc access_token từ cookie."""
++        """Điền form đăng nhập trên trình duyệt; đọc access_token từ cookie.
++
++        Mã lỗi RIÊNG, không chìm chung vào can_nguoi (sửa lỗi đăng nhập
++        tự động 2026-10-27, P0):
++        - ``trinh_duyet_none``: chưa có bộ điều khiển trình duyệt — lỗi cấu
++          hình/nối dây, KHÔNG phải thử thách cần người; người gọi phải nối
++          controller thật (xem app/tu_lam_moi.dang_ky_trinh_duyet) thay vì
++          báo can_nguoi.
++        - ``thu_thach_truoc_khi_dien``: trang đích đã có tín hiệu
++          CAPTCHA/2FA/xác minh TRƯỚC khi điền gì — dừng, KHÔNG cố vượt.
++        - ``het_gio``: hết thời gian khi mở trang/đọc tín hiệu.
++        """
+         if trinh_duyet is None:
+-            return KetQuaDangNhap(False, ma_loi="can_nguoi")
++            return KetQuaDangNhap(False, ma_loi="trinh_duyet_none")
+         try:
+             await trinh_duyet.mo_trang(self._URL_DANG_NHAP)
+             tin_hieu = await trinh_duyet.tin_hieu(self.quy_tac_tin_hieu())
++        except (TimeoutError, asyncio.TimeoutError):
++            return KetQuaDangNhap(False, ma_loi="het_gio")
+         except Exception:
+             return KetQuaDangNhap(False, ma_loi="loi_module")
+         if "captcha" in tin_hieu or "2fa" in tin_hieu or "xac_minh" in tin_hieu:
+             # CAPTCHA/2FA/xác minh thiết bị: dừng, KHÔNG cố vượt.
+-            return KetQuaDangNhap(False, ma_loi="can_nguoi")
++            return KetQuaDangNhap(False, ma_loi="thu_thach_truoc_khi_dien")
+         mat_khau_tho = mat_khau.lay()
+         try:
+             await trinh_duyet.dien("email", email)
+@@ -624,6 +637,11 @@ class Module:
+                     return KetQuaDangNhap(False, ma_loi="thieu_mat_khau")
+                 tao = self._tao_trinh_duyet
+                 td = tao() if callable(tao) else None
++                if td is None:
++                    # NV92: chưa gán _tao_trinh_duyet thì lấy controller
++                    # thật đã đăng ký (vnc-xa qua dịch vụ trình duyệt);
++                    # chưa đăng ký -> None -> mã trinh_duyet_none rõ ràng.
++                    td = await tu_lam_moi.lay_trinh_duyet_da_dang_ky(self.tien_to)
+                 self._trinh_duyet_da_dung = td
+                 return await self._dang_nhap_bang_trinh_duyet(
+                     tai_khoan.email, tai_khoan.mat_khau, td)
+@@ -633,6 +651,11 @@ class Module:
+                     return KetQuaDangNhap(False, ma_loi="khong_co_mat_khau_luu")
+                 tao = self._tao_trinh_duyet
+                 td = tao() if callable(tao) else None
++                if td is None:
++                    # NV92: chưa gán _tao_trinh_duyet thì lấy controller
++                    # thật đã đăng ký (vnc-xa qua dịch vụ trình duyệt);
++                    # chưa đăng ký -> None -> mã trinh_duyet_none rõ ràng.
++                    td = await tu_lam_moi.lay_trinh_duyet_da_dang_ky(self.tien_to)
+                 self._trinh_duyet_da_dung = td
+                 return await self._dang_nhap_bang_trinh_duyet(
+                     tai_khoan.email, bm, td)
+@@ -672,13 +695,15 @@ class Module:
+             bm = tai_khoan.mat_khau
+             if bm is None:
+                 return KetQuaKhoiPhuc(False, tang="b", ma_loi="thieu_mat_khau")
++            if trinh_duyet is None:
++                trinh_duyet = await tu_lam_moi.lay_trinh_duyet_da_dang_ky(self.tien_to)
+             kq = await self._dang_nhap_bang_trinh_duyet(
+                 tai_khoan.email, bm, trinh_duyet)
+             if kq.thanh_cong:
+                 return KetQuaKhoiPhuc(True, tang="b")
+             return KetQuaKhoiPhuc(False, tang="b", ma_loi=kq.ma_loi or "loi_module",
+                                   ma_trang_thai=kq.ma_trang_thai,
+-                                  can_nguoi=(kq.ma_loi == "can_nguoi"))
++                                  can_nguoi=(kq.ma_loi in ("can_nguoi", "thu_thach_truoc_khi_dien")))
+         finally:
+             if tai_khoan.mat_khau is not None:
+                 tai_khoan.mat_khau.xoa()
+diff --git a/modules/gemini-web/module.py b/modules/gemini-web/module.py
+index eb312b8..13e2785 100644
+--- a/modules/gemini-web/module.py
++++ b/modules/gemini-web/module.py
+@@ -166,7 +166,7 @@ class Module:
+         # Khoá tài khoản đã đánh dấu hỏng (tầng c bỏ qua khi chọn kế).
+         self._hong: set[str] = set()
+         # Bộ điều khiển trình duyệt cho đăng nhập bằng mật khẩu (NV89):
+-        # test gán; triển khai thật nối workspace vnc-xa (chưa có trong lượt này).
++        # test gán; triển khai thật nối qua tu_lam_moi.lay_trinh_duyet_da_dang_ky (NV92).
+         self._tao_trinh_duyet = None
+         # Trình duyệt vừa dùng (test kiểm tra thứ tự bước).
+         self._trinh_duyet_da_dung = None
+@@ -307,17 +307,24 @@ class Module:
+         CAPTCHA/2FA/xác minh thiết bị → dừng với can_nguoi, KHÔNG cố vượt,
+         không né phát hiện bot. Kiểm phiên bằng mã trạng thái/cấu trúc, không
+         dò chữ trong thân phản hồi. CHƯA KIỂM với trang đăng nhập Google thật.
++
++        Mã lỗi RIÊNG, không chìm chung vào can_nguoi (sửa lỗi đăng nhập
++        tự động 2026-10-27, P0): ``trinh_duyet_none`` (chưa nối controller
++        thật), ``thu_thach_truoc_khi_dien`` (trang đã có tín hiệu thử thách
++        trước khi điền), ``het_gio`` (hết thời gian mở trang/đọc tín hiệu).
+         """
+         if trinh_duyet is None:
+-            return KetQuaDangNhap(False, ma_loi="can_nguoi")
++            return KetQuaDangNhap(False, ma_loi="trinh_duyet_none")
+         try:
+             await trinh_duyet.mo_trang(self._URL_DANG_NHAP)
+             tin_hieu = await trinh_duyet.tin_hieu(self.quy_tac_tin_hieu())
++        except (TimeoutError, asyncio.TimeoutError):
++            return KetQuaDangNhap(False, ma_loi="het_gio")
+         except Exception:
+             return KetQuaDangNhap(False, ma_loi="loi_module")
+         if "captcha" in tin_hieu or "2fa" in tin_hieu or "xac_minh" in tin_hieu:
+             # CAPTCHA/2FA/xác minh thiết bị: dừng, KHÔNG cố vượt.
+-            return KetQuaDangNhap(False, ma_loi="can_nguoi")
++            return KetQuaDangNhap(False, ma_loi="thu_thach_truoc_khi_dien")
+         mat_khau_tho = mat_khau.lay()
+         try:
+             await trinh_duyet.dien("email", email)
+@@ -372,6 +379,11 @@ class Module:
+                     return KetQuaDangNhap(False, ma_loi="thieu_mat_khau")
+                 tao = self._tao_trinh_duyet
+                 td = tao() if callable(tao) else None
++                if td is None:
++                    # NV92: chưa gán _tao_trinh_duyet thì lấy controller
++                    # thật đã đăng ký (vnc-xa qua dịch vụ trình duyệt);
++                    # chưa đăng ký -> None -> mã trinh_duyet_none rõ ràng.
++                    td = await tu_lam_moi.lay_trinh_duyet_da_dang_ky(self.tien_to)
+                 self._trinh_duyet_da_dung = td
+                 return await self._dang_nhap_bang_trinh_duyet(
+                     tai_khoan.email, tai_khoan.mat_khau, td)
+@@ -381,6 +393,11 @@ class Module:
+                     return KetQuaDangNhap(False, ma_loi="khong_co_mat_khau_luu")
+                 tao = self._tao_trinh_duyet
+                 td = tao() if callable(tao) else None
++                if td is None:
++                    # NV92: chưa gán _tao_trinh_duyet thì lấy controller
++                    # thật đã đăng ký (vnc-xa qua dịch vụ trình duyệt);
++                    # chưa đăng ký -> None -> mã trinh_duyet_none rõ ràng.
++                    td = await tu_lam_moi.lay_trinh_duyet_da_dang_ky(self.tien_to)
+                 self._trinh_duyet_da_dung = td
+                 return await self._dang_nhap_bang_trinh_duyet(
+                     tai_khoan.email, bm, td)
+@@ -641,13 +658,15 @@ class Module:
+             bm = tai_khoan.mat_khau
+             if bm is None:
+                 return KetQuaKhoiPhuc(False, tang="b", ma_loi="thieu_mat_khau")
++            if trinh_duyet is None:
++                trinh_duyet = await tu_lam_moi.lay_trinh_duyet_da_dang_ky(self.tien_to)
+             kq = await self._dang_nhap_bang_trinh_duyet(
+                 tai_khoan.email, bm, trinh_duyet)
+             if kq.thanh_cong:
+                 return KetQuaKhoiPhuc(True, tang="b")
+             return KetQuaKhoiPhuc(False, tang="b", ma_loi=kq.ma_loi or "loi_module",
+                                   ma_trang_thai=kq.ma_trang_thai,
+-                                  can_nguoi=(kq.ma_loi == "can_nguoi"))
++                                  can_nguoi=(kq.ma_loi in ("can_nguoi", "thu_thach_truoc_khi_dien")))
+         finally:
+             if tai_khoan.mat_khau is not None:
+                 tai_khoan.mat_khau.xoa()
+diff --git a/test/test_web2api_mcp_khoi_phuc_tang.py b/test/test_web2api_mcp_khoi_phuc_tang.py
+new file mode 100644
+index 0000000..e06150e
+--- /dev/null
++++ b/test/test_web2api_mcp_khoi_phuc_tang.py
+@@ -0,0 +1,171 @@
++"""P1 — cổng MCP đăng nhập qua thang khôi phục T0–T3 (không phải một phát duy nhất).
++
++Chỉ dùng module giả và kho tài khoản giả (monkeypatch): không đăng nhập
++thật, không chạm nhà cung cấp, không dùng key MCP. Các ca chứng minh:
++- module có tầng khôi phục → MCP đi qua c2a, T2 thành công → thanh_cong;
++- module trả trinh_duyet_none → that_bai với đúng mã đó, không chìm thành can_nguoi;
++- module chỉ có dang_nhap (không có tầng khôi phục) → MCP giữ đường cũ (trả False);
++- tài khoản tạm dừng / không có / đăng nhập qua tài khoản lưu khác → xử lý đúng, không gọi module.
++"""
++
++from __future__ import annotations
++
++import asyncio
++from types import SimpleNamespace
++
++import pytest
++
++from app import kho_tai_khoan as ktk
++from app import khoi_phuc_phien as kp
++from app import cong_mcp_cong_cu as cmcu
++from app.khoi_phuc_phien import (
++    KetQuaKhoiPhuc,
++    TaiKhoanCanKhoiPhuc,
++    khoi_phuc_theo_tang_c2a,
++)
++from app.tai_khoan_hang_loat import BiMatTam
++
++
++@pytest.fixture(autouse=True)
++def sach(monkeypatch, tmp_path):
++    monkeypatch.setenv("WEB2API_DATA", str(tmp_path))
++    monkeypatch.setattr(kp, "T_DEBOUNCE_GIAY", 0.0)
++    monkeypatch.setattr(kp, "CAPTCHA_HOAN_GIAY", 0.0)
++    kp._LAN_KHOI_PHUC_THEO_KHOA.clear()
++    kp.dat_lai_trang_thai_t2()
++    yield
++    kp._LAN_KHOI_PHUC_THEO_KHOA.clear()
++    kp.dat_lai_trang_thai_t2()
++
++
++class ModKhoiPhucGia:
++    manifest = {"id": "mod-khoi-phuc-gia"}
++    tien_to = "mod-khoi-phuc-gia"
++
++    def __init__(self, ket_qua_b=None):
++        self.ket_qua_b = ket_qua_b
++        self.da_goi_b = 0
++        self.da_goi_lam_moi = 0
++
++    async def lam_moi_phien(self, khoa):
++        self.da_goi_lam_moi += 1
++        return KetQuaKhoiPhuc(False, tang="a", ma_loi="het_han")
++
++    async def dang_nhap_tu_dong(self, tai_khoan, trinh_duyet):
++        self.da_goi_b += 1
++        return self.ket_qua_b if self.ket_qua_b is not None else KetQuaKhoiPhuc(True, tang="b")
++
++
++class ModChiDangNhap:
++    manifest = {"id": "mod-chi-dang-nhap"}
++    tien_to = "mod-chi-dang-nhap"
++    da_goi = 0
++
++    async def dang_nhap(self, dong):
++        self.da_goi += 1
++        return SimpleNamespace(thanh_cong=True, can_nguoi=False, cho_2fa=False,
++                               ma_loi="", huong_dan="")
++
++
++def _phien(tk_id):
++    return {"phien_id": "p1", "tai_khoan_id": tk_id, "trang_thai": "dang_chay",
++            "ma_loi": "", "huong_dan": "", "bat_dau_luc": "2026-10-27T00:00:00Z",
++            "ket_thuc_luc": None}
++
++
++def _dat_kho_gia(monkeypatch, ban_ghi, mat_khau="mat-khau-gia"):
++    monkeypatch.setattr(cmcu.kho_tai_khoan, "tim_theo_id", lambda _id: ban_ghi)
++    monkeypatch.setattr(cmcu.kho_tai_khoan, "lay_bi_mat_dang_nhap",
++                        lambda _id: (BiMatTam(mat_khau), None))
++
++
++def _chay(phien, so, tk_id, mod_id):
++    return asyncio.run(cmcu._thu_khoi_phuc_tang(phien, so, tk_id, mod_id))
++
++
++def test_mcp_qua_c2a_t2_thanh_cong(monkeypatch):
++    mod = ModKhoiPhucGia()
++    so = SimpleNamespace(dang_chay={"mod-khoi-phuc-gia": mod})
++    tk_id = "tk-mcp-c2a"
++    _dat_kho_gia(monkeypatch, {"email": "a@example.com", "trang_thai": "", "dang_nhap_bang": ""})
++    phien = _phien(tk_id)
++    assert _chay(phien, so, tk_id, "mod-khoi-phuc-gia") is True
++    assert mod.da_goi_b == 1, "phải đi qua T2, không phải một phát dang_nhap"
++    assert phien["trang_thai"] == "thanh_cong"
++    assert phien["ma_loi"] == ""
++
++
++def test_trinh_duyet_none_la_ma_rieng_khong_phai_can_nguoi(monkeypatch):
++    mod = ModKhoiPhucGia(KetQuaKhoiPhuc(False, tang="b", ma_loi="trinh_duyet_none"))
++    so = SimpleNamespace(dang_chay={"mod-khoi-phuc-gia": mod})
++    tk_id = "tk-mcp-none"
++    _dat_kho_gia(monkeypatch, {"email": "a@example.com", "trang_thai": "", "dang_nhap_bang": ""})
++    phien = _phien(tk_id)
++    assert _chay(phien, so, tk_id, "mod-khoi-phuc-gia") is True
++    assert phien["trang_thai"] == "that_bai"
++    assert phien["ma_loi"] == "trinh_duyet_none"
++
++
++def test_thu_thach_truoc_khi_dien_van_can_nguoi(monkeypatch):
++    mod = ModKhoiPhucGia(KetQuaKhoiPhuc(False, tang="b", ma_loi="thu_thach_truoc_khi_dien",
++                                        can_nguoi=True))
++    so = SimpleNamespace(dang_chay={"mod-khoi-phuc-gia": mod})
++    tk_id = "tk-mcp-can-nguoi"
++    _dat_kho_gia(monkeypatch, {"email": "a@example.com", "trang_thai": "", "dang_nhap_bang": ""})
++    phien = _phien(tk_id)
++    assert _chay(phien, so, tk_id, "mod-khoi-phuc-gia") is True
++    assert phien["trang_thai"] == "can_nguoi"
++
++
++def test_module_khong_co_tang_khoi_phuc_giu_duong_cu(monkeypatch):
++    mod = ModChiDangNhap()
++    so = SimpleNamespace(dang_chay={"mod-chi-dang-nhap": mod})
++    tk_id = "tk-mcp-cu"
++    _dat_kho_gia(monkeypatch, {"email": "a@example.com", "trang_thai": "", "dang_nhap_bang": ""})
++    phien = _phien(tk_id)
++    assert _chay(phien, so, tk_id, "mod-chi-dang-nhap") is False
++    assert phien["trang_thai"] == "dang_chay"
++    assert mod.da_goi == 0, "đường c2a không được gọi module chưa có tầng khôi phục"
++
++
++def test_tam_dung_va_khong_tim_thay(monkeypatch):
++    mod = ModKhoiPhucGia()
++    so = SimpleNamespace(dang_chay={"mod-khoi-phuc-gia": mod})
++    _dat_kho_gia(monkeypatch, {"email": "a@example.com",
++                              "trang_thai": ktk.TRANG_THAI_TAM_DUNG, "dang_nhap_bang": ""})
++    phien = _phien("tk-tam-dung")
++    assert _chay(phien, so, "tk-tam-dung", "mod-khoi-phuc-gia") is True
++    assert phien["trang_thai"] == "that_bai" and phien["ma_loi"] == "tam_dung"
++    assert mod.da_goi_b == 0
++
++    monkeypatch.setattr(cmcu.kho_tai_khoan, "tim_theo_id", lambda _id: None)
++    phien2 = _phien("tk-khong-co")
++    assert _chay(phien2, so, "tk-khong-co", "mod-khoi-phuc-gia") is True
++    assert phien2["trang_thai"] == "that_bai" and phien2["ma_loi"] == "khong_tim_thay"
++
++
++def test_dang_nhap_qua_tai_khoan_luu_khac_giu_duong_cu(monkeypatch):
++    mod = ModKhoiPhucGia()
++    so = SimpleNamespace(dang_chay={"mod-khoi-phuc-gia": mod})
++    _dat_kho_gia(monkeypatch, {"email": "a@example.com", "trang_thai": "",
++                              "dang_nhap_bang": ktk.DANG_NHAP_BANG_QUA_TAI_KHOAN_LUU})
++    phien = _phien("tk-ho")
++    assert _chay(phien, so, "tk-ho", "mod-khoi-phuc-gia") is False
++    assert mod.da_goi_b == 0
++
++
++def test_c2a_bo_t3_khi_khoa_khong_phai_khoa_noi_bo():
++    """T2 thành công nhưng lam_moi(khoa lạ) không xác nhận được: mặc định
++    (xac_nhan=True) → can_nguoi cuối đường; MCP (False) → thanh_cong ở T2."""
++    mod = ModKhoiPhucGia()
++    tk = TaiKhoanCanKhoiPhuc(khoa="tk-la", email="a@example.com", mat_khau=None)
++    kq_mac_dinh = asyncio.run(khoi_phuc_theo_tang_c2a(mod, tk, nghi_t1_giay=0.0))
++    assert not kq_mac_dinh.thanh_cong and kq_mac_dinh.can_nguoi
++
++    kp._LAN_KHOI_PHUC_THEO_KHOA.clear()
++    kp.dat_lai_trang_thai_t2()
++    mod2 = ModKhoiPhucGia()
++    kq_mcp = asyncio.run(khoi_phuc_theo_tang_c2a(
++        mod2, tk, nghi_t1_giay=0.0, xac_nhan_lai_sau_dang_nhap=False))
++    assert kq_mcp.thanh_cong and kq_mcp.tang == "T2"
++    assert mod2.da_goi_b == 1
+-- 
+2.43.0
+
+
+From fb8aa25bae610da0f01579a5246b511381c5fa00 Mon Sep 17 00:00:00 2001
+From: Muse <muse@localhost>
+Date: Tue, 27 Oct 2026 15:28:58 +0000
+Subject: [PATCH 2/2] Dang nhap tu dong doc lap trong module chatgpt-web va
+ gemini-web
+
+Moi module tu chua thang T0-T3, kenh TOTP, khoa serial, hoan captcha
+va ma loi rieng, khong import logic cua module kia, khong dung logic
+khoi phuc cua loi lam logic chinh. Loi MCP chi chuyen tiep mong qua
+module.khoi_phuc_tu_dong(); duong cu chi la fallback cho module chua co
+ham nay. Cac file loi cua ban truoc (cong_mcp_cong_cu, khoi_phuc_phien,
+tu_lam_moi) ve nen ffb7f3e, tru lop chuyen tiep mong moi o cong_mcp.
+CAPTCHA/selfie/dien thoai/khoa/tap-code khong co TOTP van dung o can_nguoi.
+---
+ app/cong_mcp_cong_cu.py                       | 109 ++----
+ app/khoi_phuc_phien.py                        | 183 +---------
+ app/tu_lam_moi.py                             |  54 +--
+ modules/chatgpt-web/module.py                 | 315 ++++++++++++++++--
+ modules/gemini-web/module.py                  | 307 +++++++++++++++--
+ test/test_web2api_mcp_khoi_phuc_tang.py       | 171 ----------
+ test/test_web2api_mcp_module_delegate.py      |  47 +++
+ test/test_web2api_nv89_gemini_web.py          |   9 +-
+ .../test_web2api_nv_module_chatgpt_tu_dong.py | 161 +++++++++
+ test/test_web2api_nv_module_gemini_tu_dong.py | 176 ++++++++++
+ 10 files changed, 990 insertions(+), 542 deletions(-)
+ delete mode 100644 test/test_web2api_mcp_khoi_phuc_tang.py
+ create mode 100644 test/test_web2api_mcp_module_delegate.py
+ create mode 100644 test/test_web2api_nv_module_chatgpt_tu_dong.py
+ create mode 100644 test/test_web2api_nv_module_gemini_tu_dong.py
+
+diff --git a/app/cong_mcp_cong_cu.py b/app/cong_mcp_cong_cu.py
+index 09a158c..28570f3 100644
+--- a/app/cong_mcp_cong_cu.py
++++ b/app/cong_mcp_cong_cu.py
+@@ -11,6 +11,10 @@ trường thêm sau này ở kho tài khoản hay nhật ký sẽ KHÔNG tự l
+ đặt trong `WEB2API_MCP_DANG_NHAP_CHO_PHEP` (mặc định RỖNG = từ chối hết), tối đa MỘT phiên một lúc,
+ nghỉ tối thiểu giữa hai lần bắt đầu, và dừng sau vài lần không thành công liên tiếp ở cùng một tài khoản.
+ Cổng không có đường nhận mã 2FA hay giải thử thách: gặp thử thách thì trạng thái là «cần người».
++Lớp chuyển tiếp MỎNG (sửa 2026-10-27, bản module): nếu module có khoi_phuc_tu_dong,
++cổng CHỈ GỌI nó rồi dịch kết quả — mọi quyết định tầng T0-T3, khóa serial,
++hoãn captcha, kênh TOTP đều nằm trong chính module đó, không ở file này.
++Đường cũ qua tuyen chỉ còn là fallback cho module chưa có khoi_phuc_tu_dong.
+ """
+ 
+ from __future__ import annotations
+@@ -431,84 +435,31 @@ async def _hoi_tien_do(phien: dict, so: Any, tk_id: str, module_id: str) -> None
+             return
+ 
+ 
+-async def _thu_khoi_phuc_tang(phien: dict, so: Any, tk_id: str, module_id: str) -> bool:
+-    """P1 — thử đăng nhập qua thang khôi phục T0–T3 thay vì một phát duy nhất.
+-
+-    Trả True nếu phiên đã kết thúc ở đây, False nếu người gọi phải dùng
+-    đường cũ (``tuyen``) vì module không có tầng khôi phục, hoặc tài khoản
+-    ở chế độ «đăng nhập qua tài khoản lưu khác» (đường cũ mới giữ đúng
+-    bí mật của tài khoản hộ). Các cổng MCP (allowlist, một phiên, nghỉ,
+-    trần ngày, khóa sau 2 hỏng) vẫn ở ``dang_nhap_bat_dau`` / ``_chay_dang_nhap``,
+-    không thay đổi ở đây.
+-
+-    Giới hạn cố ý, ghi rõ để không bị hiểu sai thành «tự động hoàn toàn»:
+-    - Khoa truyền cho c2a là id tài khoản ``tk-…`` của kho MCP, KHÔNG
+-      phải khoa nội bộ suy từ token/cookie của module, nên T0/T1 chỉ là
+-      kiểm lại rẻ (không xác nhận đúng tài khoản đó) và T3 được bỏ qua
+-      (``xac_nhan_lai_sau_dang_nhap=False``); thành công của T2 đã do
+-      chính module xác minh khi đăng nhập trình duyệt.
+-    - Thang c2a không có kênh TOTP, nên mật khẩu đã lưu là thứ duy nhất
+-      được đưa vào; TOTP (nếu có) bị xoá ngay, không đưa vào c2a, và
+-      tài khoản nào gặp 2FA vẫn dừng ở can_nguoi như cũ.
+-    - CAPTCHA / selfie / điện thoại / khoá / tap / code không có TOTP
+-      vẫn dừng ở can_nguoi, không cố vượt, không thử lại dồn dập.
+-    """
+-    from app import khoi_phuc_phien as kp_mod  # nhập muộn: tránh vòng nhập
++async def _thu_khoi_phuc_module(so: Any, tk_id: str, module_id: str) -> dict | None:
++    """CHUYỂN TIẾP MỎNG, không phải logic khôi phục.
+ 
+-    try:
+-        ban_ghi = kho_tai_khoan.tim_theo_id(tk_id)
+-    except Exception:
+-        _ket_thuc_phien(phien, "that_bai", "kho_loi")
+-        return True
+-    if not isinstance(ban_ghi, dict):
+-        _ket_thuc_phien(phien, "that_bai", "khong_tim_thay")
+-        return True
+-    if ban_ghi.get("trang_thai") == kho_tai_khoan.TRANG_THAI_TAM_DUNG:
+-        _ket_thuc_phien(phien, "that_bai", "tam_dung")
+-        return True
+-    if ban_ghi.get("dang_nhap_bang") == kho_tai_khoan.DANG_NHAP_BANG_QUA_TAI_KHOAN_LUU:
+-        return False
+-    dang_chay = getattr(so, "dang_chay", None) if so is not None else None
+-    mod = dang_chay.get(module_id) if isinstance(dang_chay, dict) else None
+-    if mod is None:
+-        _ket_thuc_phien(phien, "that_bai", "chua_ho_tro")
+-        return True
+-    if not callable(getattr(mod, "lam_moi_phien", None)) and not callable(
+-            getattr(mod, "dang_nhap_tu_dong", None)):
+-        # Module không có tầng khôi phục (vd: module giả trong test chỉ
+-        # có dang_nhap): giữ đường cũ, không ép c2a rồi báo hoan_phien_ban.
+-        return False
+-    try:
+-        bi_mat = kho_tai_khoan.lay_bi_mat_dang_nhap(tk_id)
+-    except Exception:
+-        _ket_thuc_phien(phien, "that_bai", "kho_loi")
+-        return True
+-    if bi_mat is None:
+-        _ket_thuc_phien(phien, "that_bai", "khong_tim_thay")
+-        return True
+-    mat_khau, totp = bi_mat
+-    if totp is not None:
+-        totp.xoa()
+-    try:
+-        kq = await kp_mod.khoi_phuc_theo_tang_c2a(
+-            mod,
+-            kp_mod.TaiKhoanCanKhoiPhuc(khoa=tk_id, email=ban_ghi.get("email") or "",
+-                                       mat_khau=mat_khau),
+-            dang_chay=dang_chay,
+-            xac_nhan_lai_sau_dang_nhap=False,
+-            nghi_t1_giay=0.0,
+-        )
+-    finally:
+-        if mat_khau is not None:
+-            mat_khau.xoa()
+-    _ap_ket_qua(phien, {
+-        "thanh_cong": bool(kq.thanh_cong),
+-        "can_nguoi": bool(kq.can_nguoi),
+-        "cho_2fa": False,
+-        "ma_loi": kq.ma_loi or "",
+-        "huong_dan": kq.huong_dan or "",
+-    })
+-    return True
++    Chỉ gọi module.khoi_phuc_tu_dong() (nếu module có) rồi dịch kết quả
++    sang dict cho _ap_ket_qua. Không quyết tầng, không khóa, không hoãn
++    captcha, không tự tạo TOTP, không chạm bí mật: mật khẩu/TOTP đều do
++    chính module lấy từ kho riêng của nó. Module không có hàm này -> None,
++    người gọi dùng đường cũ làm fallback. Mọi cổng MCP (allowlist, một
++    phiên, nghỉ, giới hạn ngày, timeout) vẫn ở dang_nhap_bat_dau/_chay_dang_nhap.
++    """
++    mod = so.dang_chay.get(module_id) if so is not None else None
++    ham = getattr(mod, "khoi_phuc_tu_dong", None) if mod is not None else None
++    if not callable(ham):
++        return None
++    ban_ghi = kho_tai_khoan.tim_theo_id(tk_id)
++    email = (ban_ghi.get("email") or "") if isinstance(ban_ghi, dict) else ""
++    kq = await ham(tk_id, email, nghi_t1_giay=0.0)
++    if isinstance(kq, dict):
++        return kq
++    return {
++        "thanh_cong": bool(getattr(kq, "thanh_cong", False)),
++        "ma_loi": getattr(kq, "ma_loi", "") or "",
++        "can_nguoi": bool(getattr(kq, "can_nguoi", False)),
++        "huong_dan": getattr(kq, "huong_dan", "") or "",
++    }
+ 
+ 
+ async def _chay_dang_nhap(phien: dict, so: Any, tk_id: str, module_id: str) -> None:
+@@ -516,7 +467,9 @@ async def _chay_dang_nhap(phien: dict, so: Any, tk_id: str, module_id: str) -> N
+ 
+     try:
+         async with asyncio.timeout(_so_thuc("WEB2API_MCP_DANG_NHAP_TOI_DA_GIAY", MAC_DINH_TOI_DA_DANG_NHAP_GIAY, 1.0)):
+-            if await _thu_khoi_phuc_tang(phien, so, tk_id, module_id):
++            kq_module = await _thu_khoi_phuc_module(so, tk_id, module_id)
++            if kq_module is not None:
++                _ap_ket_qua(phien, kq_module)
+                 return
+             kq = await tuyen.dang_nhap_tai_khoan_da_luu_noi_bo(so, tk_id, module_id, False)
+             if not _ap_ket_qua(phien, kq):
+diff --git a/app/khoi_phuc_phien.py b/app/khoi_phuc_phien.py
+index 0b95099..849da2f 100644
+--- a/app/khoi_phuc_phien.py
++++ b/app/khoi_phuc_phien.py
+@@ -152,18 +152,12 @@ def _chuan_hoa_ket_qua(kq: Any, tang: str) -> KetQuaKhoiPhuc:
+ 
+ 
+ async def _goi_an_toan(fn, tang: str, *args) -> KetQuaKhoiPhuc:
+-    """Gọi khả năng của module; ngoại lệ lạ → hỏng tầng đó, không vỡ lõi.
+-
+-    Hết thời gian là mã RIÊNG ``het_gio`` (không chìm thành loi_module):
+-    người sửa phân biệt được «chờ quá lâu» với «module hỏng».
+-    """
++    """Gọi khả năng của module; ngoại lệ lạ → hỏng tầng đó, không vỡ lõi."""
+     try:
+         ket_qua = fn(*args)
+         if asyncio.iscoroutine(ket_qua):
+             ket_qua = await ket_qua
+         return _chuan_hoa_ket_qua(ket_qua, tang)
+-    except (TimeoutError, asyncio.TimeoutError):
+-        return KetQuaKhoiPhuc(False, tang=tang, ma_loi="het_gio")
+     except Exception as e:
+         log.warning("khoi-phuc: ngoại lệ ở tầng %s: %s", tang, type(e).__name__)
+         return KetQuaKhoiPhuc(False, tang=tang, ma_loi="loi_module")
+@@ -452,37 +446,6 @@ def _ho_so_that_cua(module: Any, khoa: str) -> str | None:
+     return None
+ 
+ 
+-def lay_trinh_duyet_that_theo_email(email: str, dang_chay: dict | None = None,
+-                                    ) -> BoDieuKhienTrinhDuyet | None:
+-    """Bộ điều khiển trình duyệt THẬT cho một tài khoản, qua email (NV92 P0).
+-
+-    email → danh tính (app/danh_tinh.tim_theo_email) → bản ghi danh tính →
+-    ``ho_so_trinh_duyet`` hex → cầu nối ``lay_trinh_duyet_that`` (module
+-    vnc-xa, qua dịch vụ trình duyệt; dịch vụ dùng BrowserPool với hồ sơ
+-    bền vững, ``force_recreate=False``). Không có danh tính/hồ sơ/module
+-    trình duyệt → None (fail-closed). Giá trị cookie/phiên không bao giờ
+-    vào log ở đây — chỉ mã hồ sơ đã kiểm khuôn được dùng.
+-    """
+-    try:
+-        ban_ghi = danh_tinh_mod.tim_theo_email(email)
+-    except Exception as e:
+-        log.warning("lay-trinh-duyet-that-theo-email: tim_theo_email lỗi: %s",
+-                    type(e).__name__)
+-        return None
+-    if not isinstance(ban_ghi, dict):
+-        return None
+-    try:
+-        day_du = danh_tinh_mod.lay(ban_ghi.get("id"))
+-    except Exception as e:
+-        log.warning("lay-trinh-duyet-that-theo-email: doc danh tính lỗi: %s",
+-                    type(e).__name__)
+-        return None
+-    ho_so = (day_du or {}).get("ho_so_trinh_duyet") or ""
+-    if not isinstance(ho_so, str) or not MAU_HO_SO_TRINH_DUYET.fullmatch(ho_so):
+-        return None
+-    return lay_trinh_duyet_that(ho_so, dang_chay)
+-
+-
+ def lay_trinh_duyet_that(ho_so: str, dang_chay: dict | None = None,
+                          ) -> BoDieuKhienTrinhDuyet | None:
+     """Xin bộ điều khiển trình duyệt THẬT cho một hồ sơ (NV92 P1).
+@@ -1001,82 +964,20 @@ def _ghi_debounce(module_id: str, khoa: str) -> None:
+     _LAN_KHOI_PHUC_THEO_KHOA[_khoa_debounce(module_id, khoa)] = time.time()
+ 
+ 
+-#: P2 — khóa serial cho T2 (một lượt đăng nhập lại tại một thời điểm,
+-#: theo c2a _freshen_google): tránh nhiều lượt cùng bắn login và cùng bị
+-#: chặn. Tạo lười trong hàm (không gắn vòng lặp ở lúc import).
+-_KHOA_T2: asyncio.Lock | None = None
+-#: P2 — cửa sổ hoãn captcha theo module: một tài khoản gặp captcha thì các
+-#: tài khoản KHÁC cùng module tạm hoãn T2 (không bắn login dồn dập).
+-#: {module_id: (thoi_diem_het_han, khoa_gay_ra)}.
+-_CAPTCHA_DEN: dict[str, tuple[float, str]] = {}
+-#: P2 — cửa sổ hoãn captcha mặc định (giây); 0 = tắt (test đặt 0).
+-CAPTCHA_HOAN_GIAY = 1800.0
+-#: P2 — giãn cách tối thiểu giữa hai lượt T2 cùng (module, khoa) (giây);
+-#: 0 = không giãn thêm (mặc định; MCP đã có nghỉ 3600s riêng).
+-T2_GIAN_CACH_GIAY = 0.0
+-_LAN_T2: dict[str, float] = {}
+-#: Mã lỗi coi là «gặp captcha» để hoãn các tài khoản khác (không phải mọi
+-#: can_nguoi — need_manual/2FA không có TOTP vẫn là chuyện của chính
+-#: tài khoản đó).
+-_MA_CAPTCHA = {"captcha", "thu_thach_truoc_khi_dien", "need_captcha"}
+-
+-
+-def _khoa_t2() -> asyncio.Lock:
+-    global _KHOA_T2
+-    if _KHOA_T2 is None:
+-        _KHOA_T2 = asyncio.Lock()
+-    return _KHOA_T2
+-
+-
+-def dat_lai_trang_thai_t2() -> None:
+-    """Dùng cho test: xoá khóa serial, cửa sổ hoãn captcha, mốc T2."""
+-    global _KHOA_T2
+-    _KHOA_T2 = None
+-    _CAPTCHA_DEN.clear()
+-    _LAN_T2.clear()
+-
+-
+ async def khoi_phuc_theo_tang_c2a(
+         module: Any, tai_khoan: TaiKhoanCanKhoiPhuc, *,
+         kiem_phien=None,
+         mo_novnc=None,
+-        nguoi_dung_id: str | None = None,
+-        trinh_duyet=None,
+-        dang_chay: dict | None = None,
+-        xac_nhan_lai_sau_dang_nhap: bool = True,
+-        nghi_t1_giay: float | None = None) -> KetQuaKhoiPhuc:
++        nguoi_dung_id: str | None = None) -> KetQuaKhoiPhuc:
+     """Khôi phục một tài khoản theo thang T0–T3 của c2a.
+ 
+     - ``kiem_phien``: hàm async ``-> 'ok'|'mat'|'ban'|'chua_ro'`` do provider
+       định nghĩa, RẺ và không mở trình duyệt (vd: đọc sessionKey trên
+       đĩa + verify thật; kiểm JWT trong kho). None → dùng tầng (a)
+-      ``lam_moi_phien`` của module làm T0. LƯU Ý: tầng (a) của chatgpt-web
+-      (gọi /backend-api/me) và gemini-web (kiểm cookie PSID) chỉ KIỂM,
+-      không phải làm mới thật — hai nhà cung cấp này không có endpoint
+-      làm mới token/cookie công khai, nên đừng bịa endpoint làm mới.
+-    - ``trinh_duyet``: bộ điều khiển trình duyệt cho T2; None → tự phân
+-      giải theo thứ tự: cầu nối theo khoa (danh tính) → cầu nối theo
+-      email → registry tu_lam_moi đã đăng ký. Trước sửa 2026-10-27, T2
+-      luôn truyền None nên module trả can_nguoi ngay chưa điền gì.
+-    - ``dang_chay``: ánh xạ id → module đang chạy, để cầu nối tìm module
+-      có khả năng ``trinh_duyet`` (vnc-xa).
++      ``lam_moi_phien`` của module làm T0.
+     - Mỗi tầng ghi log; hết đường → tầng (d) cần người kèm danh sách đã thử.
+     - Tín hiệu ``need_manual`` → «cần người» + hướng dẫn noVNC,
+       KHÔNG thử lại vòng (đúng c2a).
+-    - T2 mà module thật trả ``trinh_duyet_none`` (thiếu controller) →
+-      giữ mã riêng đó (không phải can_nguoi, không vào tầng d), để
+-      người sửa nối dây thay vì xử lý thử thách không có thật.
+-    - ``xac_nhan_lai_sau_dang_nhap`` (mặc định True): sau T2 thành công
+-      thì làm T3 kiểm lại. Người gọi ĐƯỢC PHÉP đặt False chỉ khi khoa
+-      nó truyền vào không phải khoa nội bộ của module (vd: cổng MCP chỉ
+-      biết id tài khoản ``tk-…``, không biết khoa suy từ token/cookie
+-      của module, nên ``lam_moi_phien`` không thể xác nhận đúng tài
+-      khoản đó) — khi đó thành công của T2 đã do chính module xác minh
+-      (đăng nhập trình duyệt đọc được token/cookie), không cần T3 nữa.
+-      Đặt False cho người gọi biết khoa nội bộ sẽ làm mất kiểm chứng T3.
+-    - ``nghi_t1_giay`` (mặc định ``T1_NGHI_GIAY``): thời gian nghỉ giữa
+-      các lần kiểm lại T1/T3. Cổng MCP đặt 0.0 vì nó đã có nghỉ 3600s
+-      riêng và T1 không có ý nghĩa khi khoa không phải khoa nội bộ.
+     Không ném ngoại lệ ra ngoài.
+     """
+     module_id = _id_cua_module(module)
+@@ -1131,13 +1032,11 @@ async def khoi_phuc_theo_tang_c2a(
+         return KetQuaKhoiPhuc(True, tang="T0")
+ 
+     # ── T1: nghỉ rồi kiểm lại — rẻ, không mời captcha ──
+-    nghi_t1 = T1_NGHI_GIAY if nghi_t1_giay is None else float(nghi_t1_giay)
+     for lan in range(1, T1_KIEM_LAI_TOI_DA + 1):
+         if not _con_gio():
+             break
+         da_thu.append(f"T1-kiem-lai-{lan}")
+-        if nghi_t1 > 0:
+-            await asyncio.sleep(nghi_t1)
++        await asyncio.sleep(T1_NGHI_GIAY)
+         tt = await _kiem()
+         if tt == "ok":
+             _dat_lai_hong_b(module_id, khoa)
+@@ -1147,69 +1046,15 @@ async def khoi_phuc_theo_tang_c2a(
+         if tt in ("ban", "chua_ro"):
+             return KetQuaKhoiPhuc(False, tang="T1", ma_loi="hoan_phien_ban")
+ 
+-    # ── T2: đăng nhập lại (P0 + P2) ──
++    # ── T2: đăng nhập lại ──
+     dang_nhap_td = getattr(module, "dang_nhap_tu_dong", None)
+     dang_nhap_ok = False
+     if _con_gio() and callable(dang_nhap_td):
+         da_thu.append("T2-dang-nhap-lai")
+-        # P2 — hoãn captcha: tài khoản khác cùng module gặp captcha thì
+-        # tài khoản này hoãn T2, không bắn login dồn dập.
+-        den = _CAPTCHA_DEN.get(module_id)
+-        if den is not None and den[1] != khoa and time.time() < den[0]:
+-            return KetQuaKhoiPhuc(False, tang="T2", ma_loi="hoan_captcha")
+-        # P0 — phân giải controller thật, không truyền None như trước.
+-        td_noi_bo = False
+-        if trinh_duyet is None and dang_chay is not None:
+-            ho_so = _ho_so_that_cua(module, khoa)
+-            td = lay_trinh_duyet_that(ho_so or "", dang_chay) if ho_so else None
+-            if td is None and tai_khoan.email:
+-                td = lay_trinh_duyet_that_theo_email(tai_khoan.email, dang_chay)
+-            if td is not None:
+-                trinh_duyet = td
+-                td_noi_bo = True
+-        if trinh_duyet is None:
+-            try:
+-                from app import tu_lam_moi as _tlm
+-
+-                trinh_duyet = await _tlm.lay_trinh_duyet_da_dang_ky(module_id)
+-                td_noi_bo = trinh_duyet is not None
+-            except Exception:
+-                trinh_duyet = None
+-        # Lưu ý: vẫn gọi dang_nhap_tu_dong kể cả khi controller là None,
+-        # vì module giả / module không cần trình duyệt vẫn chạy được với
+-        # None. Module thật (chatgpt-web, gemini-web) tự trả
+-        # ``trinh_duyet_none`` khi thiếu controller — mã đó được giữ
+-        # riêng ở dưới, không vào tầng (d) can_nguoi.
+-        try:
+-            # P2 — serial + giãn cách chỉ quanh lượt đăng nhập lại.
+-            async with _khoa_t2():
+-                cach = T2_GIAN_CACH_GIAY
+-                if cach > 0:
+-                    moc = _LAN_T2.get(_khoa_debounce(module_id, khoa), 0.0)
+-                    con = cach - (time.time() - moc)
+-                    if con > 0:
+-                        await asyncio.sleep(con)
+-                tk = TaiKhoanCanKhoiPhuc(khoa=khoa, email=tai_khoan.email,
+-                                         mat_khau=tai_khoan.mat_khau)
+-                kq = await _goi_an_toan(dang_nhap_td, TANG_B, tk, trinh_duyet)
+-                _LAN_T2[_khoa_debounce(module_id, khoa)] = time.time()
+-        finally:
+-            if td_noi_bo:
+-                dong = getattr(trinh_duyet, "dong", None)
+-                if callable(dong):
+-                    try:
+-                        await dong()
+-                    except Exception:
+-                        pass
+-        if kq.ma_loi == "trinh_duyet_none":
+-            # Thiếu controller là lỗi nối dây, không phải thử thách:
+-            # trả mã riêng, KHÔNG vào tầng (d) can_nguoi.
+-            return KetQuaKhoiPhuc(False, tang="T2", ma_loi="trinh_duyet_none")
++        tk = TaiKhoanCanKhoiPhuc(khoa=khoa, email=tai_khoan.email,
++                                 mat_khau=tai_khoan.mat_khau)
++        kq = await _goi_an_toan(dang_nhap_td, TANG_B, tk, None)
+         if kq.can_nguoi:
+-            # P2 — ghi cửa sổ hoãn captcha cho các tài khoản khác.
+-            if kq.ma_loi in _MA_CAPTCHA and CAPTCHA_HOAN_GIAY > 0:
+-                _CAPTCHA_DEN[module_id] = (
+-                    time.time() + CAPTCHA_HOAN_GIAY, khoa)
+             # Tín hiệu need_manual và mọi tín hiệu cần người khác:
+             # dừng ngay, hướng dẫn noVNC, KHÔNG thử lại vòng.
+             return await _can_nguoi(
+@@ -1219,14 +1064,6 @@ async def khoi_phuc_theo_tang_c2a(
+         dang_nhap_ok = kq.thanh_cong
+ 
+     # ── T3: đăng nhập xong kiểm lại vài lượt ──
+-    if dang_nhap_ok and not xac_nhan_lai_sau_dang_nhap:
+-        # Người gọi đã nói rõ khoa không phải khoa nội bộ của module
+-        # (vd: cổng MCP): T2 thành công đã do module xác minh, không
+-        # dùng lam_moi_phien(khoa lạ) để phủ nhận thành công đó.
+-        _dat_lai_hong_b(module_id, khoa)
+-        log.info("khoi-phuc-t0t3: %s/%s xong ở T2 (bỏ T3 theo người gọi)",
+-                 module_id, khoa)
+-        return KetQuaKhoiPhuc(True, tang="T2")
+     if dang_nhap_ok:
+         for lan in range(1, T1_KIEM_LAI_TOI_DA + 1):
+             if not _con_gio():
+@@ -1239,8 +1076,8 @@ async def khoi_phuc_theo_tang_c2a(
+                 _dat_lai_hong_b(module_id, khoa)
+                 log.info("khoi-phuc-t0t3: %s/%s xong ở T3", module_id, khoa)
+                 return KetQuaKhoiPhuc(True, tang="T3")
+-            if lan < T1_KIEM_LAI_TOI_DA and nghi_t1 > 0:
+-                await asyncio.sleep(nghi_t1)
++            if lan < T1_KIEM_LAI_TOI_DA:
++                await asyncio.sleep(T1_NGHI_GIAY)
+ 
+     # ── Hết đường: nói ĐÃ THỬ GÌ ──
+     return await _can_nguoi(
+diff --git a/app/tu_lam_moi.py b/app/tu_lam_moi.py
+index b3a778a..ddeaccb 100644
+--- a/app/tu_lam_moi.py
++++ b/app/tu_lam_moi.py
+@@ -113,11 +113,8 @@ def gian_cach_tai_khoan_giay() -> float:
+ 
+ # ── Bộ điều khiển trình duyệt cho tầng (b) ────────────────────────────────────
+ #
+-# NV92 (sửa 2026-10-27): bộ điều khiển THẬT được điền qua
+-# `dang_ky_trinh_duyet` / `dang_ky_trinh_duyet_that`, module lấy qua
+-# `lay_trinh_duyet_da_dang_ky`. Chưa đăng ký thì tầng (b) nhận
+-# trinh_duyet=None và module trả mã riêng `trinh_duyet_none`
+-# (không còn chìm thành can_nguoi).
++# NV92 sẽ điền bộ điều khiển THẬT qua `dang_ky_trinh_duyet`. Chưa có thì tầng
++# (b) nhận trinh_duyet=None và module tự quyết (thường → can_nguoi).
+ 
+ _ham_tao_trinh_duyet: dict[str, Callable[[], Any]] = {}
+ 
+@@ -142,57 +139,12 @@ async def _lay_trinh_duyet(module_id: str):
+         return ket_qua
+     except Exception as e:
+         # Không lấy được trình duyệt thì coi như không có (fail-closed):
+-        # module sẽ trả trinh_duyet_none thay vì vỡ.
++        # module sẽ trả can_nguoi thay vì vỡ.
+         log.warning("tu-lam-moi: không tạo được trình duyệt cho %s: %s",
+                     module_id, type(e).__name__)
+         return None
+ 
+ 
+-async def lay_trinh_duyet_da_dang_ky(module_id: str):
+-    """NV92 — lấy bộ điều khiển trình duyệt THẬT đã đăng ký cho một module.
+-
+-    Đây là điểm nối P0 cho chatgpt-web/gemini-web: module gọi hàm này khi
+-    ``_tao_trinh_duyet`` của nó chưa được gán (mặc định None). Hàm tạo do
+-    chủ máy đăng ký qua ``dang_ky_trinh_duyet`` — thường là một factory
+-    trả về ``TrinhDuyetThat`` của module vnc-xa, tức bộ điều khiển qua
+-    dịch vụ trình duyệt (dich-vu/may-dang-nhap, BrowserPool với hồ sơ bền
+-    vững, ``force_recreate=False`` — tái dùng hồ sơ, không tạo mới).
+-    Chưa đăng ký hoặc tạo lỗi → None (fail-closed, module trả
+-    ``trinh_duyet_none`` rõ ràng, không chìm thành can_nguoi).
+-    """
+-    return await _lay_trinh_duyet(module_id)
+-
+-
+-def dang_ky_trinh_duyet_that(module_id: str, ham_lay_dang_chay,
+-                             ham_lay_ho_so) -> None:
+-    """NV92 — đăng ký factory controller thật qua cầu nối lõi, không gọi tên module.
+-
+-    ``ham_lay_dang_chay``: () -> {module_id: module đang chạy} (lifespan đã
+-    có sẵn qua ``QuanLyTuLamMoi.bat_dau``); ``ham_lay_ho_so``: () -> mã hồ
+-    sơ trình duyệt hex 16-64 của tài khoản cần đăng nhập. Factory tìm module
+-    đầu tiên có khả năng ``trinh_duyet`` trong manifest và gọi
+-    ``trinh_duyet_that(ho_so)`` của nó — đúng hợp đồng
+-    ``app/khoi_phuc_phien.lay_trinh_duyet_that``. Không tìm được module,
+-    hồ sơ sai khuôn, hoặc dịch vụ chưa cấu hình → factory trả None
+-    (fail-closed). LƯU Ý: hồ sơ ở đây là mã hex của danh tính, KHÔNG phải
+-    id workspace dạng "<module>-<băm>" mà module tự sinh cho noVNC.
+-    """
+-    if not callable(ham_lay_dang_chay) or not callable(ham_lay_ho_so):
+-        raise ValueError("ham_lay_dang_chay và ham_lay_ho_so phải gọi được")
+-
+-    def _tao():
+-        from app import khoi_phuc_phien as kp
+-
+-        try:
+-            dang_chay = ham_lay_dang_chay() or {}
+-            ho_so = ham_lay_ho_so() or ""
+-        except Exception:
+-            return None
+-        return kp.lay_trinh_duyet_that(ho_so, dang_chay)
+-
+-    dang_ky_trinh_duyet(module_id, _tao)
+-
+-
+ # ── Single-flight: một lượt khôi phục cho mỗi (module, tài khoản) ─────────────
+ 
+ _khoa_luong = threading.Lock()
+diff --git a/modules/chatgpt-web/module.py b/modules/chatgpt-web/module.py
+index 31f9a17..700eb6c 100644
+--- a/modules/chatgpt-web/module.py
++++ b/modules/chatgpt-web/module.py
+@@ -30,7 +30,7 @@ from pathlib import Path
+ from app.kho import che
+ from app.khoi_phuc_phien import KetQuaKhoiPhuc, TaiKhoanCanKhoiPhuc
+ from app.loi_openai import loai_theo_ma, nhac_lai, than_loi
+-from app.tai_khoan_hang_loat import BiMatTam, DongDaTach, KetQuaDangNhap
++from app.tai_khoan_hang_loat import BiMatTam, BiMatTotp, DongDaTach, KetQuaDangNhap
+ from app import tu_lam_moi
+ from app.tu_xa import kiem_url_lan
+ 
+@@ -281,10 +281,18 @@ class Module:
+         # Khoá tài khoản đã đánh dấu hỏng (tầng c bỏ qua khi chọn kế).
+         self._hong: set[str] = set()
+         # Bộ điều khiển trình duyệt cho đăng nhập bằng mật khẩu (NV88):
+-        # test gán; triển khai thật nối qua tu_lam_moi.lay_trinh_duyet_da_dang_ky (NV92).
++        # test gán; triển khai thật nối workspace vnc-xa (chưa có trong lượt này).
+         self._tao_trinh_duyet = None
+         # Trình duyệt vừa dùng (test kiểm tra thứ tự bước).
+         self._trinh_duyet_da_dung = None
++        # Trạng thái đăng nhập tự động RIÊNG của module này (không chia sẻ với module khác).
++        self._ham_tao_trinh_duyet_rieng = None
++        self._khoa_tu_dong = None
++        self._captcha_den_het = 0.0
++        self._captcha_den_khoa = None
++        self._captcha_hoan_giay = 1800.0
++        self._lan_t2 = {}
++        self._t2_gian_cach_giay = 0.0
+ 
+     async def _lay_goi(self, token: str) -> str:
+         """Gói tài khoản qua /backend-api/accounts/check (accounts.default.plan_type).
+@@ -539,6 +547,227 @@ class Module:
+             return True
+         return self.mat_khau_da_luu(khoa) is not None
+ 
++
++    # -- đăng nhập tự động ĐỘC LẬP trong module này (sửa 2026-10-27, bản module) --
++    # Kiến trúc, ghi rõ để không bị hiểu nhầm thành logic lõi:
++    # - web2api (app/) chỉ là phiên dịch/chuyển tiếp: nó gọi
++    #   module.khoi_phuc_tu_dong() nếu module có, rồi dịch kết quả sang
++    #   phiên MCP, không tự quyết tầng, khóa hay hoãn captcha.
++    # - Mọi quyết định đăng nhập của module này sống Ở ĐÂY, trong chính
++    #   file module này, không import logic của module kia, không dùng
++    #   logic khôi phục chung của lõi. Bản này có thể trông giống bản
++    #   của module kia, nhưng đó là hai bản riêng, độc lập: hỏng module
++    #   này không làm hỏng module kia, sửa module này không động module kia.
++    # - Dịch vụ máy đăng nhập (dich-vu/may-dang-nhap, BrowserPool/solver)
++    #   chỉ cung cấp bộ điều khiển trình duyệt qua factory đã đăng ký;
++    #   nó không quyết tầng T0-T3 của module này.
++    # - Tầng (a) của module này chỉ KIỂM phiên, không bịa endpoint làm mới:
++    #   chatgpt-web gọi /backend-api/me, gemini-web kiểm cookie PSID.
++    #   Nhà cung cấp nào có đường refresh-token thật thì mới dùng đường đó,
++    #   còn hai module web này thì đường cứu chính vẫn là T2 trình duyệt.
++
++    def dang_ky_trinh_duyet(self, ham_tao) -> None:
++        """Đăng ký factory bộ điều khiển trình duyệt RIÊNG cho module này.
++
++        Chủ máy gọi hàm này trên chính thể hiện module (không qua lõi):
++        ``module.dang_ky_trinh_duyet(lambda: controller)``. Factory có thể
++        trả controller trực tiếp hoặc coroutine. Chưa đăng ký -> None.
++        """
++        self._ham_tao_trinh_duyet_rieng = ham_tao
++
++    async def _lay_trinh_duyet_module(self):
++        """Lấy controller: _tao_trinh_duyet (test) trước, rồi factory đã đăng ký.
++
++        Lỗi ở factory -> None (fail-closed), module trả trinh_duyet_none.
++        """
++        tao = getattr(self, "_tao_trinh_duyet", None)
++        td = tao() if callable(tao) else None
++        if td is not None:
++            return td
++        ham = getattr(self, "_ham_tao_trinh_duyet_rieng", None)
++        if not callable(ham):
++            return None
++        try:
++            td = ham()
++            if asyncio.iscoroutine(td):
++                td = await td
++            return td
++        except Exception:
++            return None
++
++    def totp_da_luu(self, khoa: str):
++        """TOTP đã lưu cho một khoá/email, từ kho riêng mã hoá của module này.
++
++        Trả BiMatTotp (mã được tính lúc gọi, không lưu mã), hoặc None nếu
++        chưa lưu. Không bao giờ trả secret thô, không log secret.
++        """
++        if self.kho is None:
++            return None
++        try:
++            ds = self.kho.doc("totp") or {}
++        except Exception:
++            return None
++        mk = ds.get(str(khoa or "").strip().lower()) if isinstance(ds, dict) else None
++        return BiMatTotp(mk) if isinstance(mk, str) and mk else None
++
++    def luu_totp(self, khoa: str, email: str, secret: str) -> bool:
++        """Lưu secret TOTP (Base32) vào kho riêng của module này. Sai khuôn -> False.
++
++        Secret chỉ được lưu khi chủ máy gọi tường minh hàm này; module KHÔNG
++        tự trích secret từ đối tượng mã TOTP (mã chỉ là mã 6 số, không phải
++        secret), và không bao giờ log secret.
++        """
++        if self.kho is None:
++            return False
++        s = str(secret or "").strip().upper().replace(" ", "").replace("-", "")
++        if not (16 <= len(s) <= 128) or any(c not in "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567" for c in s):
++            return False
++        try:
++            ds = self.kho.doc("totp") or {}
++            if not isinstance(ds, dict):
++                ds = {}
++            ds[str(khoa).strip().lower()] = s
++            if email:
++                ds[str(email).strip().lower()] = s
++            self.kho.luu("totp", ds)
++            return True
++        except Exception as e:
++            log.warning("%s: không lưu được TOTP: %s", self.tien_to, type(e).__name__)
++            return False
++
++    async def _xu_ly_2fa(self, trinh_duyet, totp) -> str:
++        """Kênh TOTP trong module: gặp 2FA mà có TOTP đã lưu thì tự điền mã.
++
++        Trả "" nếu đã điền mã, "can_nguoi" nếu không có TOTP/mã rỗng,
++        "loi_module" nếu điền/bấm lỗi. Mã được tính đúng lúc gọi, rồi
++        ghi đè biến mã và xoá totp ngay sau khi dùng. Không có TOTP ->
++        dừng ở can_nguoi, KHÔNG cố vượt bằng cách khác.
++        CAPTCHA/selfie/điện thoại/khóa/tap/code không có TOTP không đi
++        qua hàm này, chúng dừng ở can_nguoi ở tầng gọi.
++        """
++        if totp is None:
++            return "can_nguoi"
++        try:
++            ma = totp.lay() if callable(getattr(totp, "lay", None)) else str(totp)
++        except Exception:
++            ma = ""
++        if not ma:
++            try:
++                totp.xoa()
++            except Exception:
++                pass
++            return "can_nguoi"
++        try:
++            await trinh_duyet.dien("ma_xac_minh", ma)
++            await trinh_duyet.bam("xac_nhan_2fa")
++            return ""
++        except Exception:
++            return "loi_module"
++        finally:
++            ma = None  # noqa: F841
++            try:
++                totp.xoa()
++            except Exception:
++                pass
++
++    def _lay_khoa_tu_dong(self):
++        """Khóa serial RIÊNG của module này, tạo lười (không gắn vòng lặp lúc import)."""
++        if getattr(self, "_khoa_tu_dong", None) is None:
++            self._khoa_tu_dong = asyncio.Lock()
++        return self._khoa_tu_dong
++
++    def dat_lai_trang_thai_tu_dong(self) -> None:
++        """Dùng cho test: xoá khóa serial, cửa sổ hoãn captcha, mốc T2 của module này."""
++        self._khoa_tu_dong = None
++        self._captcha_den_het = 0.0
++        self._captcha_den_khoa = None
++        self._lan_t2 = {}
++
++    async def khoi_phuc_tu_dong(self, khoa: str, email: str = "",
++                                mat_khau=None, totp=None, trinh_duyet=None,
++                                nghi_t1_giay: float = 0.0) -> KetQuaKhoiPhuc:
++        """Thang T0-T3 ĐẦY ĐỦ, tự chứa trong module này. Gọi trực tiếp cũng chạy.
++
++        - T0: lam_moi_phien(khoa) — chỉ kiểm, không bịa refresh endpoint.
++        - T1: nghỉ nghi_t1_giay rồi kiểm lại (mặc định 0 để test không chờ).
++        - T2: khóa serial riêng + hoãn captcha riêng + đăng nhập lại bằng
++          mật khẩu và TOTP đã lưu qua trình duyệt (xem _dang_nhap_bang_trinh_duyet).
++        - T3: kiểm lại bằng lam_moi_phien; nếu khoa là id ngoài module
++          (vd: id kho MCP, không phải khoá nội bộ) mà lam_moi không nhận,
++          thì lấy luôn kết quả xác minh phiên của T2 (module đã kiểm token/
++          cookie trong lúc đăng nhập), không báo hỏng giả.
++        - Tầng (c) vẫn là tai_khoan_ke() riêng, người gọi tự chọn khoá kế;
++          khoi_phuc_tu_dong không tự đổi tài khoản âm thầm.
++        Trả KetQuaKhoiPhuc với tang T0/T1/T2/T3 và mã riêng, không bí mật.
++        """
++        khoa = str(khoa or "")
++        email = str(email or "")
++        mat_khau_dung = mat_khau
++        totp_dung = totp
++        try:
++            # T0
++            if khoa:
++                try:
++                    kq0 = await self.lam_moi_phien(khoa)
++                except Exception:
++                    kq0 = None
++                if kq0 is not None and getattr(kq0, "thanh_cong", False):
++                    return KetQuaKhoiPhuc(True, tang="T0")
++            # T1
++            if nghi_t1_giay and nghi_t1_giay > 0:
++                await asyncio.sleep(float(nghi_t1_giay))
++                if khoa:
++                    try:
++                        kq1 = await self.lam_moi_phien(khoa)
++                    except Exception:
++                        kq1 = None
++                    if kq1 is not None and getattr(kq1, "thanh_cong", False):
++                        return KetQuaKhoiPhuc(True, tang="T1")
++            # T2, trong khóa serial riêng của module này
++            async with self._lay_khoa_tu_dong():
++                bay_gio = time.time()
++                if bay_gio < getattr(self, "_captcha_den_het", 0.0) and khoa != getattr(self, "_captcha_den_khoa", None):
++                    return KetQuaKhoiPhuc(False, tang="T2", ma_loi="captcha_hoan")
++                if mat_khau_dung is None:
++                    mat_khau_dung = self.mat_khau_da_luu(khoa) or self.mat_khau_da_luu(email)
++                if mat_khau_dung is None:
++                    return KetQuaKhoiPhuc(False, tang="T2", ma_loi="thieu_mat_khau")
++                if totp_dung is None:
++                    totp_dung = self.totp_da_luu(khoa) or self.totp_da_luu(email)
++                td = trinh_duyet if trinh_duyet is not None else await self._lay_trinh_duyet_module()
++                self._trinh_duyet_da_dung = td
++                kq2 = await self._dang_nhap_bang_trinh_duyet(email, mat_khau_dung, td, totp=totp_dung)
++                self._lan_t2[khoa] = time.time()
++                if not kq2.thanh_cong:
++                    ma = kq2.ma_loi or "loi_module"
++                    if ma in ("captcha", "thu_thach_truoc_khi_dien"):
++                        self._captcha_den_het = time.time() + float(getattr(self, "_captcha_hoan_giay", 1800.0))
++                        self._captcha_den_khoa = khoa
++                    return KetQuaKhoiPhuc(False, tang="T2", ma_loi=ma,
++                                          ma_trang_thai=kq2.ma_trang_thai,
++                                          can_nguoi=(ma in ("can_nguoi", "thu_thach_truoc_khi_dien")))
++                # T3
++                if khoa:
++                    try:
++                        kq3 = await self.lam_moi_phien(khoa)
++                    except Exception:
++                        kq3 = None
++                    if kq3 is not None and getattr(kq3, "thanh_cong", False):
++                        return KetQuaKhoiPhuc(True, tang="T3")
++                # T2 đã tự xác minh phiên trong lúc đăng nhập, nên vẫn tính thành công.
++                return KetQuaKhoiPhuc(True, tang="T2")
++        finally:
++            if mat_khau_dung is not None:
++                try:
++                    mat_khau_dung.xoa()
++                except Exception:
++                    pass
++            if totp_dung is not None:
++                try:
++                    totp_dung.xoa()
++                except Exception:
++                    pass
++
+     def quy_tac_tin_hieu(self) -> list:
+         """Quy tắc tín hiệu bằng CẤU TRÚC (NV94-b): module KHAI, mã tín hiệu MỞ.
+ 
+@@ -570,19 +799,13 @@ class Module:
+         return me if isinstance(me, dict) else {}
+ 
+     async def _dang_nhap_bang_trinh_duyet(self, email: str, mat_khau: BiMatTam,
+-                                          trinh_duyet) -> KetQuaDangNhap:
+-        """Điền form đăng nhập trên trình duyệt; đọc access_token từ cookie.
+-
+-        Mã lỗi RIÊNG, không chìm chung vào can_nguoi (sửa lỗi đăng nhập
+-        tự động 2026-10-27, P0):
+-        - ``trinh_duyet_none``: chưa có bộ điều khiển trình duyệt — lỗi cấu
+-          hình/nối dây, KHÔNG phải thử thách cần người; người gọi phải nối
+-          controller thật (xem app/tu_lam_moi.dang_ky_trinh_duyet) thay vì
+-          báo can_nguoi.
+-        - ``thu_thach_truoc_khi_dien``: trang đích đã có tín hiệu
+-          CAPTCHA/2FA/xác minh TRƯỚC khi điền gì — dừng, KHÔNG cố vượt.
+-        - ``het_gio``: hết thời gian khi mở trang/đọc tín hiệu.
+-        """
++                                          trinh_duyet, totp=None) -> KetQuaDangNhap:
++        """Điền form đăng nhập trên trình duyệt; đọc access_token từ cookie."""
++        # Mã lỗi RIÊNG của module này (không chìm thành can_nguoi):
++        # trinh_duyet_none (chưa nối controller), het_gio (hết thời gian),
++        # thu_thach_truoc_khi_dien (trang đã có thử thách trước khi điền).
++        # 2FA chỉ là thu_thach khi KHÔNG có TOTP; có TOTP thì đi kênh TOTP
++        # của module này (xem _xu_ly_2fa), không dừng ở can_nguoi.
+         if trinh_duyet is None:
+             return KetQuaDangNhap(False, ma_loi="trinh_duyet_none")
+         try:
+@@ -592,9 +815,15 @@ class Module:
+             return KetQuaDangNhap(False, ma_loi="het_gio")
+         except Exception:
+             return KetQuaDangNhap(False, ma_loi="loi_module")
+-        if "captcha" in tin_hieu or "2fa" in tin_hieu or "xac_minh" in tin_hieu:
+-            # CAPTCHA/2FA/xác minh thiết bị: dừng, KHÔNG cố vượt.
++        if "captcha" in tin_hieu or "xac_minh" in tin_hieu or "cloudflare" in tin_hieu:
++            # CAPTCHA/xác minh thiết bị: dừng, KHÔNG cố vượt.
+             return KetQuaDangNhap(False, ma_loi="thu_thach_truoc_khi_dien")
++        totp_dung = totp
++        if "2fa" in tin_hieu:
++            if totp_dung is None:
++                totp_dung = self.totp_da_luu(email)
++            if totp_dung is None:
++                return KetQuaDangNhap(False, ma_loi="thu_thach_truoc_khi_dien")
+         mat_khau_tho = mat_khau.lay()
+         try:
+             await trinh_duyet.dien("email", email)
+@@ -602,6 +831,20 @@ class Module:
+             await trinh_duyet.bam("dang_nhap")
+         finally:
+             mat_khau_tho = None  # noqa: F841
++        # Sau mật khẩu, nếu trang hiện 2FA: kênh TOTP của module này.
++        try:
++            tin_hieu_sau = await trinh_duyet.tin_hieu(self.quy_tac_tin_hieu())
++        except Exception:
++            tin_hieu_sau = set()
++        if "2fa" in tin_hieu_sau:
++            if totp_dung is None:
++                totp_dung = self.totp_da_luu(email)
++            ma_2fa = await self._xu_ly_2fa(trinh_duyet, totp_dung)
++            totp_dung = None
++            if ma_2fa:
++                return KetQuaDangNhap(False, ma_loi=ma_2fa)
++        if "captcha" in tin_hieu_sau or "xac_minh" in tin_hieu_sau or "cloudflare" in tin_hieu_sau:
++            return KetQuaDangNhap(False, ma_loi="thu_thach_truoc_khi_dien")
+         try:
+             cookie = await trinh_duyet.doc_cookie("chatgpt.com")
+         except Exception:
+@@ -635,27 +878,15 @@ class Module:
+             if loai == "mat_khau":
+                 if tai_khoan.mat_khau is None:
+                     return KetQuaDangNhap(False, ma_loi="thieu_mat_khau")
+-                tao = self._tao_trinh_duyet
+-                td = tao() if callable(tao) else None
+-                if td is None:
+-                    # NV92: chưa gán _tao_trinh_duyet thì lấy controller
+-                    # thật đã đăng ký (vnc-xa qua dịch vụ trình duyệt);
+-                    # chưa đăng ký -> None -> mã trinh_duyet_none rõ ràng.
+-                    td = await tu_lam_moi.lay_trinh_duyet_da_dang_ky(self.tien_to)
++                td = await self._lay_trinh_duyet_module()
+                 self._trinh_duyet_da_dung = td
+                 return await self._dang_nhap_bang_trinh_duyet(
+-                    tai_khoan.email, tai_khoan.mat_khau, td)
++                    tai_khoan.email, tai_khoan.mat_khau, td, totp=tai_khoan.totp)
+             if loai == "dang_nhap_lai":
+                 bm = self.mat_khau_da_luu(tai_khoan.email)
+                 if bm is None:
+                     return KetQuaDangNhap(False, ma_loi="khong_co_mat_khau_luu")
+-                tao = self._tao_trinh_duyet
+-                td = tao() if callable(tao) else None
+-                if td is None:
+-                    # NV92: chưa gán _tao_trinh_duyet thì lấy controller
+-                    # thật đã đăng ký (vnc-xa qua dịch vụ trình duyệt);
+-                    # chưa đăng ký -> None -> mã trinh_duyet_none rõ ràng.
+-                    td = await tu_lam_moi.lay_trinh_duyet_da_dang_ky(self.tien_to)
++                td = await self._lay_trinh_duyet_module()
+                 self._trinh_duyet_da_dung = td
+                 return await self._dang_nhap_bang_trinh_duyet(
+                     tai_khoan.email, bm, td)
+@@ -689,16 +920,21 @@ class Module:
+         return KetQuaKhoiPhuc(True, tang="a")
+ 
+     async def dang_nhap_tu_dong(self, tai_khoan: TaiKhoanCanKhoiPhuc,
+-                                trinh_duyet) -> KetQuaKhoiPhuc:
+-        """Tầng (b): đăng nhập lại bằng mật khẩu đã lưu qua trình duyệt."""
++                                trinh_duyet, totp=None) -> KetQuaKhoiPhuc:
++        """Tầng (b): đăng nhập lại bằng mật khẩu đã lưu qua trình duyệt.
++
++        Tầng này nay cũng đi qua kênh TOTP của module (totp truyền vào, hoặc
++        totp đã lưu nếu không truyền), và dùng controller đã đăng ký riêng
++        cho module này nếu trinh_duyet không được truyền vào. Mã lỗi riêng
++        của module được giữ nguyên, không gộp thành can_nguoi.
++        """
+         try:
+             bm = tai_khoan.mat_khau
+             if bm is None:
+                 return KetQuaKhoiPhuc(False, tang="b", ma_loi="thieu_mat_khau")
+-            if trinh_duyet is None:
+-                trinh_duyet = await tu_lam_moi.lay_trinh_duyet_da_dang_ky(self.tien_to)
++            td = trinh_duyet if trinh_duyet is not None else await self._lay_trinh_duyet_module()
+             kq = await self._dang_nhap_bang_trinh_duyet(
+-                tai_khoan.email, bm, trinh_duyet)
++                tai_khoan.email, bm, td, totp=totp)
+             if kq.thanh_cong:
+                 return KetQuaKhoiPhuc(True, tang="b")
+             return KetQuaKhoiPhuc(False, tang="b", ma_loi=kq.ma_loi or "loi_module",
+@@ -707,6 +943,11 @@ class Module:
+         finally:
+             if tai_khoan.mat_khau is not None:
+                 tai_khoan.mat_khau.xoa()
++            if totp is not None:
++                try:
++                    totp.xoa()
++                except Exception:
++                    pass
+ 
+     def tai_khoan_ke(self, khoa: str) -> str | None:
+         """Tầng (c): khoá kế còn khoẻ (chưa bị đánh dấu hỏng); hết → None."""
+diff --git a/modules/gemini-web/module.py b/modules/gemini-web/module.py
+index 13e2785..53657ac 100644
+--- a/modules/gemini-web/module.py
++++ b/modules/gemini-web/module.py
+@@ -27,7 +27,7 @@ from app import tu_lam_moi
+ from app.kho import che
+ from app.khoi_phuc_phien import KetQuaKhoiPhuc, TaiKhoanCanKhoiPhuc
+ from app.loi_openai import loai_theo_ma, nhac_lai, than_loi
+-from app.tai_khoan_hang_loat import BiMatTam, DongDaTach, KetQuaDangNhap
++from app.tai_khoan_hang_loat import BiMatTam, BiMatTotp, DongDaTach, KetQuaDangNhap
+ from app.tu_xa import kiem_url_lan
+ 
+ from .client import (
+@@ -166,10 +166,18 @@ class Module:
+         # Khoá tài khoản đã đánh dấu hỏng (tầng c bỏ qua khi chọn kế).
+         self._hong: set[str] = set()
+         # Bộ điều khiển trình duyệt cho đăng nhập bằng mật khẩu (NV89):
+-        # test gán; triển khai thật nối qua tu_lam_moi.lay_trinh_duyet_da_dang_ky (NV92).
++        # test gán; triển khai thật nối workspace vnc-xa (chưa có trong lượt này).
+         self._tao_trinh_duyet = None
+         # Trình duyệt vừa dùng (test kiểm tra thứ tự bước).
+         self._trinh_duyet_da_dung = None
++        # Trạng thái đăng nhập tự động RIÊNG của module này (không chia sẻ với module khác).
++        self._ham_tao_trinh_duyet_rieng = None
++        self._khoa_tu_dong = None
++        self._captcha_den_het = 0.0
++        self._captcha_den_khoa = None
++        self._captcha_hoan_giay = 1800.0
++        self._lan_t2 = {}
++        self._t2_gian_cach_giay = 0.0
+ 
+     # -- tạo client: mối nối để test chích máy chủ giả ---------------------
+ 
+@@ -265,6 +273,227 @@ class Module:
+             return True
+         return self.mat_khau_da_luu(khoa) is not None
+ 
++
++    # -- đăng nhập tự động ĐỘC LẬP trong module này (sửa 2026-10-27, bản module) --
++    # Kiến trúc, ghi rõ để không bị hiểu nhầm thành logic lõi:
++    # - web2api (app/) chỉ là phiên dịch/chuyển tiếp: nó gọi
++    #   module.khoi_phuc_tu_dong() nếu module có, rồi dịch kết quả sang
++    #   phiên MCP, không tự quyết tầng, khóa hay hoãn captcha.
++    # - Mọi quyết định đăng nhập của module này sống Ở ĐÂY, trong chính
++    #   file module này, không import logic của module kia, không dùng
++    #   logic khôi phục chung của lõi. Bản này có thể trông giống bản
++    #   của module kia, nhưng đó là hai bản riêng, độc lập: hỏng module
++    #   này không làm hỏng module kia, sửa module này không động module kia.
++    # - Dịch vụ máy đăng nhập (dich-vu/may-dang-nhap, BrowserPool/solver)
++    #   chỉ cung cấp bộ điều khiển trình duyệt qua factory đã đăng ký;
++    #   nó không quyết tầng T0-T3 của module này.
++    # - Tầng (a) của module này chỉ KIỂM phiên, không bịa endpoint làm mới:
++    #   chatgpt-web gọi /backend-api/me, gemini-web kiểm cookie PSID.
++    #   Nhà cung cấp nào có đường refresh-token thật thì mới dùng đường đó,
++    #   còn hai module web này thì đường cứu chính vẫn là T2 trình duyệt.
++
++    def dang_ky_trinh_duyet(self, ham_tao) -> None:
++        """Đăng ký factory bộ điều khiển trình duyệt RIÊNG cho module này.
++
++        Chủ máy gọi hàm này trên chính thể hiện module (không qua lõi):
++        ``module.dang_ky_trinh_duyet(lambda: controller)``. Factory có thể
++        trả controller trực tiếp hoặc coroutine. Chưa đăng ký -> None.
++        """
++        self._ham_tao_trinh_duyet_rieng = ham_tao
++
++    async def _lay_trinh_duyet_module(self):
++        """Lấy controller: _tao_trinh_duyet (test) trước, rồi factory đã đăng ký.
++
++        Lỗi ở factory -> None (fail-closed), module trả trinh_duyet_none.
++        """
++        tao = getattr(self, "_tao_trinh_duyet", None)
++        td = tao() if callable(tao) else None
++        if td is not None:
++            return td
++        ham = getattr(self, "_ham_tao_trinh_duyet_rieng", None)
++        if not callable(ham):
++            return None
++        try:
++            td = ham()
++            if asyncio.iscoroutine(td):
++                td = await td
++            return td
++        except Exception:
++            return None
++
++    def totp_da_luu(self, khoa: str):
++        """TOTP đã lưu cho một khoá/email, từ kho riêng mã hoá của module này.
++
++        Trả BiMatTotp (mã được tính lúc gọi, không lưu mã), hoặc None nếu
++        chưa lưu. Không bao giờ trả secret thô, không log secret.
++        """
++        if self.kho is None:
++            return None
++        try:
++            ds = self.kho.doc("totp") or {}
++        except Exception:
++            return None
++        mk = ds.get(str(khoa or "").strip().lower()) if isinstance(ds, dict) else None
++        return BiMatTotp(mk) if isinstance(mk, str) and mk else None
++
++    def luu_totp(self, khoa: str, email: str, secret: str) -> bool:
++        """Lưu secret TOTP (Base32) vào kho riêng của module này. Sai khuôn -> False.
++
++        Secret chỉ được lưu khi chủ máy gọi tường minh hàm này; module KHÔNG
++        tự trích secret từ đối tượng mã TOTP (mã chỉ là mã 6 số, không phải
++        secret), và không bao giờ log secret.
++        """
++        if self.kho is None:
++            return False
++        s = str(secret or "").strip().upper().replace(" ", "").replace("-", "")
++        if not (16 <= len(s) <= 128) or any(c not in "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567" for c in s):
++            return False
++        try:
++            ds = self.kho.doc("totp") or {}
++            if not isinstance(ds, dict):
++                ds = {}
++            ds[str(khoa).strip().lower()] = s
++            if email:
++                ds[str(email).strip().lower()] = s
++            self.kho.luu("totp", ds)
++            return True
++        except Exception as e:
++            log.warning("%s: không lưu được TOTP: %s", self.tien_to, type(e).__name__)
++            return False
++
++    async def _xu_ly_2fa(self, trinh_duyet, totp) -> str:
++        """Kênh TOTP trong module: gặp 2FA mà có TOTP đã lưu thì tự điền mã.
++
++        Trả "" nếu đã điền mã, "can_nguoi" nếu không có TOTP/mã rỗng,
++        "loi_module" nếu điền/bấm lỗi. Mã được tính đúng lúc gọi, rồi
++        ghi đè biến mã và xoá totp ngay sau khi dùng. Không có TOTP ->
++        dừng ở can_nguoi, KHÔNG cố vượt bằng cách khác.
++        CAPTCHA/selfie/điện thoại/khóa/tap/code không có TOTP không đi
++        qua hàm này, chúng dừng ở can_nguoi ở tầng gọi.
++        """
++        if totp is None:
++            return "can_nguoi"
++        try:
++            ma = totp.lay() if callable(getattr(totp, "lay", None)) else str(totp)
++        except Exception:
++            ma = ""
++        if not ma:
++            try:
++                totp.xoa()
++            except Exception:
++                pass
++            return "can_nguoi"
++        try:
++            await trinh_duyet.dien("ma_xac_minh", ma)
++            await trinh_duyet.bam("xac_nhan_2fa")
++            return ""
++        except Exception:
++            return "loi_module"
++        finally:
++            ma = None  # noqa: F841
++            try:
++                totp.xoa()
++            except Exception:
++                pass
++
++    def _lay_khoa_tu_dong(self):
++        """Khóa serial RIÊNG của module này, tạo lười (không gắn vòng lặp lúc import)."""
++        if getattr(self, "_khoa_tu_dong", None) is None:
++            self._khoa_tu_dong = asyncio.Lock()
++        return self._khoa_tu_dong
++
++    def dat_lai_trang_thai_tu_dong(self) -> None:
++        """Dùng cho test: xoá khóa serial, cửa sổ hoãn captcha, mốc T2 của module này."""
++        self._khoa_tu_dong = None
++        self._captcha_den_het = 0.0
++        self._captcha_den_khoa = None
++        self._lan_t2 = {}
++
++    async def khoi_phuc_tu_dong(self, khoa: str, email: str = "",
++                                mat_khau=None, totp=None, trinh_duyet=None,
++                                nghi_t1_giay: float = 0.0) -> KetQuaKhoiPhuc:
++        """Thang T0-T3 ĐẦY ĐỦ, tự chứa trong module này. Gọi trực tiếp cũng chạy.
++
++        - T0: lam_moi_phien(khoa) — chỉ kiểm, không bịa refresh endpoint.
++        - T1: nghỉ nghi_t1_giay rồi kiểm lại (mặc định 0 để test không chờ).
++        - T2: khóa serial riêng + hoãn captcha riêng + đăng nhập lại bằng
++          mật khẩu và TOTP đã lưu qua trình duyệt (xem _dang_nhap_bang_trinh_duyet).
++        - T3: kiểm lại bằng lam_moi_phien; nếu khoa là id ngoài module
++          (vd: id kho MCP, không phải khoá nội bộ) mà lam_moi không nhận,
++          thì lấy luôn kết quả xác minh phiên của T2 (module đã kiểm token/
++          cookie trong lúc đăng nhập), không báo hỏng giả.
++        - Tầng (c) vẫn là tai_khoan_ke() riêng, người gọi tự chọn khoá kế;
++          khoi_phuc_tu_dong không tự đổi tài khoản âm thầm.
++        Trả KetQuaKhoiPhuc với tang T0/T1/T2/T3 và mã riêng, không bí mật.
++        """
++        khoa = str(khoa or "")
++        email = str(email or "")
++        mat_khau_dung = mat_khau
++        totp_dung = totp
++        try:
++            # T0
++            if khoa:
++                try:
++                    kq0 = await self.lam_moi_phien(khoa)
++                except Exception:
++                    kq0 = None
++                if kq0 is not None and getattr(kq0, "thanh_cong", False):
++                    return KetQuaKhoiPhuc(True, tang="T0")
++            # T1
++            if nghi_t1_giay and nghi_t1_giay > 0:
++                await asyncio.sleep(float(nghi_t1_giay))
++                if khoa:
++                    try:
++                        kq1 = await self.lam_moi_phien(khoa)
++                    except Exception:
++                        kq1 = None
++                    if kq1 is not None and getattr(kq1, "thanh_cong", False):
++                        return KetQuaKhoiPhuc(True, tang="T1")
++            # T2, trong khóa serial riêng của module này
++            async with self._lay_khoa_tu_dong():
++                bay_gio = time.time()
++                if bay_gio < getattr(self, "_captcha_den_het", 0.0) and khoa != getattr(self, "_captcha_den_khoa", None):
++                    return KetQuaKhoiPhuc(False, tang="T2", ma_loi="captcha_hoan")
++                if mat_khau_dung is None:
++                    mat_khau_dung = self.mat_khau_da_luu(khoa) or self.mat_khau_da_luu(email)
++                if mat_khau_dung is None:
++                    return KetQuaKhoiPhuc(False, tang="T2", ma_loi="thieu_mat_khau")
++                if totp_dung is None:
++                    totp_dung = self.totp_da_luu(khoa) or self.totp_da_luu(email)
++                td = trinh_duyet if trinh_duyet is not None else await self._lay_trinh_duyet_module()
++                self._trinh_duyet_da_dung = td
++                kq2 = await self._dang_nhap_bang_trinh_duyet(email, mat_khau_dung, td, totp=totp_dung)
++                self._lan_t2[khoa] = time.time()
++                if not kq2.thanh_cong:
++                    ma = kq2.ma_loi or "loi_module"
++                    if ma in ("captcha", "thu_thach_truoc_khi_dien"):
++                        self._captcha_den_het = time.time() + float(getattr(self, "_captcha_hoan_giay", 1800.0))
++                        self._captcha_den_khoa = khoa
++                    return KetQuaKhoiPhuc(False, tang="T2", ma_loi=ma,
++                                          ma_trang_thai=kq2.ma_trang_thai,
++                                          can_nguoi=(ma in ("can_nguoi", "thu_thach_truoc_khi_dien")))
++                # T3
++                if khoa:
++                    try:
++                        kq3 = await self.lam_moi_phien(khoa)
++                    except Exception:
++                        kq3 = None
++                    if kq3 is not None and getattr(kq3, "thanh_cong", False):
++                        return KetQuaKhoiPhuc(True, tang="T3")
++                # T2 đã tự xác minh phiên trong lúc đăng nhập, nên vẫn tính thành công.
++                return KetQuaKhoiPhuc(True, tang="T2")
++        finally:
++            if mat_khau_dung is not None:
++                try:
++                    mat_khau_dung.xoa()
++                except Exception:
++                    pass
++            if totp_dung is not None:
++                try:
++                    totp_dung.xoa()
++                except Exception:
++                    pass
++
+     def quy_tac_tin_hieu(self) -> list:
+         """Quy tắc tín hiệu bằng CẤU TRÚC (NV94-b): module KHAI, mã tín hiệu MỞ.
+ 
+@@ -300,19 +529,19 @@ class Module:
+         return True, None
+ 
+     async def _dang_nhap_bang_trinh_duyet(self, email: str, mat_khau: BiMatTam,
+-                                          trinh_duyet) -> KetQuaDangNhap:
++                                          trinh_duyet, totp=None) -> KetQuaDangNhap:
+         """Bước đăng nhập DUY NHẤT của module: điền form Google, đọc
+         __Secure-1PSID/__Secure-1PSIDTS từ cookie, kiểm phiên bằng init().
+ 
+         CAPTCHA/2FA/xác minh thiết bị → dừng với can_nguoi, KHÔNG cố vượt,
+         không né phát hiện bot. Kiểm phiên bằng mã trạng thái/cấu trúc, không
+         dò chữ trong thân phản hồi. CHƯA KIỂM với trang đăng nhập Google thật.
+-
+-        Mã lỗi RIÊNG, không chìm chung vào can_nguoi (sửa lỗi đăng nhập
+-        tự động 2026-10-27, P0): ``trinh_duyet_none`` (chưa nối controller
+-        thật), ``thu_thach_truoc_khi_dien`` (trang đã có tín hiệu thử thách
+-        trước khi điền), ``het_gio`` (hết thời gian mở trang/đọc tín hiệu).
+         """
++        # Mã lỗi RIÊNG của module này (không chìm thành can_nguoi):
++        # trinh_duyet_none (chưa nối controller), het_gio (hết thời gian),
++        # thu_thach_truoc_khi_dien (trang đã có thử thách trước khi điền).
++        # 2FA chỉ là thu_thach khi KHÔNG có TOTP; có TOTP thì đi kênh TOTP
++        # của module này (xem _xu_ly_2fa), không dừng ở can_nguoi.
+         if trinh_duyet is None:
+             return KetQuaDangNhap(False, ma_loi="trinh_duyet_none")
+         try:
+@@ -322,9 +551,15 @@ class Module:
+             return KetQuaDangNhap(False, ma_loi="het_gio")
+         except Exception:
+             return KetQuaDangNhap(False, ma_loi="loi_module")
+-        if "captcha" in tin_hieu or "2fa" in tin_hieu or "xac_minh" in tin_hieu:
+-            # CAPTCHA/2FA/xác minh thiết bị: dừng, KHÔNG cố vượt.
++        if "captcha" in tin_hieu or "xac_minh" in tin_hieu or "cloudflare" in tin_hieu:
++            # CAPTCHA/xác minh thiết bị: dừng, KHÔNG cố vượt.
+             return KetQuaDangNhap(False, ma_loi="thu_thach_truoc_khi_dien")
++        totp_dung = totp
++        if "2fa" in tin_hieu:
++            if totp_dung is None:
++                totp_dung = self.totp_da_luu(email)
++            if totp_dung is None:
++                return KetQuaDangNhap(False, ma_loi="thu_thach_truoc_khi_dien")
+         mat_khau_tho = mat_khau.lay()
+         try:
+             await trinh_duyet.dien("email", email)
+@@ -332,6 +567,20 @@ class Module:
+             await trinh_duyet.bam("dang_nhap")
+         finally:
+             mat_khau_tho = None  # noqa: F841
++        # Sau mật khẩu, nếu trang hiện 2FA: kênh TOTP của module này.
++        try:
++            tin_hieu_sau = await trinh_duyet.tin_hieu(self.quy_tac_tin_hieu())
++        except Exception:
++            tin_hieu_sau = set()
++        if "2fa" in tin_hieu_sau:
++            if totp_dung is None:
++                totp_dung = self.totp_da_luu(email)
++            ma_2fa = await self._xu_ly_2fa(trinh_duyet, totp_dung)
++            totp_dung = None
++            if ma_2fa:
++                return KetQuaDangNhap(False, ma_loi=ma_2fa)
++        if "captcha" in tin_hieu_sau or "xac_minh" in tin_hieu_sau or "cloudflare" in tin_hieu_sau:
++            return KetQuaDangNhap(False, ma_loi="thu_thach_truoc_khi_dien")
+         try:
+             cookie = await trinh_duyet.doc_cookie("google.com")
+         except Exception:
+@@ -377,27 +626,15 @@ class Module:
+             if loai == "mat_khau":
+                 if tai_khoan.mat_khau is None:
+                     return KetQuaDangNhap(False, ma_loi="thieu_mat_khau")
+-                tao = self._tao_trinh_duyet
+-                td = tao() if callable(tao) else None
+-                if td is None:
+-                    # NV92: chưa gán _tao_trinh_duyet thì lấy controller
+-                    # thật đã đăng ký (vnc-xa qua dịch vụ trình duyệt);
+-                    # chưa đăng ký -> None -> mã trinh_duyet_none rõ ràng.
+-                    td = await tu_lam_moi.lay_trinh_duyet_da_dang_ky(self.tien_to)
++                td = await self._lay_trinh_duyet_module()
+                 self._trinh_duyet_da_dung = td
+                 return await self._dang_nhap_bang_trinh_duyet(
+-                    tai_khoan.email, tai_khoan.mat_khau, td)
++                    tai_khoan.email, tai_khoan.mat_khau, td, totp=tai_khoan.totp)
+             if loai == "dang_nhap_lai":
+                 bm = self.mat_khau_da_luu(tai_khoan.email)
+                 if bm is None:
+                     return KetQuaDangNhap(False, ma_loi="khong_co_mat_khau_luu")
+-                tao = self._tao_trinh_duyet
+-                td = tao() if callable(tao) else None
+-                if td is None:
+-                    # NV92: chưa gán _tao_trinh_duyet thì lấy controller
+-                    # thật đã đăng ký (vnc-xa qua dịch vụ trình duyệt);
+-                    # chưa đăng ký -> None -> mã trinh_duyet_none rõ ràng.
+-                    td = await tu_lam_moi.lay_trinh_duyet_da_dang_ky(self.tien_to)
++                td = await self._lay_trinh_duyet_module()
+                 self._trinh_duyet_da_dung = td
+                 return await self._dang_nhap_bang_trinh_duyet(
+                     tai_khoan.email, bm, td)
+@@ -652,16 +889,21 @@ class Module:
+         return KetQuaKhoiPhuc(True, tang="a")
+ 
+     async def dang_nhap_tu_dong(self, tai_khoan: TaiKhoanCanKhoiPhuc,
+-                                trinh_duyet) -> KetQuaKhoiPhuc:
+-        """Tầng (b): đăng nhập lại bằng mật khẩu đã lưu qua trình duyệt."""
++                                trinh_duyet, totp=None) -> KetQuaKhoiPhuc:
++        """Tầng (b): đăng nhập lại bằng mật khẩu đã lưu qua trình duyệt.
++
++        Tầng này nay cũng đi qua kênh TOTP của module (totp truyền vào, hoặc
++        totp đã lưu nếu không truyền), và dùng controller đã đăng ký riêng
++        cho module này nếu trinh_duyet không được truyền vào. Mã lỗi riêng
++        của module được giữ nguyên, không gộp thành can_nguoi.
++        """
+         try:
+             bm = tai_khoan.mat_khau
+             if bm is None:
+                 return KetQuaKhoiPhuc(False, tang="b", ma_loi="thieu_mat_khau")
+-            if trinh_duyet is None:
+-                trinh_duyet = await tu_lam_moi.lay_trinh_duyet_da_dang_ky(self.tien_to)
++            td = trinh_duyet if trinh_duyet is not None else await self._lay_trinh_duyet_module()
+             kq = await self._dang_nhap_bang_trinh_duyet(
+-                tai_khoan.email, bm, trinh_duyet)
++                tai_khoan.email, bm, td, totp=totp)
+             if kq.thanh_cong:
+                 return KetQuaKhoiPhuc(True, tang="b")
+             return KetQuaKhoiPhuc(False, tang="b", ma_loi=kq.ma_loi or "loi_module",
+@@ -670,6 +912,11 @@ class Module:
+         finally:
+             if tai_khoan.mat_khau is not None:
+                 tai_khoan.mat_khau.xoa()
++            if totp is not None:
++                try:
++                    totp.xoa()
++                except Exception:
++                    pass
+ 
+     def tai_khoan_ke(self, khoa: str) -> str | None:
+         """Tầng (c): khoá kế còn khoẻ (chưa bị đánh dấu hỏng); hết → None."""
+diff --git a/test/test_web2api_mcp_khoi_phuc_tang.py b/test/test_web2api_mcp_khoi_phuc_tang.py
+deleted file mode 100644
+index e06150e..0000000
+--- a/test/test_web2api_mcp_khoi_phuc_tang.py
++++ /dev/null
+@@ -1,171 +0,0 @@
+-"""P1 — cổng MCP đăng nhập qua thang khôi phục T0–T3 (không phải một phát duy nhất).
+-
+-Chỉ dùng module giả và kho tài khoản giả (monkeypatch): không đăng nhập
+-thật, không chạm nhà cung cấp, không dùng key MCP. Các ca chứng minh:
+-- module có tầng khôi phục → MCP đi qua c2a, T2 thành công → thanh_cong;
+-- module trả trinh_duyet_none → that_bai với đúng mã đó, không chìm thành can_nguoi;
+-- module chỉ có dang_nhap (không có tầng khôi phục) → MCP giữ đường cũ (trả False);
+-- tài khoản tạm dừng / không có / đăng nhập qua tài khoản lưu khác → xử lý đúng, không gọi module.
+-"""
+-
+-from __future__ import annotations
+-
+-import asyncio
+-from types import SimpleNamespace
+-
+-import pytest
+-
+-from app import kho_tai_khoan as ktk
+-from app import khoi_phuc_phien as kp
+-from app import cong_mcp_cong_cu as cmcu
+-from app.khoi_phuc_phien import (
+-    KetQuaKhoiPhuc,
+-    TaiKhoanCanKhoiPhuc,
+-    khoi_phuc_theo_tang_c2a,
+-)
+-from app.tai_khoan_hang_loat import BiMatTam
+-
+-
+-@pytest.fixture(autouse=True)
+-def sach(monkeypatch, tmp_path):
+-    monkeypatch.setenv("WEB2API_DATA", str(tmp_path))
+-    monkeypatch.setattr(kp, "T_DEBOUNCE_GIAY", 0.0)
+-    monkeypatch.setattr(kp, "CAPTCHA_HOAN_GIAY", 0.0)
+-    kp._LAN_KHOI_PHUC_THEO_KHOA.clear()
+-    kp.dat_lai_trang_thai_t2()
+-    yield
+-    kp._LAN_KHOI_PHUC_THEO_KHOA.clear()
+-    kp.dat_lai_trang_thai_t2()
+-
+-
+-class ModKhoiPhucGia:
+-    manifest = {"id": "mod-khoi-phuc-gia"}
+-    tien_to = "mod-khoi-phuc-gia"
+-
+-    def __init__(self, ket_qua_b=None):
+-        self.ket_qua_b = ket_qua_b
+-        self.da_goi_b = 0
+-        self.da_goi_lam_moi = 0
+-
+-    async def lam_moi_phien(self, khoa):
+-        self.da_goi_lam_moi += 1
+-        return KetQuaKhoiPhuc(False, tang="a", ma_loi="het_han")
+-
+-    async def dang_nhap_tu_dong(self, tai_khoan, trinh_duyet):
+-        self.da_goi_b += 1
+-        return self.ket_qua_b if self.ket_qua_b is not None else KetQuaKhoiPhuc(True, tang="b")
+-
+-
+-class ModChiDangNhap:
+-    manifest = {"id": "mod-chi-dang-nhap"}
+-    tien_to = "mod-chi-dang-nhap"
+-    da_goi = 0
+-
+-    async def dang_nhap(self, dong):
+-        self.da_goi += 1
+-        return SimpleNamespace(thanh_cong=True, can_nguoi=False, cho_2fa=False,
+-                               ma_loi="", huong_dan="")
+-
+-
+-def _phien(tk_id):
+-    return {"phien_id": "p1", "tai_khoan_id": tk_id, "trang_thai": "dang_chay",
+-            "ma_loi": "", "huong_dan": "", "bat_dau_luc": "2026-10-27T00:00:00Z",
+-            "ket_thuc_luc": None}
+-
+-
+-def _dat_kho_gia(monkeypatch, ban_ghi, mat_khau="mat-khau-gia"):
+-    monkeypatch.setattr(cmcu.kho_tai_khoan, "tim_theo_id", lambda _id: ban_ghi)
+-    monkeypatch.setattr(cmcu.kho_tai_khoan, "lay_bi_mat_dang_nhap",
+-                        lambda _id: (BiMatTam(mat_khau), None))
+-
+-
+-def _chay(phien, so, tk_id, mod_id):
+-    return asyncio.run(cmcu._thu_khoi_phuc_tang(phien, so, tk_id, mod_id))
+-
+-
+-def test_mcp_qua_c2a_t2_thanh_cong(monkeypatch):
+-    mod = ModKhoiPhucGia()
+-    so = SimpleNamespace(dang_chay={"mod-khoi-phuc-gia": mod})
+-    tk_id = "tk-mcp-c2a"
+-    _dat_kho_gia(monkeypatch, {"email": "a@example.com", "trang_thai": "", "dang_nhap_bang": ""})
+-    phien = _phien(tk_id)
+-    assert _chay(phien, so, tk_id, "mod-khoi-phuc-gia") is True
+-    assert mod.da_goi_b == 1, "phải đi qua T2, không phải một phát dang_nhap"
+-    assert phien["trang_thai"] == "thanh_cong"
+-    assert phien["ma_loi"] == ""
+-
+-
+-def test_trinh_duyet_none_la_ma_rieng_khong_phai_can_nguoi(monkeypatch):
+-    mod = ModKhoiPhucGia(KetQuaKhoiPhuc(False, tang="b", ma_loi="trinh_duyet_none"))
+-    so = SimpleNamespace(dang_chay={"mod-khoi-phuc-gia": mod})
+-    tk_id = "tk-mcp-none"
+-    _dat_kho_gia(monkeypatch, {"email": "a@example.com", "trang_thai": "", "dang_nhap_bang": ""})
+-    phien = _phien(tk_id)
+-    assert _chay(phien, so, tk_id, "mod-khoi-phuc-gia") is True
+-    assert phien["trang_thai"] == "that_bai"
+-    assert phien["ma_loi"] == "trinh_duyet_none"
+-
+-
+-def test_thu_thach_truoc_khi_dien_van_can_nguoi(monkeypatch):
+-    mod = ModKhoiPhucGia(KetQuaKhoiPhuc(False, tang="b", ma_loi="thu_thach_truoc_khi_dien",
+-                                        can_nguoi=True))
+-    so = SimpleNamespace(dang_chay={"mod-khoi-phuc-gia": mod})
+-    tk_id = "tk-mcp-can-nguoi"
+-    _dat_kho_gia(monkeypatch, {"email": "a@example.com", "trang_thai": "", "dang_nhap_bang": ""})
+-    phien = _phien(tk_id)
+-    assert _chay(phien, so, tk_id, "mod-khoi-phuc-gia") is True
+-    assert phien["trang_thai"] == "can_nguoi"
+-
+-
+-def test_module_khong_co_tang_khoi_phuc_giu_duong_cu(monkeypatch):
+-    mod = ModChiDangNhap()
+-    so = SimpleNamespace(dang_chay={"mod-chi-dang-nhap": mod})
+-    tk_id = "tk-mcp-cu"
+-    _dat_kho_gia(monkeypatch, {"email": "a@example.com", "trang_thai": "", "dang_nhap_bang": ""})
+-    phien = _phien(tk_id)
+-    assert _chay(phien, so, tk_id, "mod-chi-dang-nhap") is False
+-    assert phien["trang_thai"] == "dang_chay"
+-    assert mod.da_goi == 0, "đường c2a không được gọi module chưa có tầng khôi phục"
+-
+-
+-def test_tam_dung_va_khong_tim_thay(monkeypatch):
+-    mod = ModKhoiPhucGia()
+-    so = SimpleNamespace(dang_chay={"mod-khoi-phuc-gia": mod})
+-    _dat_kho_gia(monkeypatch, {"email": "a@example.com",
+-                              "trang_thai": ktk.TRANG_THAI_TAM_DUNG, "dang_nhap_bang": ""})
+-    phien = _phien("tk-tam-dung")
+-    assert _chay(phien, so, "tk-tam-dung", "mod-khoi-phuc-gia") is True
+-    assert phien["trang_thai"] == "that_bai" and phien["ma_loi"] == "tam_dung"
+-    assert mod.da_goi_b == 0
+-
+-    monkeypatch.setattr(cmcu.kho_tai_khoan, "tim_theo_id", lambda _id: None)
+-    phien2 = _phien("tk-khong-co")
+-    assert _chay(phien2, so, "tk-khong-co", "mod-khoi-phuc-gia") is True
+-    assert phien2["trang_thai"] == "that_bai" and phien2["ma_loi"] == "khong_tim_thay"
+-
+-
+-def test_dang_nhap_qua_tai_khoan_luu_khac_giu_duong_cu(monkeypatch):
+-    mod = ModKhoiPhucGia()
+-    so = SimpleNamespace(dang_chay={"mod-khoi-phuc-gia": mod})
+-    _dat_kho_gia(monkeypatch, {"email": "a@example.com", "trang_thai": "",
+-                              "dang_nhap_bang": ktk.DANG_NHAP_BANG_QUA_TAI_KHOAN_LUU})
+-    phien = _phien("tk-ho")
+-    assert _chay(phien, so, "tk-ho", "mod-khoi-phuc-gia") is False
+-    assert mod.da_goi_b == 0
+-
+-
+-def test_c2a_bo_t3_khi_khoa_khong_phai_khoa_noi_bo():
+-    """T2 thành công nhưng lam_moi(khoa lạ) không xác nhận được: mặc định
+-    (xac_nhan=True) → can_nguoi cuối đường; MCP (False) → thanh_cong ở T2."""
+-    mod = ModKhoiPhucGia()
+-    tk = TaiKhoanCanKhoiPhuc(khoa="tk-la", email="a@example.com", mat_khau=None)
+-    kq_mac_dinh = asyncio.run(khoi_phuc_theo_tang_c2a(mod, tk, nghi_t1_giay=0.0))
+-    assert not kq_mac_dinh.thanh_cong and kq_mac_dinh.can_nguoi
+-
+-    kp._LAN_KHOI_PHUC_THEO_KHOA.clear()
+-    kp.dat_lai_trang_thai_t2()
+-    mod2 = ModKhoiPhucGia()
+-    kq_mcp = asyncio.run(khoi_phuc_theo_tang_c2a(
+-        mod2, tk, nghi_t1_giay=0.0, xac_nhan_lai_sau_dang_nhap=False))
+-    assert kq_mcp.thanh_cong and kq_mcp.tang == "T2"
+-    assert mod2.da_goi_b == 1
+diff --git a/test/test_web2api_mcp_module_delegate.py b/test/test_web2api_mcp_module_delegate.py
+new file mode 100644
+index 0000000..881534f
+--- /dev/null
++++ b/test/test_web2api_mcp_module_delegate.py
+@@ -0,0 +1,47 @@
++"""Test lớp chuyển tiếp MỎNG ở cổng MCP: cổng chỉ gọi module.khoi_phuc_tu_dong.
++
++Không kiểm logic tầng (logic đó ở trong module, đã test riêng từng module).
++Module không có khoi_phuc_tu_dong -> delegate trả None (đường cũ fallback).
++Không đăng nhập thật, không key MCP, không trình duyệt thật.
++"""
++
++from __future__ import annotations
++
++import asyncio
++import types
++
++import pytest
++
++from app import cong_mcp_cong_cu
++from app.khoi_phuc_phien import KetQuaKhoiPhuc
++
++
++class SoGia:
++    def __init__(self, mod):
++        self.dang_chay = {"mod-gia": mod}
++
++
++class ModGia:
++    def __init__(self, kq):
++        self.kq = kq
++        self.da_goi = None
++
++    async def khoi_phuc_tu_dong(self, khoa, email, nghi_t1_giay=0.0):
++        self.da_goi = (khoa, email, nghi_t1_giay)
++        return self.kq
++
++
++def test_delegate_goi_module_va_dich_ket_qua(monkeypatch):
++    monkeypatch.setattr(cong_mcp_cong_cu.kho_tai_khoan, "tim_theo_id",
++                        lambda tk_id: {"email": "ban-gia@example.com"})
++    mod = ModGia(KetQuaKhoiPhuc(True, tang="T2"))
++    kq = asyncio.run(cong_mcp_cong_cu._thu_khoi_phuc_module(SoGia(mod), "tk-gia-1", "mod-gia"))
++    assert kq == {"thanh_cong": True, "ma_loi": "", "can_nguoi": False, "huong_dan": ""}
++    assert mod.da_goi[0] == "tk-gia-1" and mod.da_goi[1] == "ban-gia@example.com"
++
++
++def test_delegate_tra_none_khi_module_khong_co_ham(monkeypatch):
++    monkeypatch.setattr(cong_mcp_cong_cu.kho_tai_khoan, "tim_theo_id",
++                        lambda tk_id: {"email": "ban-gia@example.com"})
++    kq = asyncio.run(cong_mcp_cong_cu._thu_khoi_phuc_module(SoGia(types.SimpleNamespace()), "tk-gia-1", "mod-gia"))
++    assert kq is None
+diff --git a/test/test_web2api_nv89_gemini_web.py b/test/test_web2api_nv89_gemini_web.py
+index 28e3e40..1b30df8 100644
+--- a/test/test_web2api_nv89_gemini_web.py
++++ b/test/test_web2api_nv89_gemini_web.py
+@@ -163,23 +163,28 @@ def test_dang_nhap_mat_khau_thanh_cong_va_luu_mat_khau(mod):
+ 
+ 
+ def test_dang_nhap_gap_captcha_thi_can_nguoi(mod):
++    # Bản module 2026-10-27: CAPTCHA trước khi điền trả mã RIÊNG
++    # thu_thach_truoc_khi_dien (không chìm thành can_nguoi), vẫn thất bại,
++    # vẫn không điền, vẫn xoá mật khẩu — hành vi cũ, chỉ mã rõ hơn.
+     td = TrinhDuyetGia(trang={
+         URL_DANG_NHAP_GOOGLE: {"tin_hieu": ["captcha"], "cookie": {}}})
+     mod._tao_trinh_duyet = lambda: td
+     tk = DongDaTach(dong=1, email=EMAIL_GIA, loai="mat_khau",
+                     mat_khau=BiMatTam(MAT_KHAU_GIA))
+     kq = chay(mod.dang_nhap(tk))
+-    assert not kq.thanh_cong and kq.ma_loi == "can_nguoi"
++    assert not kq.thanh_cong and kq.ma_loi == "thu_thach_truoc_khi_dien"
+     assert tk.mat_khau.da_xoa()
+ 
+ 
+ def test_dang_nhap_khong_co_trinh_duyet_thi_can_nguoi(mod):
+     """Không có bộ điều khiển trình duyệt → không đoán mò, báo cần người."""
++    # Bản module 2026-10-27: không có controller trả mã RIÊNG
++    # trinh_duyet_none (không chìm thành can_nguoi), vẫn thất bại.
+     mod._tao_trinh_duyet = lambda: None
+     tk = DongDaTach(dong=1, email=EMAIL_GIA, loai="mat_khau",
+                     mat_khau=BiMatTam(MAT_KHAU_GIA))
+     kq = chay(mod.dang_nhap(tk))
+-    assert not kq.thanh_cong and kq.ma_loi == "can_nguoi"
++    assert not kq.thanh_cong and kq.ma_loi == "trinh_duyet_none"
+ 
+ 
+ def test_dang_nhap_lai_dung_mat_khau_da_luu(mod):
+diff --git a/test/test_web2api_nv_module_chatgpt_tu_dong.py b/test/test_web2api_nv_module_chatgpt_tu_dong.py
+new file mode 100644
+index 0000000..65ca1ef
+--- /dev/null
++++ b/test/test_web2api_nv_module_chatgpt_tu_dong.py
+@@ -0,0 +1,161 @@
++"""Test RIÊNG cho module chatgpt-web: luồng đăng nhập tự động độc lập trong module.
++
++Module này tự chứa T0-T3, kênh TOTP, khóa serial, hoãn captcha, mã lỗi riêng
++— không import logic của gemini-web, không dùng logic khôi phục của lõi làm
++logic chính. Trình duyệt là GIẢ, máy chủ là GIẢ, không Internet, không Chrome.
++Chuỗi bí mật trong test đều là chuỗi GIẢ rõ ràng.
++"""
++
++from __future__ import annotations
++
++import asyncio
++import importlib.util
++import json
++import sys
++import types
++from pathlib import Path
++
++import httpx
++import pytest
++
++from app import kho
++from app.khoi_phuc_phien import TrinhDuyetGia
++from app.tai_khoan_hang_loat import BiMatTam, DongDaTach
++
++GOC = Path(__file__).resolve().parents[1]
++THU_MUC = GOC / "modules" / "chatgpt-web"
++TEN_GOI = "chatgpt_web_module_tu_dong_test"
++
++TOKEN_GIA_OK = "token-gia-module-ok-0001"
++MAT_KHAU_GIA = "mat-khau-gia-module-001"
++EMAIL_GIA = "ban-gia-module@example.com"
++TOTP_SECRET_GIA = "JBSWY3DPEHPK3PXP"
++
++
++def _tai_goi():
++    for ten in [t for t in list(sys.modules) if t == TEN_GOI or t.startswith(TEN_GOI + ".")]:
++        del sys.modules[ten]
++    goi = types.ModuleType(TEN_GOI)
++    goi.__path__ = [str(THU_MUC)]
++    sys.modules[TEN_GOI] = goi
++    for ten_tep in ("client", "converter", "module"):
++        spec = importlib.util.spec_from_file_location(
++            f"{TEN_GOI}.{ten_tep}", THU_MUC / f"{ten_tep}.py")
++        mod = importlib.util.module_from_spec(spec)
++        sys.modules[f"{TEN_GOI}.{ten_tep}"] = mod
++        spec.loader.exec_module(mod)
++    return (sys.modules[f"{TEN_GOI}.module"],
++            sys.modules[f"{TEN_GOI}.client"])
++
++
++mod_module, mod_client = _tai_goi()
++Module = mod_module.Module
++MANIFEST = json.loads((THU_MUC / "manifest.json").read_text(encoding="utf-8"))
++
++
++def chay(coro):
++    return asyncio.run(coro)
++
++
++def _may_chu_gia():
++    def xu_ly(req):
++        auth = req.headers.get("authorization", "")
++        token = auth.removeprefix("Bearer ").strip() if auth.startswith("Bearer ") else ""
++        if req.url.path == "/backend-api/me":
++            if token == TOKEN_GIA_OK or token.startswith("token-tu-"):
++                return httpx.Response(200, json={"email": EMAIL_GIA})
++            return httpx.Response(401, text="het han")
++        return httpx.Response(404, text="khong co")
++    return httpx.MockTransport(xu_ly)
++
++
++@pytest.fixture
++def mod(tmp_path, monkeypatch):
++    monkeypatch.setenv("WEB2API_DATA", str(tmp_path / "data"))
++    m = Module(dict(MANIFEST))
++    m.kho = kho.kho_rieng("chatgpt-web")
++    transport = _may_chu_gia()
++
++    def tao_client(token):
++        return mod_client.ChatGPTWebClient(
++            token, base_url="http://127.0.0.1:9", transport=transport)
++    m._tao_client = tao_client
++    return m
++
++
++def _trinh_duyet(tin_hieu, cookie):
++    return TrinhDuyetGia(trang={
++        "https://chatgpt.com/auth/login": {"tin_hieu": tin_hieu, "cookie": cookie}})
++
++
++def test_doc_lap_khong_import_module_kia():
++    nguon = (THU_MUC / "module.py").read_text(encoding="utf-8")
++    assert "modules/gemini-web" not in nguon
++    assert "khoi_phuc_theo_tang" not in nguon
++    assert "cong_mcp" not in nguon
++
++
++def test_t0_phien_con_song(mod):
++    tk = DongDaTach(dong=1, email=EMAIL_GIA, loai="cookie", cookie=BiMatTam(TOKEN_GIA_OK))
++    assert chay(mod.dang_nhap(tk)).thanh_cong
++    khoa = Module._khoa_tu_token(TOKEN_GIA_OK)
++    kq = chay(mod.khoi_phuc_tu_dong(khoa, EMAIL_GIA))
++    assert kq.thanh_cong and kq.tang == "T0"
++
++
++def test_t2_dang_nhap_lai_bang_mat_khau_da_luu(mod):
++    mod._luu_mat_khau("tk-gia-1", EMAIL_GIA, BiMatTam(MAT_KHAU_GIA))
++    td = _trinh_duyet(["thanh_cong"], {"access_token": "token-tu-phien-gia-0003"})
++    kq = chay(mod.khoi_phuc_tu_dong("tk-gia-1", EMAIL_GIA, trinh_duyet=td))
++    assert kq.thanh_cong and kq.tang in ("T2", "T3")
++
++
++def test_t2_qua_factory_dang_ky_rieng_cua_module(mod):
++    mod._luu_mat_khau("tk-gia-2", EMAIL_GIA, BiMatTam(MAT_KHAU_GIA))
++    td = _trinh_duyet(["thanh_cong"], {"access_token": "token-tu-phien-gia-0004"})
++    mod.dang_ky_trinh_duyet(lambda: td)
++    kq = chay(mod.khoi_phuc_tu_dong("tk-gia-2", EMAIL_GIA))
++    assert kq.thanh_cong
++
++
++def test_trinh_duyet_none_la_ma_rieng_khong_phai_can_nguoi(mod):
++    mod._luu_mat_khau("tk-gia-3", EMAIL_GIA, BiMatTam(MAT_KHAU_GIA))
++    kq = chay(mod.khoi_phuc_tu_dong("tk-gia-3", EMAIL_GIA))
++    assert not kq.thanh_cong and kq.ma_loi == "trinh_duyet_none" and not kq.can_nguoi
++
++
++def test_2fa_co_totp_tu_dien_ma(mod):
++    mod._luu_mat_khau("tk-gia-4", EMAIL_GIA, BiMatTam(MAT_KHAU_GIA))
++    assert mod.luu_totp("tk-gia-4", EMAIL_GIA, TOTP_SECRET_GIA) is True
++    td = _trinh_duyet(["2fa"], {"access_token": "token-tu-phien-gia-0005"})
++    kq = chay(mod.khoi_phuc_tu_dong("tk-gia-4", EMAIL_GIA, trinh_duyet=td))
++    assert kq.thanh_cong
++    assert ("dien", "ma_xac_minh") in td.hanh_dong
++
++
++def test_2fa_khong_totp_dung_o_thu_thach(mod):
++    mod._luu_mat_khau("tk-gia-5", EMAIL_GIA, BiMatTam(MAT_KHAU_GIA))
++    td = _trinh_duyet(["2fa"], {"access_token": "token-tu-phien-gia-0006"})
++    kq = chay(mod.khoi_phuc_tu_dong("tk-gia-5", EMAIL_GIA, trinh_duyet=td))
++    assert not kq.thanh_cong and kq.ma_loi == "thu_thach_truoc_khi_dien" and kq.can_nguoi
++    assert ("dien", "ma_xac_minh") not in td.hanh_dong
++
++
++def test_captcha_hoan_va_dat_lai(mod):
++    mod._luu_mat_khau("tk-gia-6", EMAIL_GIA, BiMatTam(MAT_KHAU_GIA))
++    td1 = _trinh_duyet(["captcha"], {})
++    kq1 = chay(mod.khoi_phuc_tu_dong("tk-gia-6", EMAIL_GIA, trinh_duyet=td1))
++    assert not kq1.thanh_cong and kq1.ma_loi == "thu_thach_truoc_khi_dien"
++    mod._luu_mat_khau("tk-gia-7", EMAIL_GIA, BiMatTam(MAT_KHAU_GIA))
++    td2 = _trinh_duyet(["thanh_cong"], {"access_token": "token-tu-phien-gia-0007"})
++    kq2 = chay(mod.khoi_phuc_tu_dong("tk-gia-7", EMAIL_GIA, trinh_duyet=td2))
++    assert not kq2.thanh_cong and kq2.ma_loi == "captcha_hoan"
++    mod.dat_lai_trang_thai_tu_dong()
++    td3 = _trinh_duyet(["thanh_cong"], {"access_token": "token-tu-phien-gia-0008"})
++    kq3 = chay(mod.khoi_phuc_tu_dong("tk-gia-7", EMAIL_GIA, trinh_duyet=td3))
++    assert kq3.thanh_cong
++
++
++def test_luu_totp_sai_khuon_bi_tu_choi(mod):
++    assert mod.luu_totp("tk-gia-8", EMAIL_GIA, "khong-phai-base32!!!") is False
++    assert mod.totp_da_luu("tk-gia-8") is None
+diff --git a/test/test_web2api_nv_module_gemini_tu_dong.py b/test/test_web2api_nv_module_gemini_tu_dong.py
+new file mode 100644
+index 0000000..7c32be3
+--- /dev/null
++++ b/test/test_web2api_nv_module_gemini_tu_dong.py
+@@ -0,0 +1,176 @@
++"""Test RIÊNG cho module gemini-web: luồng đăng nhập tự động độc lập trong module.
++
++Module này tự chứa T0-T3, kênh TOTP, khóa serial, hoãn captcha, mã lỗi riêng
++— không import logic của chatgpt-web, không dùng logic khôi phục của lõi làm
++logic chính. Trình duyệt là GIẢ, máy chủ là GIẢ, không Internet, không Chrome.
++Chuỗi bí mật trong test đều là chuỗi GIẢ rõ ràng.
++"""
++
++from __future__ import annotations
++
++import asyncio
++import importlib.util
++import json
++import sys
++import types
++from pathlib import Path
++
++import httpx
++import pytest
++
++from app import kho
++from app.khoi_phuc_phien import TrinhDuyetGia
++from app.tai_khoan_hang_loat import BiMatTam, DongDaTach
++
++GOC = Path(__file__).resolve().parents[1]
++THU_MUC = GOC / "modules" / "gemini-web"
++TEN_GOI = "gemini_web_module_tu_dong_test"
++
++PSID_GIA_OK = "psid-gia-module-ok-0001"
++PSIDTS_GIA_OK = "psidts-gia-module-0001"
++COOKIE_GIA_OK = f"__Secure-1PSID={PSID_GIA_OK}; __Secure-1PSIDTS={PSIDTS_GIA_OK}"
++MAT_KHAU_GIA = "mat-khau-gia-module-001"
++EMAIL_GIA = "ban-gia-module@example.com"
++TOTP_SECRET_GIA = "JBSWY3DPEHPK3PXP"
++URL_DANG_NHAP_GOOGLE = (
++    "https://accounts.google.com/signin/v2/identifier"
++    "?flowName=GlifWebSignIn&flowEntry=ServiceLogin"
++)
++
++
++def _tai_goi():
++    for ten in [t for t in list(sys.modules) if t == TEN_GOI or t.startswith(TEN_GOI + ".")]:
++        del sys.modules[ten]
++    goi = types.ModuleType(TEN_GOI)
++    goi.__path__ = [str(THU_MUC)]
++    sys.modules[TEN_GOI] = goi
++    for ten_tep in ("client", "converter", "module"):
++        spec = importlib.util.spec_from_file_location(
++            f"{TEN_GOI}.{ten_tep}", THU_MUC / f"{ten_tep}.py")
++        mod = importlib.util.module_from_spec(spec)
++        sys.modules[f"{TEN_GOI}.{ten_tep}"] = mod
++        spec.loader.exec_module(mod)
++    return (sys.modules[f"{TEN_GOI}.module"],
++            sys.modules[f"{TEN_GOI}.client"])
++
++
++mod_module, mod_client = _tai_goi()
++Module = mod_module.Module
++MANIFEST = json.loads((THU_MUC / "manifest.json").read_text(encoding="utf-8"))
++
++
++def chay(coro):
++    return asyncio.run(coro)
++
++
++def _may_chu_gia():
++    def xu_ly(req):
++        if req.url.path == "/":
++            cookie = req.headers.get("cookie", "")
++            psid = None
++            for phan in cookie.split(";"):
++                ten, _, gia_tri = phan.strip().partition("=")
++                if ten == "__Secure-1PSID":
++                    psid = gia_tri.strip()
++            if psid == PSID_GIA_OK:
++                return httpx.Response(
++                    200, text='<html>"SNlM0e":"SNlM0e-gia-module"</html>')
++            return httpx.Response(401, text="het han")
++        return httpx.Response(404, text="khong co")
++    return httpx.MockTransport(xu_ly)
++
++
++@pytest.fixture
++def mod(tmp_path, monkeypatch):
++    monkeypatch.setenv("WEB2API_DATA", str(tmp_path / "data"))
++    m = Module(dict(MANIFEST))
++    m.kho = kho.kho_rieng("gemini-web")
++    transport = _may_chu_gia()
++
++    def tao_client(psid, psidts):
++        return mod_client.GeminiWebClient(
++            psid, psidts, base_url="http://127.0.0.1:9", transport=transport)
++    m._tao_client = tao_client
++    return m
++
++
++def _trinh_duyet(tin_hieu, cookie):
++    return TrinhDuyetGia(trang={
++        URL_DANG_NHAP_GOOGLE: {"tin_hieu": tin_hieu, "cookie": cookie}})
++
++
++def _cookie_dict():
++    return {"__Secure-1PSID": PSID_GIA_OK, "__Secure-1PSIDTS": PSIDTS_GIA_OK}
++
++
++def test_doc_lap_khong_import_module_kia():
++    nguon = (THU_MUC / "module.py").read_text(encoding="utf-8")
++    assert "modules/chatgpt-web" not in nguon
++    assert "khoi_phuc_theo_tang" not in nguon
++    assert "cong_mcp" not in nguon
++
++
++def test_t0_phien_con_song(mod):
++    tk = DongDaTach(dong=1, email=EMAIL_GIA, loai="cookie", cookie=BiMatTam(COOKIE_GIA_OK))
++    assert chay(mod.dang_nhap(tk)).thanh_cong
++    khoa = Module._khoa_tu_token(PSID_GIA_OK)
++    kq = chay(mod.khoi_phuc_tu_dong(khoa, EMAIL_GIA))
++    assert kq.thanh_cong and kq.tang == "T0"
++
++
++def test_t2_dang_nhap_lai_bang_mat_khau_da_luu(mod):
++    mod._luu_mat_khau("tk-gia-1", EMAIL_GIA, BiMatTam(MAT_KHAU_GIA))
++    td = _trinh_duyet(["thanh_cong"], _cookie_dict())
++    kq = chay(mod.khoi_phuc_tu_dong("tk-gia-1", EMAIL_GIA, trinh_duyet=td))
++    assert kq.thanh_cong and kq.tang in ("T2", "T3")
++
++
++def test_t2_qua_factory_dang_ky_rieng_cua_module(mod):
++    mod._luu_mat_khau("tk-gia-2", EMAIL_GIA, BiMatTam(MAT_KHAU_GIA))
++    td = _trinh_duyet(["thanh_cong"], _cookie_dict())
++    mod.dang_ky_trinh_duyet(lambda: td)
++    kq = chay(mod.khoi_phuc_tu_dong("tk-gia-2", EMAIL_GIA))
++    assert kq.thanh_cong
++
++
++def test_trinh_duyet_none_la_ma_rieng_khong_phai_can_nguoi(mod):
++    mod._luu_mat_khau("tk-gia-3", EMAIL_GIA, BiMatTam(MAT_KHAU_GIA))
++    kq = chay(mod.khoi_phuc_tu_dong("tk-gia-3", EMAIL_GIA))
++    assert not kq.thanh_cong and kq.ma_loi == "trinh_duyet_none" and not kq.can_nguoi
++
++
++def test_2fa_co_totp_tu_dien_ma(mod):
++    mod._luu_mat_khau("tk-gia-4", EMAIL_GIA, BiMatTam(MAT_KHAU_GIA))
++    assert mod.luu_totp("tk-gia-4", EMAIL_GIA, TOTP_SECRET_GIA) is True
++    td = _trinh_duyet(["2fa"], _cookie_dict())
++    kq = chay(mod.khoi_phuc_tu_dong("tk-gia-4", EMAIL_GIA, trinh_duyet=td))
++    assert kq.thanh_cong
++    assert ("dien", "ma_xac_minh") in td.hanh_dong
++
++
++def test_2fa_khong_totp_dung_o_thu_thach(mod):
++    mod._luu_mat_khau("tk-gia-5", EMAIL_GIA, BiMatTam(MAT_KHAU_GIA))
++    td = _trinh_duyet(["2fa"], _cookie_dict())
++    kq = chay(mod.khoi_phuc_tu_dong("tk-gia-5", EMAIL_GIA, trinh_duyet=td))
++    assert not kq.thanh_cong and kq.ma_loi == "thu_thach_truoc_khi_dien" and kq.can_nguoi
++    assert ("dien", "ma_xac_minh") not in td.hanh_dong
++
++
++def test_captcha_hoan_va_dat_lai(mod):
++    mod._luu_mat_khau("tk-gia-6", EMAIL_GIA, BiMatTam(MAT_KHAU_GIA))
++    td1 = _trinh_duyet(["captcha"], {})
++    kq1 = chay(mod.khoi_phuc_tu_dong("tk-gia-6", EMAIL_GIA, trinh_duyet=td1))
++    assert not kq1.thanh_cong and kq1.ma_loi == "thu_thach_truoc_khi_dien"
++    mod._luu_mat_khau("tk-gia-7", EMAIL_GIA, BiMatTam(MAT_KHAU_GIA))
++    td2 = _trinh_duyet(["thanh_cong"], _cookie_dict())
++    kq2 = chay(mod.khoi_phuc_tu_dong("tk-gia-7", EMAIL_GIA, trinh_duyet=td2))
++    assert not kq2.thanh_cong and kq2.ma_loi == "captcha_hoan"
++    mod.dat_lai_trang_thai_tu_dong()
++    td3 = _trinh_duyet(["thanh_cong"], _cookie_dict())
++    kq3 = chay(mod.khoi_phuc_tu_dong("tk-gia-7", EMAIL_GIA, trinh_duyet=td3))
++    assert kq3.thanh_cong
++
++
++def test_luu_totp_sai_khuon_bi_tu_choi(mod):
++    assert mod.luu_totp("tk-gia-8", EMAIL_GIA, "khong-phai-base32!!!") is False
++    assert mod.totp_da_luu("tk-gia-8") is None
+-- 
+2.43.0
+
