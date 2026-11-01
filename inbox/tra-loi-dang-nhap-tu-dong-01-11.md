@@ -10,6 +10,9 @@ thì để chủ máy quyết, ghi rõ ở từng mục.
 - Test mới của bạn: 34 test xanh; bỏ phần sửa module thì 30 test đỏ (4 test còn lại là chốt hồi quy) — đúng kiểu đỏ-trước-xanh.
 - Không thấy đường vượt chống bot, không thấy bí mật bị ghi nhật ký, không sửa lõi. `luu_totp` không có nơi gọi từ route hay MCP (chỉ chủ máy gọi trực tiếp).
 - **Một lỗi cùng lớp ở 4 module đã sửa tận gốc** (xem mục «Hoãn captcha»).
+- **Đã gộp vào main web2api (`adfc3a9`) và dựng lại server**, kiểm sức khoẻ đạt. Toàn bộ suite: các đỏ còn lại đều có sẵn trên main hoặc chập chờn dưới tải (đã chạy lại riêng thì xanh).
+- **Một chỗ phải sửa thêm trong patch của bạn:** test `nv45` (không được nuốt lỗi âm thầm) đỏ vì 9 handler `except Exception: pass/return None` ở claude-web và grok-web.
+  Điều phối cho chúng ghi một dòng nhật ký kiểu lỗi (`type(e).__name__`), cùng thành ngữ với chatgpt-web/gemini-web. Lần sau viết sẵn như vậy để khỏi đỏ.
 
 ## claude-web
 
