@@ -1,0 +1,80 @@
+diff --git a/app/kham_pha.py b/app/kham_pha.py
+index de3a41d..81fd1dd 100644
+--- a/app/kham_pha.py
++++ b/app/kham_pha.py
+@@ -459,12 +459,15 @@ def _chuan_hoa_giao_dien(m: dict) -> None:
+     {"khu": "nha"|"doi_song"|"tac_pham", "muc": id, "nhan": tên mục,
+     "chip": [{"id", "nhan", "nhom": [mã nhóm thực thể], "thu_tu": số nhỏ đứng trước}]}. `nhom` rỗng = các thực thể module
+     KHÔNG gắn nhóm; thực thể tự gắn `nhom` qua trường `nhom` của nó (xem app/thiet_bi.py).
++    `"giao_dien": false` = module chỉ có CÔNG CỤ cho AI (không thực thể/trang cho người) → KHÔNG tab ở thanh chính.
+     Nhiều module cùng `muc` thì chung một trang mục (vd hai module mạng cùng mục «Mạng»). Khác `nhom_con` (làn của tab
+     Module, KHÔNG đụng tới). Sai định dạng → cảnh báo và bỏ trường (không chặn nạp module); khi đó khung suy từ cấu trúc."""
+     if "giao_dien" not in m:
+         return
+     g = m["giao_dien"]
+     mod_id = m.get("id", "chua_ro")
++    if g is False:
++        return  # «không có tab»: module chỉ là CÔNG CỤ cho AI/lõi, không có thực thể hay trang cho người (giữ nguyên False)
+ 
+     def bo(ly_do: str) -> None:
+         log.warning("Module %s: giao_dien %s", mod_id, ly_do)
+@@ -497,6 +500,20 @@ def _chuan_hoa_giao_dien(m: dict) -> None:
+     m["giao_dien"] = {"khu": g["khu"], "muc": muc, "nhan": nhan.strip(), "chip": chip_ra}
+ 
+ 
++def _chuan_hoa_thay_the(m: dict) -> None:
++    """NV289+: trường tuỳ chọn `thay_the` — danh sách id module mà module NÀY thay thế (bản mới của cùng một việc). Khi module này
++    đã cài thì các module được thay KHÔNG tạo tab/mục riêng ở thanh chính (chỉ MỘT tab cho một việc); chúng vẫn chạy bình thường.
++    Khai ở module thay thế, không có bảng tên trong lõi. Sai định dạng → bỏ trường."""
++    if "thay_the" not in m:
++        return
++    ds = m["thay_the"]
++    if not isinstance(ds, list) or len(ds) > 8 or not all(isinstance(x, str) and ID_HOP_LE.match(x) for x in ds):
++        log.warning("Module %s: thay_the phải là danh sách tối đa 8 id module", m.get("id", "chua_ro"))
++        m.pop("thay_the", None)
++        return
++    m["thay_the"] = [x for x in ds if x != m.get("id")]
++
++
+ def giao_dien_cua(m: dict) -> dict | None:
+     """Tab và mục của một module trên thanh chính: `giao_dien` module khai, không thì SUY từ cấu trúc manifest
+     (`loai`, `nhom_con`, `cung_cap`) — không bảng tên module. Không thuộc tab nào → None.
+@@ -505,6 +522,8 @@ def giao_dien_cua(m: dict) -> dict | None:
+       - cấp ảnh/video (cung_cap) → Tác phẩm
+     Mục mặc định là chính module (không chip khai thì khung dựng một chip theo module)."""
+     g = m.get("giao_dien")
++    if g is False:
++        return None  # module tự khai «không có tab» (chỉ công cụ cho AI): không suy tab từ loại
+     if isinstance(g, dict):
+         return g
+     khu = None
+@@ -528,6 +547,7 @@ def kiem_manifest(m) -> str | None:
+     _chuan_hoa_nhom(m)
+     _chuan_hoa_nhom_con(m)
+     _chuan_hoa_giao_dien(m)
++    _chuan_hoa_thay_the(m)
+     for k in TRUONG_CHUOI_BAT_BUOC:
+         if not isinstance(m.get(k), str) or not m[k].strip():
+             return f"thiếu hoặc sai trường «{k}» (cần chuỗi khác rỗng)"
+diff --git a/app/so_module.py b/app/so_module.py
+index 0246a6c..e24045d 100644
+--- a/app/so_module.py
++++ b/app/so_module.py
+@@ -404,6 +404,8 @@ class SoModule:
+         theo múi giờ của nhà. Không bí mật, không cấu hình module. Đánh giá điều kiện (`can`) là
+         việc của giao diện — một hàm duy nhất cho cả điều kiện của khung lẫn `muc` của module."""
+         modules, loai, da_cai, lien_ket, tab, muc = [], {}, {}, {}, [], []
++        # Module bị module khác đã cài khai `thay_the` thì không tạo tab/mục riêng (chỉ MỘT tab cho một việc).
++        thay_the = {x for km in self.catalog.values() for x in (km.manifest.get("thay_the") or []) if x != km.id}
+ 
+         def ghi(id_: str, man: dict, tu_xa: bool) -> None:
+             lk = id_ in self.dang_chay
+@@ -426,7 +428,7 @@ class SoModule:
+                             "man_hinh": bool(xem),
+                             "nhom": nhom,
+                             # NV297: tab + mục trên thanh chính (khai trong manifest, hoặc suy từ cấu trúc) — module từ xa không có.
+-                            "giao_dien": None if tu_xa else giao_dien_cua(man)}
++                            "giao_dien": None if (tu_xa or id_ in thay_the) else giao_dien_cua(man)}
+             # NV289: module khai đường riêng cho dịch vụ ngoài gọi vào (manifest `duong_module`): khoá cho nó do lõi
+             # tự sinh ở Bảo mật & người dùng (phạm vi `tich_hop@<id>`), không có ô nhập khoá. Chỉ thêm khi có.
+             if isinstance(man.get("duong_module"), dict):
