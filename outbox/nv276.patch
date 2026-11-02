@@ -1,0 +1,464 @@
+diff --git a/app/kham_pha.py b/app/kham_pha.py
+index dd90fc6..993b545 100644
+--- a/app/kham_pha.py
++++ b/app/kham_pha.py
+@@ -107,6 +107,11 @@ PHƯƠNG THỨC TUỲ CHỌN — có thì lõi mở đường /v1 tương ứng;
+         liệt kê workspace; lõi chỉ trả đúng các trường này (trường khác như `dich` bị bỏ).
+       trinh_duyet_mo nhận thêm `url` (tuỳ chọn, từ khoá) — trang đầu khi trình duyệt khởi động; lõi đã kiểm http(s),
+         có tên máy, không userinfo, ≤ 2048 ký tự, và CHỈ truyền khi quản trị gửi (module cũ (ho_so, loai) vẫn chạy).
++    Phương thức cho khả năng "trinh_duyet_xem" (NV276 — xem màn hình dùng chung, không mở hồ sơ mới):
++      async trinh_duyet_xem_mo() -> dict
++        {dich: "http://host:6080"} — địa chỉ noVNC nội bộ của màn hình dùng chung (websockify của dịch vụ);
++        lõi ghim đích qua kiểm SSRF rồi cấp vé một lần qua POST /api/trinh-duyet/{module}/xem (có step-up).
++        Mật khẩu VNC không đi qua module hay lõi: người xem tự nhập một lần ở hộp nhập của noVNC.
+       Phương thức TUỲ CHỌN của khả năng "trinh_duyet" (thiếu → lõi trả 501, không tính là sai chuẩn):
+       async trinh_duyet_tao(ten: str) -> dict
+         {ho_so: str, ten: str} — tạo workspace: tên hiển thị (lõi đã kiểm 1..100 ký tự in được), thư mục hồ sơ ID
+@@ -248,6 +253,7 @@ HOP_DONG_KHA_NANG: dict[str, tuple[str, ...]] = {
+     "xep_hang": ("xep_hang",),
+     "tim_kiem": ("tim_kiem",),
+     "trinh_duyet": ("trinh_duyet_mo", "trinh_duyet_dong", "trinh_duyet_ds"),
++    "trinh_duyet_xem": ("trinh_duyet_xem_mo",),
+     #: Gửi ra đích danh (NV32): module liệt kê đích qua kenh_ra() và gửi qua gui_tin().
+     "kenh_ra": ("gui_tin", "kenh_ra"),
+     #: Mã xác minh (NV121): module đọc mã từ hộp thư qua hop_thu_ra() và lay_ma().
+@@ -274,6 +280,8 @@ KHA_NANG_NGUY_HIEM = frozenset({
+     "trinh_duyet_ds",
+     "trinh_duyet_tao",
+     "trinh_duyet_cookie",
++    "trinh_duyet_xem",
++    "trinh_duyet_xem_mo",
+     "gui_ra",
+     "gui_tin",
+     "kenh_ra",
+diff --git a/app/novnc.py b/app/novnc.py
+index e346b73..803d9f8 100644
+--- a/app/novnc.py
++++ b/app/novnc.py
+@@ -68,7 +68,7 @@ from app.loi_openai import LoiOpenAI, than_loi
+ from app.so_module import LoiSo, SoModule
+ from app.than_co_tran import THAN_JSON, doc_het
+ from app.tu_xa import _dia_chi_bi_chan
+-from app.xac_thuc import can_quan_tri
++from app.xac_thuc import can_quan_tri, kiem_tra_step_up
+ 
+ log = logging.getLogger("web2api.novnc")
+ #: Logger riêng cho kết nối WebSocket tới đích: websockets ghi NGUYÊN header bắt tay (gồm Authorization Basic mang
+@@ -567,6 +567,43 @@ async def api_mo_trinh_duyet(module: str, request: Request):
+     return {"ho_so": ho_so_kq, "ve": ve, "url": f"/novnc/dang-nhap?ve={ve}"}
+ 
+ 
++@api_router.post("/{module}/xem")
++async def api_xem_trinh_duyet(module: str, request: Request):
++    """NV276: cấp vé xem màn hình noVNC DÙNG CHUNG của dịch vụ đăng nhập tự động (không tạo hồ sơ trình duyệt
++    mới, không mở trình duyệt mới — màn hình:99 đã chạy sẵn trong container dịch vụ).
++
++    Khác đường /mo ở hai điểm: (1) có step-up như các đường chạm bí mật — phiên web phải đã xác nhận lại,
++    Bearer <redacted>ản trị được miễn; (2) module chỉ cần phương thức ``trinh_duyet_xem_mo()`` trả ``{"dich": ...}``
++    là địa chỉ noVNC nội bộ (websockify của dịch vụ), lõi ghim đích qua kiểm SSRF rồi cấp vé một lần 60 giây
++    như mọi vé /novnc khác. Mật khẩu VNC KHÔNG đi qua đường này: x11vnc vẫn bắt mật khẩu, người xem tự nhập
++    một lần ở hộp nhập của noVNC (mật khẩu chỉ chủ máy biết, đọc từ trong container dịch vụ).
++
++    Hồ sơ ghim ở đây chỉ là khoá phiên xem (ID ngẫu nhiên), không phải hồ sơ trình duyệt riêng: đóng hồ sơ
++    (DELETE /phien hoặc thu hồi) chỉ thu hồi vé/phiên xem, KHÔNG đóng trình duyệt đang đăng nhập của dịch vụ."""
++    kiem_tra_step_up(request)
++    mod = _module_co(request, module, "trinh_duyet_xem_mo", "xem trình duyệt đang đăng nhập")
++    try:
++        kq = await mod.trinh_duyet_xem_mo()
++    except Exception as e:
++        log.warning("Module %s lỗi khi gọi trinh_duyet_xem_mo: %s", module, _ten_loi(e))
++        raise LoiOpenAI(502, f"Module lỗi khi mở xem trình duyệt ({_ten_loi(e)})")
++    if not isinstance(kq, dict) or not kq.get("dich"):
++        raise LoiOpenAI(502, "Kết quả từ module không đúng cấu trúc (cần có dich)")
++    try:
++        dich = await ghim_dich(str(kq.get("dich") or ""))
++    except ValueError as e:
++        raise LoiOpenAI(502, f"Đích xem trình duyệt không hợp lệ hoặc bị chặn: {e}")
++    ho_so = sinh_ho_so_id()
++    with _KHOA:
++        _HO_SO[(module, ho_so)] = {**dich, "mod": mod, "loai": "xem",
++                                    "luc_mo": datetime.now(timezone.utc).isoformat()}
++    nguoi_dung_id = lay_nguoi_dung_id(request)
++    ve = cap_ve(module, ho_so, nguoi_dung_id=nguoi_dung_id)
++    nhat_ky.ghi("trinh_duyet", "thong_tin", f"Mở xem trình duyệt đang đăng nhập ({module})",
++                module=module, ho_so=ho_so, hanh_dong="xem", ket_qua="thanh_cong")
++    return {"ho_so": ho_so, "ve": ve, "url": f"/novnc/dang-nhap?ve={ve}"}
++
++
+ @api_router.post("/{module}/{ho_so}/ve")
+ async def api_xin_ve(module: str, ho_so: str, request: Request):
+     kiem_tra_ho_so_id(ho_so)
+diff --git a/dich-vu/may-dang-nhap/README.md b/dich-vu/may-dang-nhap/README.md
+index 611c863..6467d42 100644
+--- a/dich-vu/may-dang-nhap/README.md
++++ b/dich-vu/may-dang-nhap/README.md
+@@ -12,7 +12,7 @@ Lõi `web2api` giao tiếp với dịch vụ này qua giao thức HTTP nội b
+ - **Ranh giới an toàn**: Dịch vụ chạy trong container riêng, không phân quyền root (chạy dưới user `appuser` uid 1000:1000), tệp mã nguồn thuộc sở hữu `root` chỉ-đọc (`/app` 0755), container chạy ở chế độ chỉ đọc (`read_only: true`), không mở cổng công khai ra ngoài Internet.
+ - **Cổng mạng**:
+   - `8010`: Cổng FastAPI HTTP API nội bộ (chỉ phục vụ các container cùng mạng Docker riêng hoặc bind `127.0.0.1`).
+-  - `6080`: Cổng noVNC giao diện web — noVNC mặc định tắt và CHƯA dùng được từ web2api; chỉ truy cập qua SSH tunnel; nhánh cần người chưa hoạt động.
++  - `6080`: Cổng noVNC giao diện web — noVNC mặc định tắt; khi bật, web2api tới được qua mạng Docker nội bộ bằng proxy `/novnc` của lõi (đường `POST /api/trinh-duyet/{module}/xem`, có step-up, vé một lần 60 giây) rồi người xem nhập mật khẩu VNC một lần ở hộp nhập của noVNC. Không còn phải dùng SSH tunnel để xem từ web2api.
+ 
+ ---
+ 
+@@ -49,7 +49,7 @@ Tệp `docker-compose.yml` đã được cấu hình chuẩn:
+   - `PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright` (thuộc root, 0755, người dùng không root đọc trực tiếp nhị phân đã cài sẵn lúc dựng).
+   - `CLOAKBROWSER_CACHE_DIR=/opt/cloakbrowser` (thuộc `appuser:appuser` 1000:1000).
+ - Giới hạn an ninh nghiêm ngặt: `cap_drop: [ALL]`, `no-new-privileges: true`, `pids_limit: 2048`, `mem_limit: 2g`, `shm_size: 1gb`.
+-- Không công bố cổng trực tiếp ra ngoài (`expose: ["8010"]`). noVNC (6080) mặc định không expose.
++- Không công bố cổng trực tiếp ra ngoài (`expose: ["8010"]`). noVNC (6080) không publish ra máy chủ/Internet; websockify nghe 0.0.0.0:6080 chỉ để các container cùng mạng Docker nội bộ tới được (xem supervisord-novnc.conf).
+ 
+ ### 2.3. Khởi chạy bằng lệnh Docker trực tiếp
+ 
+@@ -139,7 +139,7 @@ Mọi yêu cầu gọi tới API (ngoại trừ `GET /health`) đều bắt bu
+ - Giao thức RFB (VNC) chỉ sử dụng 8 ký tự đầu tiên của mật khẩu. Do đó, script `entrypoint.sh` sinh ngẫu nhiên đúng 8 ký tự từ bảng chữ-số (`A-Za-z0-9`, độ mạnh ~47 bit entropy) bằng lệnh:
+   `tr -dc 'A-Za-z0-9' < /dev/urandom | head -c 8 > /khoa/mat-khau-vnc`
+ - Tệp mật khẩu lưu tại `/khoa/mat-khau-vnc` với quyền `0600` và không bao giờ được in ra stdout/log.
+-- Ghi chú vận hành: noVNC mặc định TẮT. Khi bật qua `CAPTCHA_SOLVER_BAT_NOVNC=1`, noVNC chỉ nghe trên loopback `127.0.0.1` bên trong container.
++- Ghi chú vận hành: noVNC mặc định TẮT. Khi bật qua `CAPTCHA_SOLVER_BAT_NOVNC=1` (đặt ở tệp ghi đè cục bộ ngoài repo, không sửa trong repo), websockify nghe `0.0.0.0:6080` trên mạng Docker nội bộ để web2api tới được qua proxy `/novnc`; x11vnc vẫn chỉ nghe loopback `127.0.0.1:5900` trong container và vẫn bắt mật khẩu — mật khẩu không đi qua API web2api nào, người xem nhập một lần ở hộp nhập của noVNC (chủ máy đọc mật khẩu bằng `docker exec web2api-may-dang-nhap cat /khoa/mat-khau-vnc`).
+ 
+ ### 3.3. Két mật khẩu tài khoản (`vault.key`)
+ 
+diff --git a/dich-vu/may-dang-nhap/supervisord-novnc.conf b/dich-vu/may-dang-nhap/supervisord-novnc.conf
+index 4098260..1a6677e 100644
+--- a/dich-vu/may-dang-nhap/supervisord-novnc.conf
++++ b/dich-vu/may-dang-nhap/supervisord-novnc.conf
+@@ -46,9 +46,12 @@ stdout_logfile_maxbytes=0
+ stderr_logfile=/dev/stderr
+ stderr_logfile_maxbytes=0
+ 
+-; ── noVNC websocket proxy (cổng 6080, chỉ nghe 127.0.0.1 nội bộ container) ──────────────────────────────────────────
++; ── noVNC websocket proxy (NV276: websockify nghe 0.0.0.0:6080 TRÊN MẠNG DOCKER NỘI BỘ để container web2api
++; tới được qua proxy /novnc của lõi — compose KHÔNG publish cổng này ra máy chủ/Internet nên ngoài mạng nội bộ
++; không với tới. x11vnc vẫn chỉ nghe 127.0.0.1:5900 VÀ vẫn bắt mật khẩu: websockify nối tới x11vnc ngay
++; trong container, còn người xem vẫn phải nhập mật khẩu VNC một lần ở hộp nhập của noVNC.) ────────────────
+ [program:novnc]
+-command=/usr/bin/websockify --web=/usr/share/novnc/ 127.0.0.1:6080 127.0.0.1:5900
++command=/usr/bin/websockify --web=/usr/share/novnc/ 0.0.0.0:6080 127.0.0.1:5900
+ autorestart=true
+ priority=40
+ stdout_logfile=/dev/stdout
+diff --git a/modules/may-dang-nhap/manifest.json b/modules/may-dang-nhap/manifest.json
+index 0fd4a90..1204ea9 100644
+--- a/modules/may-dang-nhap/manifest.json
++++ b/modules/may-dang-nhap/manifest.json
+@@ -2,7 +2,7 @@
+   "id": "may-dang-nhap",
+   "ten": "Máy đăng nhập tự động — client của dịch vụ máy đăng nhập",
+   "mo_ta": "Client HTTP mỏng gọi dịch vụ dich-vu/may-dang-nhap (cổng 8010, Bearer) để tự động hoá các bước đăng nhập hợp lệ của chính chủ tài khoản. Module chỉ là cầu nối; mọi logic đăng nhập nằm ở dịch vụ. Đầu ra dịch vụ là dữ liệu không tin: cắt ở trần, gắn nguon_ngoai.",
+-  "phien_ban": "0.1.3",
++  "phien_ban": "0.1.4",
+   "hang": "B",
+   "loai": "ai",
+   "loai_ten": "AI",
+@@ -16,7 +16,8 @@
+   "tien_to": "may_dang_nhap",
+   "cung_cap": [
+     "dang_nhap_trinh_duyet",
+-    "thiet_bi"
++    "thiet_bi",
++    "trinh_duyet_xem"
+   ],
+   "yeu_cau_goi": [
+     "httpx"
+diff --git a/modules/may-dang-nhap/module.py b/modules/may-dang-nhap/module.py
+index 1bccc21..2d0b334 100644
+--- a/modules/may-dang-nhap/module.py
++++ b/modules/may-dang-nhap/module.py
+@@ -2129,6 +2129,18 @@ class Module:
+             raise RuntimeError(f"Dịch vụ trả mã {res.status_code} cho ảnh màn hình")
+         return than
+ 
++    async def trinh_duyet_xem_mo(self) -> dict:
++        """NV276: đích noVNC của màn hình dùng chung trong container dịch vụ (Xvfb:99), để lõi cấp vé xem
++        qua POST /api/trinh-duyet/{module}/xem. KHÔNG tạo hồ sơ, KHÔNG mở trình duyệt mới, KHÔNG gọi mạng,
++        KHÔNG dùng khoá dịch vụ: chỉ suy host từ dich_vu_url đã cấu hình (mặc định là tên container trong
++        mạng Docker nội bộ) và đổi cổng API 8010 thành cổng websockify 6080. Lõi ghim đích qua kiểm SSRF
++        trước khi cấp vé; mật khẩu VNC vẫn do x11vnc giữ trong container, người xem tự nhập ở hộp nhập
++        của noVNC — module này không biết và không trả mật khẩu đó."""
++        host = urllib.parse.urlsplit(str(self._url or "")).hostname
++        if not host:
++            raise RuntimeError("Chưa cấu hình địa chỉ dịch vụ đăng nhập tự động")
++        return {"dich": f"http://{host}:6080"}
++
+     async def tien_do(self, ho_so: str, module_cua_tai_khoan: str = "") -> dict:
+         """Trạng thái lượt đăng nhập nền cho giao diện hỏi (NV145b + NV210).
+ 
+diff --git a/test/test_nv276_xem_novnc.py b/test/test_nv276_xem_novnc.py
+new file mode 100644
+index 0000000..e02861d
+--- /dev/null
++++ b/test/test_nv276_xem_novnc.py
+@@ -0,0 +1,215 @@
++"""NV276 — THEO DÕI trình duyệt đang đăng nhập tự động bằng noVNC thật (khác hướng ảnh chụp của test_nv276_xem_trinh_duyet.py).
++
++Đường mới: POST /api/trinh-duyet/{module}/xem — chỉ quản trị, có step-up (phiên web phải xác nhận lại;
++Bearer <redacted>ản trị được miễn như mọi đường chạm bí mật khác), module khai khả năng «trinh_duyet_xem» trả đích
++noVNC nội bộ (màn hình dùng chung của dịch vụ, KHÔNG tạo hồ sơ trình duyệt mới), lõi ghim đích qua kiểm SSRF
++rồi cấp vé một lần 60 giây như proxy /novnc hiện có. Mật khẩu VNC không bao giờ xuất hiện trong phản hồi:
++x11vnc vẫn bắt mật khẩu, người xem tự nhập một lần ở hộp nhập của noVNC (mật khẩu chỉ chủ máy biết qua
++docker exec vào container dịch vụ — ngoài phạm vi API này).
++
++Test qua dịch vụ GIẢ, không đăng nhập thật, không trình duyệt thật.
++"""
++
++from __future__ import annotations
++
++import time
++from pathlib import Path
++
++import pytest
++from fastapi.testclient import TestClient
++
++from app import gioi_han, novnc
++from app.main import app
++
++GOC = Path(__file__).resolve().parents[1]
++HTML = (GOC / "web" / "He-thong-AI.dc.html").read_text(encoding="utf-8")
++KHOA_QT = "khoa-quan-tri-nv276-novnc-123456"
++MODULE = "mod-xem-novnc-nv276"
++DICH_GIA = "http://127.0.0.1:6080"
++
++
++class ModXemGia:
++    """Module giả có khả năng trinh_duyet_xem: trả đích noVNC nội bộ, không gọi mạng."""
++
++    def __init__(self, dich=DICH_GIA, loi=None):
++        self.dich, self.loi, self.so_lan = dich, loi, 0
++
++    async def trinh_duyet_xem_mo(self):
++        self.so_lan += 1
++        if self.loi:
++            raise self.loi
++        return {"dich": self.dich}
++
++
++@pytest.fixture
++def moi_truong(tmp_path, monkeypatch):
++    monkeypatch.setenv("WEB2API_DATA", str(tmp_path))
++    monkeypatch.setenv("WEB2API_ADMIN_KEY", KHOA_QT)
++    monkeypatch.setenv("WEB2API_RL_LOI_XAC_THUC", "1000")
++    monkeypatch.setenv("WEB2API_TEST_CHO_PHEP_LOOPBACK", "1")
++    monkeypatch.delenv("WEB2API_TIN_PROXY", raising=False)
++    gioi_han.khoi_dong()
++    yield
++    with TestClient(app) as c:
++        c.app.state.so.dang_chay.pop(MODULE, None)
++        c.app.state.so.dang_chay.pop("mod-khong-xem-novnc", None)
++    novnc._VE.clear()
++    novnc._PHIEN.clear()
++    novnc._HO_SO.clear()
++
++
++def _qt():
++    return {"Authorization": f"Bearer {KHOA_QT}"}
++
++
++def _xem(c):
++    r = c.post(f"/api/trinh-duyet/{MODULE}/xem", json={}, headers=_qt())
++    assert r.status_code == 200, r.text
++    return r.json()
++
++
++def _ve_tu_url(url: str) -> str:
++    assert url.startswith("/novnc/dang-nhap?ve="), url
++    return url.split("ve=", 1)[1]
++
++
++def test_xem_cap_ve_url_khong_lo_mat_khau(moi_truong):
++    with TestClient(app) as c:
++        c.app.state.so.dang_chay[MODULE] = ModXemGia()
++        j = _xem(c)
++        assert j["url"].startswith("/novnc/dang-nhap?ve=")
++        assert j["ho_so"] and len(j["ho_so"]) >= 16
++        assert "mat_khau" not in r_text(j) and "password" not in r_text(j)
++        assert "6080" not in j["url"]  # đích nội bộ chỉ nằm trong sổ ghim của lõi, không ra phản hồi
++
++
++def r_text(j):
++    import json
++
++    return json.dumps(j, ensure_ascii=False).lower()
++
++
++def test_xem_ve_mot_lan_doi_thanh_phien(moi_truong):
++    with TestClient(app, follow_redirects=False) as c:
++        c.app.state.so.dang_chay[MODULE] = ModXemGia()
++        ve = _ve_tu_url(_xem(c)["url"])
++        r1 = c.post("/novnc/dang-nhap", data={"ve": ve},
++                    headers={"Content-Type": "application/x-www-form-urlencoded", "Origin": "http://testserver"})
++        assert r1.status_code == 303, r1.text
++        r2 = c.post("/novnc/dang-nhap", data={"ve": ve},
++                    headers={"Content-Type": "application/x-www-form-urlencoded", "Origin": "http://testserver"})
++        assert r2.status_code == 401, f"dùng lại vé phải 401, được {r2.status_code}"
++
++
++def test_xem_ve_het_han_401(moi_truong):
++    with TestClient(app, follow_redirects=False) as c:
++        c.app.state.so.dang_chay[MODULE] = ModXemGia()
++        ve = _ve_tu_url(_xem(c)["url"])
++        novnc._VE[novnc._bam(ve)]["het_han"] = time.time() - 1
++        r = c.post("/novnc/dang-nhap", data={"ve": ve},
++                   headers={"Content-Type": "application/x-www-form-urlencoded", "Origin": "http://testserver"})
++        assert r.status_code == 401, f"vé hết hạn phải 401, được {r.status_code}"
++
++
++def test_xem_thu_hoi_khi_dong_lam_ve_mat_hieu_luc(moi_truong):
++    with TestClient(app, follow_redirects=False) as c:
++        c.app.state.so.dang_chay[MODULE] = ModXemGia()
++        j = _xem(c)
++        ve = _ve_tu_url(j["url"])
++        novnc.thu_hoi_ho_so(MODULE, j["ho_so"])
++        r = c.post("/novnc/dang-nhap", data={"ve": ve},
++                   headers={"Content-Type": "application/x-www-form-urlencoded", "Origin": "http://testserver"})
++        assert r.status_code == 401, f"vé đã thu hồi phải 401, được {r.status_code}"
++
++
++def test_xem_idor_ve_module_khac_khong_mo_duoc_ho_so_nay(moi_truong):
++    """Vé gắn (module, hồ sơ) của nó: xoá hồ sơ của module khác không ảnh hưởng, và vé không
++    mở được hồ sơ thuộc module khác (doi_ve tra cứu đúng cặp đã ghim)."""
++    with TestClient(app, follow_redirects=False) as c:
++        c.app.state.so.dang_chay[MODULE] = ModXemGia()
++        j = _xem(c)
++        ve = _ve_tu_url(j["url"])
++        novnc.thu_hoi_ho_so("mod-khac-khong-lien-quan", j["ho_so"])
++        r = c.post("/novnc/dang-nhap", data={"ve": ve},
++                   headers={"Content-Type": "application/x-www-form-urlencoded", "Origin": "http://testserver"})
++        assert r.status_code == 303, r.text
++
++
++def test_xem_khong_khoa_401_khach_403(moi_truong):
++    with TestClient(app) as c:
++        c.app.state.so.dang_chay[MODULE] = ModXemGia()
++        assert c.post(f"/api/trinh-duyet/{MODULE}/xem", json={}).status_code == 401
++        rk = c.post("/api/khoa-khach", json={"nhan": "nv276-novnc-khach"}, headers=_qt())
++        assert rk.status_code == 200, rk.text
++        khoa_khach = rk.json()["khoa"]["khoa"]
++        r = c.post(f"/api/trinh-duyet/{MODULE}/xem", json={},
++                   headers={"Authorization": f"Bearer {khoa_khach}"})
++        assert r.status_code == 403, f"khoá khách phải 403, được {r.status_code}"
++
++
++def test_xem_module_khong_ho_tro_501_khong_co_404(moi_truong):
++    with TestClient(app) as c:
++        c.app.state.so.dang_chay["mod-khong-xem-novnc"] = object()
++        assert c.post("/api/trinh-duyet/mod-khong-xem-novnc/xem", json={}, headers=_qt()).status_code == 501
++        assert c.post("/api/trinh-duyet/mod-khong-co-novnc/xem", json={}, headers=_qt()).status_code == 404
++
++
++def test_xem_module_loi_502_khong_lo_chi_tiet(moi_truong):
++    with TestClient(app) as c:
++        c.app.state.so.dang_chay[MODULE] = ModXemGia(loi=RuntimeError("bi mat abc123xyz"))
++        r = c.post(f"/api/trinh-duyet/{MODULE}/xem", json={}, headers=_qt())
++        assert r.status_code == 502 and "abc123xyz" not in r.text
++
++
++def test_xem_dich_ssrf_bi_chan_502(moi_truong):
++    with TestClient(app) as c:
++        c.app.state.so.dang_chay[MODULE] = ModXemGia(dich="http://169.254.169.254:6080")
++        r = c.post(f"/api/trinh-duyet/{MODULE}/xem", json={}, headers=_qt())
++        assert r.status_code == 502, f"đích metadata phải 502, được {r.status_code}"
++        assert "169.254.169.254" not in r.text  # địa chỉ đích cụ thể không được lộ ra phản hồi
++
++
++def test_module_that_may_dang_nhap_tra_dich_novnc_tu_dich_vu_url():
++    """Module thật: đích noVNC suy từ host của dich_vu_url đã cấu hình, cổng 6080, không dùng
++    khoá dịch vụ, không gọi mạng."""
++    import asyncio
++    import importlib.util
++    import sys
++
++    spec = importlib.util.spec_from_file_location(
++        "mod_may_dang_nhap_nv276", GOC / "modules" / "may-dang-nhap" / "module.py")
++    mod = importlib.util.module_from_spec(spec)
++    sys.modules["mod_may_dang_nhap_nv276"] = mod
++    spec.loader.exec_module(mod)
++    m = mod.Module({})
++    m.nap({"dich_vu_url": "http://192.0.2.10:8010", "khoa_dich_vu": ""})
++    kq = asyncio.run(m.trinh_duyet_xem_mo())
++    assert kq["dich"] == "http://192.0.2.10:6080"
++    assert "khoa" not in str(kq).lower()
++
++
++# ── giao diện: nút noVNC riêng, giữ nguyên nút ảnh chụp cũ ─────────────────────────
++def test_giao_dien_co_nut_theo_doi_novnc_rieng():
++    assert 'id="k268-theo-doi-truc-tiep"' in HTML
++    assert "khuTheoDoiTrucTiep" in HTML
++    assert "Xem trình duyệt đang đăng nhập; gặp CAPTCHA/xác minh thì tự xử lý rồi bấm Đăng nhập tự động lần nữa" in HTML
++    # nút ảnh chụp cũ vẫn còn nguyên, không bị đổi hành vi
++    assert 'id="k268-theo-doi"' in HTML and 'id="k268-xem-anh"' in HTML
++
++
++def test_giao_dien_nut_xuong_dong_khong_tran_ngang():
++    """Hàng nút .k268-hd dùng flex-wrap:wrap nên nút mới xuống dòng ở 390 px thay vì tràn ngang
++    (kiểm tĩnh; chưa đo bằng Chrome thật — xem báo cáo)."""
++    import re
++
++    m = re.search(r"\.k268-hd\{([^}]*)\}", HTML)
++    assert m and "flex-wrap:wrap" in m.group(1)
++
++
++def test_giao_dien_mo_cua_so_ngay_trong_cu_bam_va_dung_xem():
++    i = HTML.index("khuTheoDoiTrucTiep")
++    ham = HTML[i:i + 1800]
++    assert 'window.open("about:blank", "_blank")' in ham
++    assert "/xem" in ham
++    assert "trinh_duyet_xem" in HTML  # giao diện tìm module theo khả năng, không nêu tên module
++    assert "may-dang-nhap" not in ham
+diff --git a/web/He-thong-AI.dc.html b/web/He-thong-AI.dc.html
+index 2e2b71d..5a21f61 100644
+--- a/web/He-thong-AI.dc.html
++++ b/web/He-thong-AI.dc.html
+@@ -427,7 +427,9 @@ main.pg{padding:20px 40px 24px 32px;gap:12px}
+ <button type="button" id="k268-dn-tu-dong" onClick="{{khuCt.dangNhapTuDong}}" disabled="{{khuCt.tatDangNhap}}" class="k268-nut">Đăng nhập tự động</button>
+ <sc-if value="{{khuCt.coXem}}"><button type="button" id="k268-theo-doi" onClick="{{khuCt.moXem}}" class="k268-nut phu" title="Xem trang trình duyệt đang đăng nhập (ảnh làm mới liên tục; cần can thiệp thì dùng «Đăng nhập tay»)">{{khuCt.nhanXem}}</button></sc-if>
+ <sc-if value="{{khuCt.coTay}}"><button type="button" id="k268-dn-tay" onClick="{{khuCt.dangNhapTay}}" class="k268-nut phu" title="Bật trình duyệt từ xa với hồ sơ riêng của tài khoản này để bạn tự đăng nhập">Đăng nhập tay</button></sc-if>
++<sc-if value="{{khuCt.coTheoDoiTrucTiep}}"><button type="button" id="k268-theo-doi-truc-tiep" onClick="{{khuCt.theoDoiTrucTiep}}" class="k268-nut phu" title="Mở màn hình đang đăng nhập tự động ở tab mới (trình duyệt có thể hỏi mã truy cập một lần)">Theo dõi trực tiếp</button></sc-if>
+ </div>
++<sc-if value="{{khuCt.coTheoDoiTrucTiep}}"><p class="k268-ghi">Xem trình duyệt đang đăng nhập; gặp CAPTCHA/xác minh thì tự xử lý rồi bấm Đăng nhập tự động lần nữa</p></sc-if>
+ </sc-if>
+ <sc-if value="{{khuCt.khongCo}}">
+ <h2>Tài khoản</h2>
+@@ -994,6 +996,24 @@ class Component extends DCLogic {
+       this.setState({ khuBiMatLoi: (e && e.message) || "Không mở được trình duyệt từ xa." });
+     }
+   }
++  async khuTheoDoiTrucTiep(modId) {
++    // «Theo dõi trực tiếp» (NV276): mở màn hình dùng chung đang đăng nhập tự động ở tab mới, qua vé một lần của lõi.
++    // Mở cửa sổ NGAY trong cú bấm để trình duyệt không chặn cửa sổ bật lên (như khuDangNhapTay). Đường /xem có
++    // step-up: K.goi tự mở hộp thoại xác nhận lại khi máy chủ đòi. Mã truy cập màn hình (nếu trình duyệt hỏi) do người xem tự
++    // nhập một lần — giao diện không nhận và không hiển thị mật khẩu đó.
++    if (!modId) return;
++    this.setState({ khuBiMatLoi: "" });
++    const w = (typeof window !== "undefined" && window.open) ? window.open("about:blank", "_blank") : null;
++    try {
++      const { j } = await K.goi("api/trinh-duyet/" + encodeURIComponent(modId) + "/xem", { method: "POST", json: {} });
++      if (j && j.url && w) { w.location.href = j.url; }
++      else if (j && j.url) { window.open(j.url, "_blank"); }
++      else { if (w) w.close(); this.setState({ khuBiMatLoi: "Không mở được cửa sổ theo dõi." }); }
++    } catch (e) {
++      if (w) w.close();
++      this.setState({ khuBiMatLoi: (e && e.message) || "Không mở được cửa sổ theo dõi." });
++    }
++  }
+   async khuChep(txt) {
+     try { await navigator.clipboard.writeText(txt); this.msg("Đã chép.", false); }
+     catch (e) { this.msg("Không chép được — trình duyệt chặn.", true); }
+@@ -1967,6 +1987,9 @@ class Component extends DCLogic {
+     const modTd = (tn && tn.modules || []).find((m) => (m.cung_cap || []).includes('trinh_duyet'));
+     // Module cho XEM trình duyệt đang đăng nhập tự động (suy từ cấu trúc, đang chạy): có thì bấm «Đăng nhập tự động» sẽ mở cửa sổ xem.
+     const modXem = (tn && tn.modules || []).find((m) => m.man_hinh && m.da_lien_ket);
++    // Module cho THEO DÕI trực tiếp (NV276, khác nút ảnh chụp k268-theo-doi ở trên): khai khả năng trinh_duyet_xem
++    // và đã liên kết. Tìm theo khả năng, không nêu tên module.
++    const modXemTrucTiep = (tn && tn.modules || []).find((m) => (m.cung_cap || []).includes('trinh_duyet_xem') && m.da_lien_ket);
+     const tabTd = modTd ? (tn && tn.tab || []).find((t) => t.module === modTd.id) : null;
+     const coDuongTrinhDuyet = !!tabTd;
+     const duongTrinhDuyet = tabTd ? tabTd.duong : '';
+@@ -2637,6 +2660,7 @@ class Component extends DCLogic {
+         tatDangNhap: !mod,
+         coBuoc: !!(s.dlBuoc || {})[id], buoc: (s.dlBuoc || {})[id] || "",
+         coXem: !!modXem, moXem: () => this.khuBatXem(modXem && modXem.id),
++        coTheoDoiTrucTiep: !!modXemTrucTiep, theoDoiTrucTiep: () => this.khuTheoDoiTrucTiep(modXemTrucTiep && modXemTrucTiep.id),
+         nhanXem: s.xemId === id ? "Ẩn trình duyệt" : "Theo dõi",
+         dangXem: s.xemId === id, anhXem: s.xemId === id ? (s.xemAnh || "") : "",
+         coAnh: s.xemId === id && !!s.xemAnh, chuaAnh: s.xemId === id && !s.xemAnh,       // chưa có ảnh thì KHÔNG dựng thẻ ảnh (tránh biểu tượng ảnh hỏng)
