@@ -9,4 +9,5 @@ QUY TẮC GIAO DIỆN W2A — CHỦ MÁY CHỐT 03/11/2026 (Muse đọc TRƯỚC
 
 VÒNG LẶP LÀM CHO ĐẾN KHI ĐÚNG (chủ máy: «giao Muse cho đến khi đúng như yêu cầu»):
   Muse làm → nộp patch → điều phối soát + chạy test + đẩy main + dựng lại → Muse kiểm lại bằng chính bộ test Chrome và đối chiếu từng điều 1–6 với bản đang chạy (đọc mã + test; nếu có thể chụp ảnh) → Muse ghi LỖI/LỆCH tìm được vào outbox/kiem-giao-dien-<lần>.md rồi TỰ sửa trong lần nộp kế → lặp. Dừng khi một lượt kiểm không còn lệch nào so với 6 điều trên và demo.
-Thứ tự: NV289 → NV297+NV298 (một patch) → NV295 → NV288 → NV291 → NV292 → NV294 → NV290.
+7. MẠNG NHÀ: MikroTik quyền CAO HƠN (chặn thật), AdGuard lo tên miền/ứng dụng theo tên; AdGuard lỗi thì MikroTik giữ phần chặn thô (NV299).
+Thứ tự: NV289 → NV297+NV298 (một patch) → NV299 → NV295 → NV288 → NV291 → NV292 → NV294 → NV290.
