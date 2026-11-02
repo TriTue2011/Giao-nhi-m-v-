@@ -1,0 +1,1940 @@
+diff --git a/README.md b/README.md
+index ab094e7..ec63bee 100644
+--- a/README.md
++++ b/README.md
+@@ -1,8 +1,7 @@
+ # web2api
+ 
+ <p>
+-  <a href="https://github.com/TriTue2011/web2api/actions/workflows/docker-build.yml"><img src="https://github.com/TriTue2011/web2api/actions/workflows/docker-build.yml/badge.svg" alt="Docker Build"></a>
+-  <a href="https://github.com/TriTue2011/web2api/actions/workflows/security.yml"><img src="https://github.com/TriTue2011/web2api/actions/workflows/security.yml/badge.svg" alt="Security Scan"></a>
++  <a href="https://github.com/TriTue2011/web2api/actions/workflows/docker-build.yml"><img src="https://github.com/TriTue2011/web2api/actions/workflows/docker-build.yml/badge.svg" alt="Docker Build"></a> <a href="https://github.com/TriTue2011/web2api/actions/workflows/security.yml"><img src="https://github.com/TriTue2011/web2api/actions/workflows/security.yml/badge.svg" alt="Security Scan"></a>
+ </p>
+ 
+ Cổng AI chuẩn OpenAI (`/v1/models`, `/v1/chat/completions`, stream, tạo ảnh, video, âm thanh, nhúng...) chạy trong một container Docker nhỏ gọn. Dự án dành cho cá nhân và gia đình muốn hợp nhất các nguồn AI (Google Gemini, Meta Muse...) vào các ứng dụng chuẩn OpenAI (ví dụ OpenAI SDK, curl; chưa kiểm cụ thể với Home Assistant). Điểm khác biệt cốt lõi: lõi đóng vai trò **«phiên dịch viên»** trung lập, không chứa sẵn mã của nhà cung cấp nào; mọi nguồn AI là các **module** độc lập cài thêm lúc chạy từ git, không cần dựng lại ảnh Docker hay khởi động lại dịch vụ.
+@@ -207,6 +206,7 @@ sudo chown 1000:1000 khoa-chinh           # container chạy uid 1000 phải đ
+ | `chay-ma` | Chạy đoạn mã Python trong container docker dùng-một-lần cách ly (không mạng, rootfs chỉ đọc, user không-root, trần CPU/RAM/thời gian/đầu ra) qua dịch vụ phụ chay-ma — mặc định tắt; `chay_python` rủi ro `nguy_hiem` (lõi bắt phê duyệt), `kiem_tinh` soi tĩnh không chạy | HTTP nội bộ tới dịch vụ chay-ma | Có sẵn (kiểm với docker giả + kiểm tĩnh Dockerfile + bootstrap rlimit chạy thật; chưa kiểm với Docker thật) |
+ | `tro-ly` | Trợ lý: dựng prompt theo ngân sách + chọn công cụ theo tầng + X-quang prompt + sổ lỗi (NV136; vòng lặp gọi mô hình là NV135) | Nội bộ (thuần Python) | Có sẵn (11 test xanh; chưa đo trên nhật ký thật; chưa có vòng lặp gọi mô hình) |
+ | `youtube-phat` | Máy phát YouTube/Zing qua dịch vụ phụ: giữ địa chỉ + khoá Integration API, hỏi sức khoẻ dịch vụ (NV153 đợt B) | HTTP nội bộ/LAN tới dịch vụ youtube-phat | Có sẵn (kiểm với máy chủ giả; **chưa kiểm với dịch vụ thật**) |
++| `youtube` | Máy phát YouTube/Zing chạy thẳng trong web2api cho Home Assistant (NV277): đường riêng của lõi `/m/{id}/api/{duong}` (vd `/m/youtube/api/integration/*`) + luồng vé ký; KHÔNG sửa `youtube-phat`, không cần container phụ hay c2a | HTTPS tới youtube.com/googlevideo.com/ytimg.com/zingmp3.vn (qua yt-dlp + endpoint gợi ý Zing) | Có sẵn (kiểm với nguồn giả cục bộ; **chưa kiểm với YouTube/loa/HA thật**; giải luồng Zing/Facebook chưa chuyển; yt-dlp chưa có trong ảnh lõi — xem báo cáo NV277) |
+ | `lich-ics` | Đọc lịch ICS (Google/Outlook/Nextcloud) qua link bí mật — chỉ đọc, trả sự kiện sắp tới cho trợ lý (chuẩn C2 công cụ) | HTTPS tới máy chủ lịch đã khai | Có sẵn (45 test với máy chủ ICS giả; chưa kiểm với lịch thật) |
+ | `chitieu` | Sổ chi tiêu theo hũ (JARS): ghi/xem chi tiêu, tự bù hũ vượt, cảnh báo ngưỡng, tạm ứng công ty — mỗi danh tính một sổ riêng | Cục bộ (thuần Python + SQLite, không mạng) | Có sẵn (chuẩn C2 công cụ; port từ c2a; chưa kiểm với dữ liệu thật) |
+ | `hoa-don` | Công cụ đối chiếu hoá đơn điện tử XML (bản gốc pháp lý NĐ 123/2020 + TT 78/2021) với bảng danh mục Excel: báo dòng khớp/lệch và tự kiểm phép tính trên hoá đơn (NV162) | Cục bộ (thuần Python, không mạng, không khoá) | Có sẵn (kiểm với hoá đơn giả đúng khuôn TT78 + xlsx giả; chưa kiểm với hoá đơn thật của nhà phát hành) |
+diff --git a/app/duong_module.py b/app/duong_module.py
+new file mode 100644
+index 0000000..3615b47
+--- /dev/null
++++ b/app/duong_module.py
+@@ -0,0 +1,274 @@
++"""Đường riêng của module dưới tiền tố /m/<id>/api/... (NV277).
++
++LÝ DO CÓ ĐƯỜNG NÀY — và đường nào MỞ:
++- Lõi trước đây chỉ có đường tĩnh GET /m/<id>/<tệp> cho tab web của module
++  (app/tuyen.py: tep_module) và các đường /v1, /api/* chuẩn. Một module kiểu
++  máy phát cho hệ thống nhà cần đường riêng giống dịch vụ phụ cũ
++  (/api/integration/* + đường luồng cho loa), nhưng KHÔNG được tự gắn route
++  (hợp đồng app/kham_pha.py: «module không có route»).
++- Vì vậy LÕI sở hữu tập đường này. Module chỉ khai trong manifest:
++    "duong_module": {"truong_bi_mat": "khoa_tich_hop", "lan_chi": true}
++  và cài HAI phương thức (thiếu thì đường trả 404, lõi không vỡ):
++    async tich_hop(duong, phuong_thuc, query, than) -> (mã, headers, nội dung)
++        duong: phần sau /api/ (vd "integration/search"); than: dict JSON hoặc
++        None khi thân rỗng; nội dung trả về: dict (thành JSON), bytes, hoặc
++        async-iterator[bytes] (lõi stream từng khúc, không gom).
++    async luong(ve, khoang, phuong_thuc) -> (mã, headers, nội dung)
++        ve: vé luồng đã đăng ký (xem dưới); khoang: header Range của loa
++        (hoặc None); nội dung: bytes hoặc async-iterator[bytes].
++- XÁC THỰC đường integration: Bearer bằng đúng BÍ MẬT RIÊNG của module
++  (trường bí mật trong manifest, đọc từ kho bí mật của lõi — không vào log,
++  không vào phản hồi thường). Thiếu khoá → 401; khoá của module KHÁC →
++  403; module không chạy/không khai đường → 404. Thân POST tối đa 400_000
++  byte (trần lớn nhất của dịch vụ cũ, cho playlists import); JSON hỏng →
++  400 invalid_request.
++- ĐƯỜNG LUỒNG MỞ (không Bearer — loa không gửi được header, như dịch vụ
++  cũ): xác thực bằng VÉ KÝ có hạn, DÙNG LẠI app/url_ky.py của lõi (HMAC
++  phủ phương thức GET + đường dẫn + hạn; KHÔNG mang cơ chế HMAC riêng của
++  dịch vụ cũ vào lõi). Vé giả/hết hạn/sai đường → 404 TRỐNG, không nêu lý
++  do (không lộ module nào tồn tại hay vé nào sai ở đâu). Vé do module tạo
++  qua tao_duong_luong() khi trả POST integration/stream, hạn mặc định
++  3600 giây. HEAD dùng cùng vé GET (loa gọi HEAD cùng URL trước khi GET).
++- GIỚI HẠN LAN: cả hai nhóm đường đều chỉ chấp nhận nguồn LAN — peer là
++  loopback trực tiếp, IP riêng (RFC 1918), link-local, hoặc (chỉ trong
++  test, khi WEB2API_TEST_CHO_PHEP_LOOPBACK=1) peer không phân tích được
++  (TestClient). Nguồn Internet trực tiếp → 404 trống (đường luồng) hoặc
++  403 (đường integration). GIỚI HẠN ĐÃ BIẾT: peer qua đường hầm
++  cloudflared là IP gateway Docker (IP riêng) nên cổng LAN KHÔNG chặn được
++  truy cập qua hầm — muốn chặn phải thêm luật ingress của hầm từ chối
++  /m/*/api/* (ghi trong hoi-nv277.md, chủ kho quyết).
++- KHÔNG có tên nhà cung cấp nào trong tệp này: mọi logic đặc thù nằm ở
++  module, lõi chỉ chuyển tiếp (mã, headers, nội dung) và kiểm xác thực.
++- Handler KHÔNG nuốt lỗi âm thầm (test nv45): mọi except Exception đều
++  ghi một dòng log chỉ nêu kiểu lỗi (type(e).__name__), rồi trả 502 chung.
++"""
++
++from __future__ import annotations
++
++import asyncio
++import hashlib
++import hmac
++import ipaddress
++import logging
++import os
++
++from fastapi import APIRouter, Request
++from fastapi.responses import JSONResponse, Response, StreamingResponse
++
++from app import gioi_han as gioi_han_mod
++from app import kho as kho_mod
++from app import url_ky as url_ky_mod
++
++log = logging.getLogger("web2api.duong_module")
++
++router = APIRouter(prefix="/m")
++
++#: Trần thân POST integration (byte) — bằng trần lớn nhất của dịch vụ cũ.
++TRAN_THAN = 400_000
++#: Hạn vé luồng mặc định (giây) — bằng hạn stream_url của dịch vụ cũ.
++HAN_VE_MAC_DINH_GIAY = 3600
++
++
++def tao_duong_luong(module_id: str, ve: str, het_han_giay: int = HAN_VE_MAC_DINH_GIAY) -> str:
++    """Đường luồng đã ký cho loa: /m/<id>/api/stream/<ve>?_het_han&_ky.
++
++    Module gọi hàm này khi trả POST integration/stream. Chỉ ký đường dẫn,
++    không nhúng khoá quản trị hay bí mật module vào URL.
++    """
++    duong = f"/m/{module_id}/api/stream/{ve}"
++    return url_ky_mod.ky_url(duong, het_han_giay=het_han_giay, phuong_thuc="GET")
++
++
++def _lay_so(request: Request):
++    return getattr(request.app.state, "so", None)
++
++
++def _lay_module(so, id_: str):
++    """(thể hiện, manifest) hoặc (None, None) — chịu cả catalog dạng object/dict."""
++    if so is None:
++        return None, None
++    dang_chay = getattr(so, "dang_chay", {}) or {}
++    the = dang_chay.get(id_)
++    if the is None:
++        return None, None
++    catalog = getattr(so, "catalog", {}) or {}
++    km = catalog.get(id_)
++    if km is None:
++        man = getattr(the, "manifest", {}) or {}
++    elif isinstance(km, dict):
++        man = km.get("manifest", {}) or {}
++    else:
++        man = getattr(km, "manifest", {}) or {}
++    return the, man
++
++
++def _khai_duong(man: dict) -> dict | None:
++    khai = man.get("duong_module") if isinstance(man, dict) else None
++    return khai if isinstance(khai, dict) else None
++
++
++def _doc_bi_mat(id_: str, khoa: str) -> str | None:
++    try:
++        bm = kho_mod.doc_bi_mat(id_)
++    except Exception as e:  # kho hỏng: đóng khi lỗi, chỉ ghi kiểu lỗi
++        log.warning("Không đọc được kho bí mật của module: %s", type(e).__name__)
++        return None
++    gia_tri = bm.get(khoa) if isinstance(bm, dict) else None
++    return gia_tri if isinstance(gia_tri, str) and gia_tri else None
++
++
++def _la_lan(request: Request) -> bool:
++    """Nguồn có phải LAN không (xem docstring đầu tệp về giới hạn hầm)."""
++    client = getattr(request, "client", None)
++    host = client.host if client else ""
++    ip, loai = gioi_han_mod.ip_hieu_luc_phan_loai(host, request.headers.get("x-forwarded-for"))
++    if loai == "vong_lap":
++        return True
++    if loai == "ip" and ip:
++        try:
++            dia_chi = ipaddress.ip_address(ip)
++        except ValueError:
++            return False
++        if isinstance(dia_chi, ipaddress.IPv6Address) and dia_chi.ipv4_mapped is not None:
++            dia_chi = dia_chi.ipv4_mapped
++        return bool(dia_chi.is_private or dia_chi.is_loopback or dia_chi.is_link_local)
++    # TestClient (peer «testclient» không phân tích được): chỉ cho qua khi
++    # test đã bật cờ loopback, đúng quy ước test của kho.
++    return os.environ.get("WEB2API_TEST_CHO_PHEP_LOOPBACK", "") == "1"
++
++
++def _lay_bearer(request: Request) -> str | None:
++    auth = request.headers.get("authorization", "")
++    if not auth.lower().startswith("bearer "):
++        return None
++    return auth[7:].strip() or None
++
++
++def _loi_json(ma: int, loi: str) -> JSONResponse:
++    return JSONResponse(status_code=ma, content={"error": loi},
++                        headers={"Cache-Control": "no-store"})
++
++
++def _tra_ve(ma: int, headers: dict, noi_dung):
++    """Chuyển (mã, headers, nội dung) của module thành Response của lõi.
++
++    dict → JSON; bytes → Response; iterator → StreamingResponse (bỏ
++    content-length/content-encoding do module khai, vì lõi stream từng
++    khúc — đúng lưu ý trong app/kham_pha.py).
++    """
++    headers = {str(k): str(v) for k, v in (headers or {}).items()}
++    headers.setdefault("Cache-Control", "no-store")
++    if isinstance(noi_dung, dict):
++        return JSONResponse(status_code=ma, content=noi_dung, headers=headers)
++    if isinstance(noi_dung, (bytes, bytearray)):
++        return Response(status_code=ma, content=bytes(noi_dung), headers=headers)
++    if hasattr(noi_dung, "__aiter__"):
++        headers.pop("content-length", None)
++        headers.pop("Content-Length", None)
++        headers.pop("content-encoding", None)
++        headers.pop("Content-Encoding", None)
++        return StreamingResponse(noi_dung, status_code=ma, headers=headers)
++    return Response(status_code=ma, content=str(noi_dung).encode("utf-8"), headers=headers)
++
++
++async def _kiem_tra_lan_va_module(request: Request, id_: str, *, mo: bool):
++    """Trả (thể hiện, manifest, phản_hồi_lỗi) — phản_hồi_lỗi None khi qua."""
++    if not _la_lan(request):
++        # Đường luồng: 404 trống để không lộ lý do; integration: 403 rõ.
++        return None, None, (Response(status_code=404) if mo else _loi_json(403, "forbidden"))
++    so = _lay_so(request)
++    the, man = _lay_module(so, id_)
++    khai = _khai_duong(man)
++    if the is None or khai is None:
++        return None, None, (Response(status_code=404) if mo else _loi_json(404, "not_found"))
++    return the, man, None
++
++
++@router.get("/{id_}/api/stream/{ve}")
++@router.head("/{id_}/api/stream/{ve}")
++async def luong_cua_module(id_: str, ve: str, request: Request):
++    # LƯU Ý: route này đăng ký TRƯỚC route integration (xem main.py) nên
++    # /m/<id>/api/stream/<vé> không rơi vào handler integration.
++    # Vé ký cho GET; HEAD dùng cùng vé (loa gọi HEAD cùng URL trước GET).
++    the, man, loi = await _kiem_tra_lan_va_module(request, id_, mo=True)
++    if loi is not None:
++        return loi
++    duong = f"/m/{id_}/api/stream/{ve}"
++    # query_params của Starlette không phải dict (kiem_chu_ky chỉ nhận
++    # dict/str/list) nên chuyển sang dict trước khi kiểm.
++    if not url_ky_mod.kiem_chu_ky("GET", duong, dict(request.query_params)):
++        return Response(status_code=404)
++    if not hasattr(the, "luong"):
++        return Response(status_code=404)
++    try:
++        ma, headers, noi_dung = await the.luong(ve, request.headers.get("range"),
++                                                request.method)
++    except Exception as e:
++        log.warning("Module %s lỗi khi phục vụ luồng: %s", id_, type(e).__name__)
++        return Response(status_code=404)
++    if ma == 404:
++        return Response(status_code=404)
++    if request.method == "HEAD":
++        # HEAD chỉ lấy header, không đẩy byte: đóng iterator của module
++        # ngay nếu có, rồi trả header với thân rỗng.
++        if hasattr(noi_dung, "__aiter__"):
++            try:
++                await noi_dung.aclose()
++            except Exception as e:
++                log.warning("Đóng iterator luồng HEAD lỗi: %s", type(e).__name__)
++        return Response(status_code=ma, content=b"",
++                        headers={str(k): str(v) for k, v in (headers or {}).items()})
++    return _tra_ve(ma, headers, noi_dung)
++
++
++@router.api_route("/{id_}/api/{duong:path}", methods=["GET", "POST"])
++async def tich_hop_cua_module(id_: str, duong: str, request: Request):
++    the, man, loi = await _kiem_tra_lan_va_module(request, id_, mo=False)
++    if loi is not None:
++        return loi
++    khai = _khai_duong(man)
++    khoa_bi_mat = khai.get("truong_bi_mat", "khoa_tich_hop")
++    bi_mat = _doc_bi_mat(id_, khoa_bi_mat)
++    if bi_mat is None:
++        return _loi_json(401, "invalid_auth")
++    token = _lay_bearer(request)
++    if token is None or not hmac.compare_digest(token, bi_mat):
++        # Khoá của module KHÁC → 403 (phân biệt với thiếu/sai khoá → 401):
++        # quét kho bí mật của các module khác có khai đường riêng.
++        if token:
++            so = _lay_so(request)
++            catalog = getattr(so, "catalog", {}) or {} if so is not None else {}
++            for id_khac in catalog:
++                if id_khac == id_:
++                    continue
++                _, man_khac = _lay_module(so, id_khac)
++                khai_khac = _khai_duong(man_khac)
++                if khai_khac is None:
++                    continue
++                bi_mat_khac = _doc_bi_mat(id_khac, khai_khac.get("truong_bi_mat", "khoa_tich_hop"))
++                if bi_mat_khac and hmac.compare_digest(token, bi_mat_khac):
++                    return _loi_json(403, "forbidden")
++        return _loi_json(401, "invalid_auth")
++    if not hasattr(the, "tich_hop"):
++        return _loi_json(404, "not_found")
++    # Trần thân + JSON.
++    than_tho = await request.body()
++    if len(than_tho) > TRAN_THAN:
++        return _loi_json(400, "invalid_request")
++    than = None
++    if than_tho:
++        try:
++            import json as _json
++
++            than = _json.loads(than_tho.decode("utf-8"))
++        except Exception:
++            return _loi_json(400, "invalid_request")
++        if not isinstance(than, dict):
++            return _loi_json(400, "invalid_request")
++    try:
++        ma, headers, noi_dung = await the.tich_hop(duong, request.method,
++                                                   dict(request.query_params), than)
++    except Exception as e:
++        log.warning("Module %s lỗi khi xử lý integration: %s", id_, type(e).__name__)
++        return _loi_json(502, "module_error")
++    return _tra_ve(ma, headers, noi_dung)
+diff --git a/app/kham_pha.py b/app/kham_pha.py
+index dd90fc6..214055f 100644
+--- a/app/kham_pha.py
++++ b/app/kham_pha.py
+@@ -49,6 +49,17 @@ PHƯƠNG THỨC TUỲ CHỌN — có thì lõi mở đường /v1 tương ứng;
+     async video_trang_thai(ma: str)        -> (mã, headers, bytes)   GET /v1/videos/{id} (lõi đã bỏ "<tien_to>:")
+     async video_noi_dung(ma: str)          -> (mã, headers, bytes | async-iterator[bytes])
+                                               GET /v1/videos/{id}/content — tệp lớn thì trả iterator (stream)
++    Phương thức cho đường riêng của module /m/<id>/api/... (NV277, xem
++    app/duong_module.py — lõi sở hữu đường, module không tự gắn route):
++      async tich_hop(duong, phuong_thuc, query, than) -> (mã, headers, nội dung)
++        đường integration của module (vd "integration/search"); lõi kiểm
++        Bearer bằng bí mật riêng của module (manifest "duong_module") và
++        giới hạn nguồn LAN trước khi gọi; thiếu phương thức → 404.
++      async luong(ve, khoang, phuong_thuc) -> (mã, headers, nội dung)
++        đường luồng mở cho loa: lõi kiểm vé ký app/url_ky + nguồn LAN
++        trước khi gọi; vé do module tạo bằng duong_module.tao_duong_luong().
++        Module tự chịu trách nhiệm nối lại từ đúng byte khi nguồn đứt
++        (tối đa 5 lần) và dừng hẳn khi loa ngắt hoặc khi dung()/stop.
+     Module có video phải có đủ cả ba phương thức video_*. Mã do khách gửi là ĐẦU VÀO KHÔNG TIN ĐƯỢC: module
+     phải kiểm nó trước khi dùng để gọi dịch vụ kèm khoá.
+     POST /v1/videos nhận cả multipart/form-data (SDK openai gửi videos.create như vậy): lõi đổi các trường chữ
+diff --git a/app/main.py b/app/main.py
+index fc50211..075b6db 100644
+--- a/app/main.py
++++ b/app/main.py
+@@ -24,7 +24,7 @@ from fastapi.responses import FileResponse, JSONResponse
+ from fastapi.staticfiles import StaticFiles
+ from starlette.types import ASGIApp, Receive, Scope, Send
+ 
+-from app import che_log, cong_mcp, dia_chi, do_tai_nguyen, gioi_han, ham_khoa, he_thong, kenh_vao, kho, khoa_khach, lam_moi_jwt, lam_moi_model, model_bo_sung, nguoi_dung, nhat_ky, phien, phien_web, so_thiet_bi, tai_khoan_hang_loat, tu_lam_moi, tuyen, xac_thuc
++from app import che_log, cong_mcp, dia_chi, do_tai_nguyen, duong_module, gioi_han, ham_khoa, he_thong, kenh_vao, kho, khoa_khach, lam_moi_jwt, lam_moi_model, model_bo_sung, nguoi_dung, nhat_ky, phien, phien_web, so_thiet_bi, tai_khoan_hang_loat, tu_lam_moi, tuyen, xac_thuc
+ from app.bien_loi import cai_bien_loi
+ from app.loi_openai import LoiOpenAI, than_loi, xu_ly_loi_openai
+ from app.nguon_git import NguonGit
+@@ -443,6 +443,10 @@ app.include_router(tuyen.phe_duyet)
+ app.include_router(tuyen.tim_kiem)
+ app.include_router(tuyen.cong_cu)
+ app.include_router(tuyen.combo)
++# Đường riêng của module /m/<id>/api/... (NV277): phải đứng TRƯỚC
++# tep_module (GET /m/<id>/<tệp> cho tab web) nếu không đường tĩnh sẽ nuốt
++# mất đường API của module. Router này tự xác thực, không gắn QT.
++app.include_router(duong_module.router)
+ app.include_router(tuyen.tep_module)
+ app.include_router(tuyen.trinh_duyet)
+ app.include_router(tuyen.novnc)
+diff --git a/docs/THAM-CHIEU.md b/docs/THAM-CHIEU.md
+index a7c4d94..3b349d1 100644
+--- a/docs/THAM-CHIEU.md
++++ b/docs/THAM-CHIEU.md
+@@ -83,6 +83,7 @@ sửa lõi, không dựng lại ảnh, không khởi động lại.
+ | Module `tro-ly-giao-vien` (Trợ lý giáo viên, đợt 1 — chuẩn C2 `thiet_bi`) | Có — port thuần từ c2a: ra đề + chấm heuristic (không gọi mô hình), rubric theo môn/lớp, gợi ý bậc thang không đập đáp án, giáo án 6 pha, tiếng Anh theo cấp CEFR, xác định lớp từ năm sinh (chỉ dùng một lần, không lưu hồ sơ), mục lục từ markdown SGK (dữ liệu không tin); kho đề 0600 ghi nguyên tử cách ly theo danh tính (không IDOR), bài làm học sinh không log, trần 100 đề/danh tính; kiểm với dịch vụ giả. **Đợt 2 (20/10/2026):** chấm tự luận bằng model của lõi qua loopback (barem giáo viên tự khai, điểm model là ĐỀ XUẤT cho giáo viên xác nhận; bài làm rào như dữ liệu không tin trong prompt, điểm tổng tự cộng từ barem; kết quả chấm 0600 theo danh tính, không chứa bài làm) — kiểm với model GIẢ trên test | 20/10/2026 |
+ | Module `tro-ly` (Trợ lý — dựng prompt theo ngân sách + chọn công cụ theo tầng, NV136) | Có — mảnh prompt theo tầng/ưu tiên/ngân sách (vượt trần bỏ nguyên mảnh, chống trùng, tiền tố ổn định byte-by-byte), prompt nền ≤ 400 token; chọn công cụ nhiều tín hiệu thuần Python + cổng biên (`mo_ho` khi điểm thấp/biên hẹp/đối nghịch/chồng chéo), danh mục chỉ qua `tim_cong_cu`; X-quang chỉ-thêm có lọc bí mật + phân quyền hồ sơ; sổ lỗi tối đa 3 dòng liên quan; **chưa đo trên nhật ký thật, chưa có vòng lặp gọi mô hình (NV135)** | 18/10/2026 |
+ | Module `youtube-phat` (Máy phát YouTube/Zing qua dịch vụ phụ, NV153 đợt B) | Có — giữ địa chỉ dịch vụ `dich-vu/youtube-phat` + khoá Integration API (`bi_mat`, lưu riêng 0600, chỉ hiện dạng che `…abcd`); hỏi sức khoẻ `GET /api/integration/health` (lỗi → «chưa kết nối được», không ném); địa chỉ kiểm SSRF bằng `app/tu_xa.py` (loopback + LAN nội bộ); khoá chặn khỏi log httpx/httpcore; `thuc_the` chỉ mô tả, không công cụ giả; kiểm với máy chủ giả; **CHƯA kiểm với dịch vụ thật** (đợt A viết song song) | 19/10/2026 |
++| Module `youtube` (Máy phát YouTube/Zing chạy thẳng trong web2api, NV277) + khả năng lõi `/m/<id>/api/...` | Có — đường integration `/m/youtube/api/integration/*` (Bearer bằng khoá tích hợp riêng của module: thiếu → 401, khoá module khác → 403) + đường luồng mở bằng vé ký `app/url_ky` hạn 3600 giây (giả/hết hạn → 404 trống); cả hai nhóm đường chỉ nhận nguồn LAN (giới hạn đã biết: không chặn được qua hầm cloudflared — cần luật ingress); rơ-le nối lại tối đa 5 lần từ đúng byte, dừng là dừng hẳn (phiên chỉ RAM); tìm/giải YouTube bằng yt-dlp, tìm Zing qua endpoint gợi ý công khai; giải luồng Zing/Facebook chưa chuyển (502 rõ); kiểm với nguồn giả cục bộ; **CHƯA kiểm với YouTube/loa/HA thật, chưa đo RSS/kích thước ảnh** (không có docker ở môi trường làm việc) | 02/11/2026 |
+ | Module `lich-ics` (Đọc lịch ICS, chỉ đọc — chuẩn C2 `thiet_bi`) | Có — đọc nhiều lịch qua link ICS bí mật (Google/Outlook/Nextcloud), công cụ `lich_ics.lich` rủi ro `doc` (sự kiện sắp tới + kiểm tra lịch, gắn `nguon_ngoai`); tôn trọng TZID/DST, RRULE có trần 500 mốc, trần tệp 2 MiB/5000 sự kiện; URL bí mật không vào log (bộ lọc mẫu NV116), tải qua kiểm SSRF của lõi kể cả chuyển hướng; kiểm với máy chủ ICS giả; **chưa kiểm với lịch thật** | 20/10/2026 |
+ | Module `chitieu` (Sổ chi tiêu theo hũ JARS, NV160) | Có — ghi/xem chi tiêu theo kỳ, tự bù hũ vượt theo thứ tự, cổng xác nhận khi vượt tổng ngân sách, cảnh báo ngưỡng, tạm ứng công ty; mỗi danh tính đăng nhập một sổ riêng; port từ c2a; **chưa kiểm với dữ liệu thật** | 20/10/2026 |
+ | Module `rclone` (Cầu nối lưu trữ đám mây qua rclone) + dịch vụ `dich-vu/rclone` | Có — liệt kê/đọc/tải về (`liet_ke`, `doc_chu`, `tai_ve`, rủi ro `doc`, mặc định) và tải lên/xoá/chuyển tệp (`gui_len`, `chuyen_tep` rủi ro `ghi`; `xoa` rủi ro `nguy_hiem`) — hành động GHI mặc định TẮT (bật bằng `ghi_bat`), tắt thì báo `chua_bat_ghi` và không gọi mạng; cấu hình rclone ở dịch vụ (0600, API chỉ trả bản đã che), khoá Bearer dịch vụ ≥ 24 ký tự; dịch vụ HTTP nội bộ gọi rclone v1.75.2 trong hộp cát (tập lệnh đóng 16 op, đường cục bộ `resolve()` dưới thư mục làm việc, không bao giờ qua shell, hết giờ 30/600 s, tải lên/xuống ≤ 25 MB, tên tệp hệ thống sinh); địa chỉ dịch vụ kiểm SSRF; kiểm với nhị phân rclone giả + kiểm tĩnh Dockerfile; **chưa kiểm với dịch vụ đám mây thật** (chưa dựng ảnh Docker thật) | 20/10/2026 |
+@@ -3364,6 +3365,97 @@ thực thể: `youtube_phat`. Hạng: `B` (mã tự viết, gọi dịch vụ ng
+    `{"cau_hinh": {"dich_vu_url": "http://192.168.1.10:8713",
+    "khoa_dich_vu": "<noi-dung-tep-integration_token>"}}` — lõi kiểm địa chỉ
+    chống SSRF trước khi lưu; khoá lưu riêng 0600, không API nào trả lại.
++### Module youtube — Máy phát YouTube/Zing chạy thẳng trong web2api (NV277)
++
++**Mô tả.** Máy phát YouTube/Zing chạy THẲNG trong tiến trình web2api cho
++Home Assistant (tích hợp `tritue_youtube_player`), KHÔNG cần container
++dịch vụ phụ riêng và không cần c2a. HOÀN TOÀN RIÊNG với module
++`youtube-phat` (module đó chỉ là máy khách của dịch vụ phụ
++`dich-vu/youtube-phat` và giữ nguyên tới khi chủ kho cho gỡ). Mã nguồn:
++`modules/youtube/` (module) + khả năng lõi mới `app/duong_module.py`.
++
++**Khả năng lõi mới (module không tự gắn route).** Lõi sở hữu đường
++riêng theo tiền tố `/m/<id>/api/...`, đăng ký TRƯỚC route tĩnh tab web
++`/m/<id>/<tệp>` (nếu không route tĩnh GET sẽ nuốt mất đường API).
++Module khai trong manifest `"duong_module": {"truong_bi_mat":
++"khoa_tich_hop", "lan_chi": true}` và cài hai phương thức
++`tich_hop(duong, phuong_thuc, query, than) -> (mã, headers, nội dung)`
++và `luong(ve, khoang, phuong_thuc) -> (mã, headers, nội dung)`.
++- Đường integration `/m/<id>/api/integration/*` (GET/POST): lõi kiểm
++  Bearer bằng đúng bí mật riêng của module (đọc từ kho bí mật của lõi,
++  không vào log/phản hồi thường). Thiếu khoá → 401; khoá của module
++  KHÁC → 403; module không chạy/không khai đường → 404. Thân POST tối
++  đa 400_000 byte (trần lớn nhất của dịch vụ cũ); JSON hỏng → 400.
++- Đường luồng MỞ `/m/<id>/api/stream/<vé>` (GET/HEAD, loa không gửi
++  được header): xác thực bằng vé ký có hạn, DÙNG LẠI `app/url_ky.py`
++  của lõi (HMAC phủ GET + đường dẫn + hạn, mặc định 3600 giây — KHÔNG
++  mang cơ chế HMAC riêng của dịch vụ cũ vào lõi). Vé giả/hết hạn →
++  404 TRỐNG, không nêu lý do. HEAD dùng cùng vé GET, chỉ trả header.
++- Giới hạn LAN cho cả hai nhóm đường: loopback trực tiếp, IP riêng
++  (RFC 1918), link-local được phép; IP công cộng trực tiếp bị chặn;
++  peer không phân tích được thì đóng khi lỗi (trừ chế độ test
++  `WEB2API_TEST_CHO_PHEP_LOOPBACK=1`). GIỚI HẠN ĐÃ BIẾT: peer qua
++  đường hầm cloudflared là IP gateway Docker (IP riêng) nên cổng LAN
++  KHÔNG chặn được truy cập qua hầm — muốn chặn phải thêm luật ingress
++  của hầm từ chối `/m/*/api/*` (xem `hoi-nv277.md`, chủ kho quyết).
++
++**Đường integration của module youtube** (hợp đồng dịch vụ cũ, gốc
++`/api/integration/*` nay nằm dưới `/m/youtube/api/`): `GET health`,
++`GET search` (source youtube/zing/facebook; limit 1–30), `GET status`,
++`GET history`, `POST stop` (thân rỗng = dừng tất cả), `POST session`,
++`GET/POST playlists` (action list/create/rename/delete/add/remove/
++move/export/import; mã chia sẻ `TTPL1.`), `POST session/outputs`,
++`POST stream` (trả `stream_url` ký + `expires_in: 3600`), `POST play`,
++`POST next/prev/seek`. Mọi phản hồi JSON kèm `Cache-Control: no-store`.
++
++**«Dừng là dừng hẳn» (giữ nguyên luật dịch vụ cũ).** Phiên chỉ ở RAM
++(không ghi đĩa); `dung()`/stop xoá phiên + vé luồng, đặt cờ dừng;
++iterator luồng đang chạy thấy cờ thì dừng ngay, không mở thêm request
++lên nguồn, không tự phát lại sau restart. Rơ-le: nguồn đứt giữa chừng
++thì nối lại tối đa 5 lần (chờ 0,5/1/2/2/2 giây) từ ĐÚNG byte đã gửi;
++403/404/410 thì quên link cũ, giải lại rồi mới tính lần thử; kiểm
++`Content-Range` (phải cùng tổng cỡ, bắt đầu đúng offset — sai thì tính
++1 lần thất bại, không gửi byte nào); hết lần thì NGẮT (không lấp rác,
++không chuyển bài — chuyển bài là việc của HA). Trần: tối đa 2 lần
++trích xuất/tìm kiếm cùng lúc (quá 30 giây chờ → 502 `busy`); bộ nhớ
++đệm vé luồng tối đa 256 mục.
++
++**Trích xuất.** YouTube: tìm qua yt-dlp `ytsearch`, giải link âm thanh
++qua yt-dlp (format chỉ-âm-thanh tốt nhất, rồi format tốt nhất có âm
++thanh), nạp lười — thiếu gói → 502 rõ. Zing: tìm qua endpoint gợi ý
++công khai (giống dịch vụ cũ: chỉ nhận entry type=1, status=1,
++privacy=1, playStatus=2, link `https://...zingmp3.vn/bai-hat/...`),
++trần phản hồi 1 MiB. Giải luồng Zing/Facebook CHƯA chuyển (dịch vụ cũ
++dùng luồng lấy khoá web riêng từng nguồn, chưa kiểm chứng lại) →
++502 rõ, không bịa link, không chuyển nguồn khác. Mọi URL do khách đưa
++(mục tiêu http) qua `app/tu_xa.kiem_url_lan` (bộ kiểm SSRF chung, không
++viết bộ kiểm thứ hai). KHÔNG có logic vượt/né/giải chống bot: nguồn
++đòi đăng nhập/xác minh → lỗi rõ 502.
++
++**Trỏ Home Assistant sang (khi chủ máy chuyển).** URL gốc mới là gốc
++của lõi web2api (ví dụ `http://<máy>:3031`, KHÔNG còn `/yt` và không
++còn cổng dịch vụ 8713); khoá mới là `khoa_tich_hop` của module youtube
++(không phải khoá quản trị, không phải token cũ của dịch vụ phụ).
++Chuyển dữ liệu từ c2a: chép `playlists.json`, `history.json` từ
++`<data c2a>/youtube_phat/` vào dữ liệu của module (hoặc dùng action
++`import` của playlists) rồi khởi động lại — KHÔNG chép token cũ.
++c2a vẫn phục vụ HA cho tới khi chủ máy chuyển và kiểm xong.
++
++**Cần gì để chạy thật.** `khoa_tich_hop` (bắt buộc, bí mật). Gói
++yt-dlp/yt-dlp-ejs/deno trong ảnh lõi — xem đề xuất Dockerfile/
++requirements trong báo cáo NV277 (chỉ ở nhánh, chủ kho duyệt mới
++dựng; chưa đo kích thước ảnh/RSS ở môi trường làm việc vì không có
++docker). Hạng: `B`.
++
++**Giới hạn.**
++- **CHƯA thử với YouTube thật, loa thật, HA thật** (môi trường làm
++  việc không có Internet ra ngoài, không có docker); test dùng nguồn
++  giả cục bộ (conftest chặn Internet).
++- Giải luồng Zing/Facebook chưa chuyển (502 rõ).
++- Chưa đo RSS khi 2 trích xuất cùng lúc, chưa đo kích thước ảnh tăng
++  bao nhiêu MB — chủ kho đo khi dựng ảnh thật rồi quyết có tăng
++  `mem_limit` 1g / `pids_limit` 100 không.
++
+ ### Module tuya — Tuya (thiết bị nhà, đám mây + LAN)
+ 
+ **Mô tả.** Thiết bị Tuya theo chuẩn C1 (`thuc_the` / `trang_thai` / `thuc_hien`), hai đường: **đám mây** qua Tuya Open API (ký HMAC-SHA256, danh sách thiết bị phân trang, thuộc tính shadow, gửi lệnh) và **LAN** qua giao thức cổng 6668 tự viết bằng thư viện chuẩn + `cryptography` (khung `0x000055AA`, AES-128-ECB bằng `local_key`, CRC32) — không thêm thư viện Tuya bên thứ ba. Port từ c2a (`services/tuya_nha.py`, `services/tuya_local.py`, commit d879b03): công thức ký, bảng vùng, bản đồ ngành và các bài học đo thật (lỗi giải mã = local_key đã đổi; thiết bị pin không mở cổng LAN) chép nguyên. Mã nguồn: `modules/tuya/`. Tiền tố: `tuya`. Hạng: `A`.
+diff --git a/modules/youtube/manifest.json b/modules/youtube/manifest.json
+new file mode 100644
+index 0000000..437d168
+--- /dev/null
++++ b/modules/youtube/manifest.json
+@@ -0,0 +1 @@
++{"cung_cap":[],"duong_module":{"lan_chi":true,"truong_bi_mat":"khoa_tich_hop"},"giao_thuc":"https","hang":"B","id":"youtube","loai":"tien_ich","loai_ten":"Tiện ích","loai_thu_tu":48,"mo_ta":"Máy phát YouTube/Zing chạy thẳng trong web2api cho Home Assistant (tích hợp tritue_youtube_player), KHÔNG cần container dịch vụ phụ riêng và không cần c2a. Phục vụ qua đường riêng của lõi /m/youtube/api/integration/* (Bearer bằng khoá tích hợp riêng của module) và đường luồng mở bằng vé ký có hạn /m/youtube/api/stream/<vé> (loa không gửi được header). Tìm kiếm + giải luồng bằng yt-dlp (YouTube) và endpoint gợi ý công khai của Zing; rơ-le nối lại tối đa 5 lần từ đúng byte, dừng là dừng hẳn (phiên chỉ ở RAM). HOÀN TOÀN RIÊNG với module youtube-phat (module đó chỉ là máy khách của dịch vụ phụ dich-vu/youtube-phat). CHƯA thử với YouTube thật / loa thật / HA thật; giải luồng Zing/Facebook chưa chuyển (trả 502 rõ, không bịa link).","nhom_con":"doi-song-va-giai-tri","phien_ban":"0.1.0","tai_nguyen":{"dia_mb":null,"ghi_chu":"Chạy cùng tiến trình lõi. Trích xuất bằng yt-dlp tốn vài chục tới trăm MB + một lõi CPU mỗi lần (trần 2 lần cùng lúc, như dịch vụ cũ). yt-dlp/yt-dlp-ejs/deno CHƯA có trong ảnh lõi — xem đề xuất Dockerfile/requirements trong báo cáo NV277 (chỉ ở nhánh, chủ kho duyệt mới dựng). RAM/đĩa chưa đo trên máy thật (chưa đo được ở môi trường làm việc, không có docker).","gpu":false,"mang_ra":["youtube.com","googlevideo.com","ytimg.com","zingmp3.vn","ac.zingmp3.vn"],"ram_them_mb":null},"ten":"YouTube (chạy thẳng trong web2api)","tien_to":"youtube","truong_cau_hinh":[{"bat_buoc":true,"khoa":"khoa_tich_hop","kieu":"bi_mat","mo_ta":"Khoá Bearer riêng của module cho /m/youtube/api/integration/*. Home Assistant dùng khoá này (không phải khoá quản trị web2api, không phải khoá của youtube-phat). Lưu riêng trong kho bí mật của lõi, không vào log/phản hồi thường; quản trị lấy lại bằng đường «chép token» như các bí mật khác.","nhan":"Khoá tích hợp (cho Home Assistant)"}],"yeu_cau_goi":["httpx"]}
+\ No newline at end of file
+diff --git a/modules/youtube/module.py b/modules/youtube/module.py
+new file mode 100644
+index 0000000..087b0ba
+--- /dev/null
++++ b/modules/youtube/module.py
+@@ -0,0 +1,698 @@
++"""Module youtube (NV277) — máy phát YouTube/Zing chạy THẲNG trong web2api.
++
++HOÀN TOÀN RIÊNG với modules/youtube-phat: module đó chỉ là MÁY KHÁCH
++của dịch vụ phụ dich-vu/youtube-phat (nó gọi HTTP sang dịch vụ đó);
++module này TỰ làm việc: tìm kiếm + giải luồng + rơ-le + phiên + danh
++sách phát + lịch sử, phục vụ Home Assistant qua đường riêng của lõi
++(app/duong_module.py: /m/youtube/api/...).
++
++Hợp đồng với lõi (xem app/kham_pha.py):
++- manifest khai "duong_module": {"truong_bi_mat": "khoa_tich_hop",
++  "lan_chi": true}; lõi kiểm Bearer bằng bí mật này + nguồn LAN.
++- tich_hop(duong, phuong_thuc, query, than) -> (mã, headers, nội dung).
++- luong(ve, khoang, phuong_thuc) -> (mã, headers, bytes | iterator).
++- nap(cau_hinh) đồng bộ; cai/suc_khoe/dung async; nap có thể nhận
++  cau_hinh rỗng (chưa cấu hình) mà không vỡ.
++
++BẢO MẬT:
++- Bí mật tích hợp chỉ vào kho bí mật của lõi (kieu bi_mat), KHÔNG bao
++  giờ vào log, phản hồi thường, hay URL (URL luồng dùng vé ký riêng).
++- Mọi URL do khách đưa (mục tiêu http) đều qua app.tu_xa.kiem_url_lan
++  (chống SSRF, bộ kiểm CHUNG của kho — không viết bộ kiểm thứ hai).
++  Chỉ cho ra mạng ngoài các nguồn đã khai trong manifest.tai_nguyen.
++- Handler KHÔNG nuốt lỗi âm thầm (test nv45): except Exception nào cũng
++  ghi một dòng log chỉ nêu kiểu lỗi, rồi trả mã lỗi rõ.
++
++«DỪNG LÀ DỪNG HẲN» (giữ nguyên luật của dịch vụ cũ):
++- Phiên chỉ ở RAM; dung()/stop xoá phiên + vé luồng, đặt cờ dừng; các
++  iterator luồng đang chạy thấy cờ thì dừng ngay, KHÔNG mở thêm request
++  lên nguồn, KHÔNG tự phát lại sau restart (restart = thể hiện mới, RAM
++  trống).
++- Rơ-le: nguồn đứt giữa chừng thì nối lại tối đa 5 lần (chờ 0,5/1/2/2/2
++  giây) từ ĐÚNG byte đã gửi; 403/404/410 thì quên link cũ, giải lại rồi
++  mới tính lần thử; kiểm Content-Range (phải cùng tổng cỡ, bắt đầu đúng
++  offset — sai thì tính 1 lần thất bại, không gửi byte nào); hết lần thì
++  NGẮT (không lấp rác, không chuyển bài — chuyển bài là việc của HA).
++- Trần: tối đa 2 lần trích xuất/tìm kiếm chạy cùng lúc (semaphore, chờ
++  tối đa 30 giây rồi 502 busy); bộ nhớ đệm vé luồng tối đa 256 mục.
++- CHƯA CÓ / CHƯA KIỂM (ghi thẳng, không bịa): giải luồng Zing/Facebook
++  chưa chuyển (trả 502 rõ); chưa thử với YouTube thật, loa thật, HA
++  thật (môi trường làm việc không có Internet ra ngoài); yt-dlp/deno
++  chưa có trong ảnh lõi — xem đề xuất Dockerfile/requirements trong
++  báo cáo NV277 (chỉ ở nhánh, chủ kho duyệt mới dựng).
++"""
++
++from __future__ import annotations
++
++import asyncio
++import logging
++import re
++import secrets
++import time
++from urllib.parse import urlsplit
++
++from app import duong_module as duong_loi
++from app.tu_xa import kiem_url_lan
++
++from .trich_xuat import (
++    TrichXuat,
++    TrichXuatUnavailable,
++    _validated_query_and_limit,
++    youtube_url_query,
++    ZING_ID,
++)
++
++log = logging.getLogger("web2api.youtube")
++
++#: Chờ nối lại (giây), tối đa 5 lần — giống dịch vụ cũ.
++CHO_NOI_LAI = (0.5, 1, 2, 2, 2)
++#: Kích thước một khúc thượng nguồn (byte) — 4 MiB như dịch vụ cũ.
++KHUC = 4 * 1024 * 1024
++#: Trần bộ nhớ đệm vé luồng (mục).
++BO_NHO_DEM_TOI_DA = 256
++#: Trần chờ chiếm chỗ trích xuất (giây).
++CHO_TRICH_XUAT_GIAY = 30.0
++#: Trần lịch sử giữ lại (mục).
++LICH_SU_TOI_DA = 200
++
++_MA_CHIA_SE = re.compile(r"TTPL1\.[A-Za-z0-9_-]+")
++
++
++class LoiNguonKhongCuuDuoc(Exception):
++    """Thượng nguồn đứt sau 5 lần nối lại — luồng ngắt, không lấp rác."""
++
++
++def _loi(ma: int, code: str) -> tuple:
++    return ma, {}, {"error": code, "success": False}
++
++
++def _ok(noi_dung: dict, ma: int = 200) -> tuple:
++    noi_dung = dict(noi_dung)
++    noi_dung.setdefault("success", True)
++    return ma, {}, noi_dung
++
++
++def _parse_range(khoang, tong):
++    """Trả (dau, cuoi) hoặc None khi Range hỏng (để gọi 416)."""
++    if not khoang:
++        return (0, None)
++    m = re.fullmatch(r"bytes=(\d*)-(\d*)", str(khoang).strip())
++    if not m or (not m.group(1) and not m.group(2)):
++        return None
++    if m.group(2) and not m.group(1):
++        # Dạng hậu tố bytes=-N: N byte cuối.
++        n = int(m.group(2))
++        if tong is None or n <= 0:
++            return None
++        return (max(0, tong - n), tong - 1)
++    dau = int(m.group(1)) if m.group(1) else 0
++    cuoi = int(m.group(2)) if m.group(2) else None
++    if cuoi is not None and cuoi < dau:
++        return None
++    if tong is not None and dau >= tong:
++        return None
++    return (dau, cuoi)
++
++
++def _parse_content_range(headers):
++    """Trả (dau, cuoi, tong) từ Content-Range «bytes a-b/T», hoặc None."""
++    if not headers:
++        return None
++    cr = headers.get("content-range") or headers.get("Content-Range")
++    if not cr:
++        return None
++    m = re.fullmatch(r"bytes (\d+)-(\d+)/(\d+|\*)", str(cr).strip())
++    if not m:
++        return None
++    return int(m.group(1)), int(m.group(2)), (None if m.group(3) == "*" else int(m.group(3)))
++
++
++class Module:
++    """Module youtube: xem docstring đầu tệp."""
++
++    def __init__(self, manifest=None):
++        self.manifest = manifest or {}
++        self.khoa_tich_hop = None
++        self.trich_xuat = TrichXuat()
++        self.mo_nguon = None  # test chích: async (url, headers) -> ban (xem luong)
++        self._phien: dict[str, dict] = {}
++        self._phien_hien_tai: str | None = None
++        self._playlists: list[dict] = []
++        self._lich_su: list[dict] = []
++        self._luong: dict[str, dict] = {}  # ve -> {url|bytes, het_han, ...}
++        self._dung = False
++        self._sem: asyncio.Semaphore | None = None
++        self._khoa = asyncio.Lock()
++
++    # ── vòng đời theo hợp đồng lõi ──────────────────────────────────────
++
++    def nap(self, cau_hinh: dict):
++        cau_hinh = cau_hinh or {}
++        self.khoa_tich_hop = cau_hinh.get("khoa_tich_hop") or None
++        return None
++
++    async def cai(self, cau_hinh: dict) -> dict:
++        cau_hinh = cau_hinh or {}
++        khoa = str(cau_hinh.get("khoa_tich_hop") or "").strip()
++        if not khoa:
++            return {"ok": False,
++                    "loi": "chưa nhập «Khoá tích hợp» — Home Assistant dùng khoá này "
++                           "làm Bearer cho /m/youtube/api/integration/*; lấy lại cho "
++                           "quản trị bằng đường «chép token» như các bí mật khác.",
++                    "ket_qua_tung_khoa": []}
++        che = f"…{khoa[-4:]}" if len(khoa) >= 4 else "…"
++        return {"ok": True, "loi": None,
++                "ket_qua_tung_khoa": [{"khoa": che, "ok": True}],
++                "cau_hinh_luu": {"khoa_tich_hop": khoa}}
++
++    async def suc_khoe(self) -> dict:
++        if not self.khoa_tich_hop:
++            return {"ok": False, "loi": "chưa cấu hình khoá tích hợp"}
++        return {"ok": True, "phien": len(self._phien),
++                "luong_dang_giu": len(self._luong)}
++
++    async def dung(self):
++        """Dừng hẳn: xoá phiên + vé, đặt cờ để iterator đang chạy dừng."""
++        self._dung = True
++        self._phien.clear()
++        self._phien_hien_tai = None
++        self._luong.clear()
++
++    # ── tiện ích nội bộ ─────────────────────────────────────────────────
++
++    def _sem_trich_xuat(self) -> asyncio.Semaphore:
++        if self._sem is None:
++            self._sem = asyncio.Semaphore(2)
++        return self._sem
++
++    async def _chiem_cho_trich_xuat(self):
++        try:
++            await asyncio.wait_for(self._sem_trich_xuat().acquire(),
++                                   timeout=CHO_TRICH_XUAT_GIAY)
++        except asyncio.TimeoutError as e:
++            raise TrichXuatUnavailable("busy") from e
++        return self._sem_trich_xuat()
++
++    def _ghi_lich_su(self, muc: dict):
++        self._lich_su.append(dict(muc, luc=time.time()))
++        del self._lich_su[:max(0, len(self._lich_su) - LICH_SU_TOI_DA)]
++
++    def _anh_xa_phien(self, phien: dict) -> dict:
++        return {
++            "session_id": phien["id"],
++            "source": phien.get("source"),
++            "title": phien.get("title"),
++            "duration": phien.get("duration"),
++            "status": phien.get("status", "stopped"),
++            "outputs": list(phien.get("outputs") or []),
++            "position": phien.get("position", 0),
++            "current_item": phien.get("muc"),
++        }
++
++    def _cat_bo_luong(self):
++        if len(self._luong) <= BO_NHO_DEM_TOI_DA:
++            return
++        giu = sorted(self._luong.items(), key=lambda kv: kv[1].get("het_han", 0),
++                     reverse=True)[:BO_NHO_DEM_TOI_DA]
++        self._luong = dict(giu)
++
++    def _dang_ky_luong(self, nguon: dict) -> dict:
++        ve = secrets.token_urlsafe(24)
++        self._luong[ve] = dict(nguon, het_han=time.time() + 3600)
++        self._cat_bo_luong()
++        return {"stream_url": duong_loi.tao_duong_luong("youtube", ve),
++                "token": ve, "expires_in": 3600}
++
++    def _xoa_luong_het_han(self):
++        gio = time.time()
++        for ve in [v for v, g in self._luong.items() if g.get("het_han", 0) <= gio]:
++            del self._luong[ve]
++
++    async def _xac_thuc_muc_tieu(self, source, target):
++        """Trả (source, target_chuan, tieu_de, thoi_luong) hoặc raise ValueError."""
++        target = str(target or "").strip()
++        if not target:
++            raise ValueError("invalid_target")
++        if source == "youtube":
++            kq = youtube_url_query(target)
++            if kq and kq[0] == "video":
++                return "youtube", kq[1], None, None
++            if len(target) <= 11 and re.fullmatch(r"[A-Za-z0-9_-]{11}", target):
++                return "youtube", target, None, None
++            raise ValueError("invalid_target")
++        if source == "zing":
++            parsed = urlsplit(target)
++            if parsed.scheme == "https" and (parsed.hostname == "zingmp3.vn"
++                                            or (parsed.hostname or "").endswith(".zingmp3.vn")) \
++                    and parsed.path.startswith("/bai-hat/"):
++                return "zing", target, None, None
++            if ZING_ID.fullmatch(target):
++                return "zing", target, None, None
++            raise ValueError("invalid_target")
++        if source == "http":
++            try:
++                chuan = await kiem_url_lan(target)
++            except ValueError as e:
++                raise ValueError("invalid_target") from e
++            return "http", chuan, None, None
++        raise ValueError("invalid_source")
++
++    # ── đường integration ───────────────────────────────────────────────
++
++    async def tich_hop(self, duong, phuong_thuc, query, than):
++        """Dispatch /m/youtube/api/<duong>. Trả (mã, headers, nội dung)."""
++        try:
++            return await self._tich_hop(duong, phuong_thuc, query, than)
++        except TrichXuatUnavailable as e:
++            log.warning("Trích xuất không khả dụng: %s", type(e).__name__)
++            return _loi(502, str(e) or "extraction_unavailable")
++        except Exception as e:  # không nuốt im: log kiểu lỗi, trả 502 chung
++            log.warning("Lỗi integration youtube: %s", type(e).__name__)
++            return _loi(502, "module_error")
++
++    async def _tich_hop(self, duong, phuong_thuc, query, than):
++        query = query or {}
++        than = than or {}
++        if duong == "integration/health" and phuong_thuc == "GET":
++            return _ok({"status": "ok", "api_version": "1",
++                        "capabilities": ["search", "stream", "playlists", "history"],
++                        "sources": ["youtube", "zing"],
++                        "playback_sources": ["youtube", "zing", "http"]})
++        if duong == "integration/search" and phuong_thuc == "GET":
++            source = str(query.get("source") or "youtube")
++            if source not in ("youtube", "zing", "facebook"):
++                return _loi(400, "invalid_search_source")
++            try:
++                q, limit = _validated_query_and_limit(
++                    str(query.get("q") or ""), query.get("limit", 20))
++            except ValueError as e:
++                return _loi(400, str(e) or "invalid_search_query")
++            sem = await self._chiem_cho_trich_xuat()
++            try:
++                ket_qua = await self.trich_xuat.tim_kiem(source, q, limit)
++            finally:
++                sem.release()
++            return _ok({"results": ket_qua, "source": source})
++        if duong == "integration/status" and phuong_thuc == "GET":
++            phien = self._phien.get(self._phien_hien_tai) if self._phien_hien_tai else None
++            return _ok({
++                "session": self._anh_xa_phien(phien) if phien else None,
++                "sessions": [self._anh_xa_phien(p) for p in self._phien.values()],
++                "history_count": len(self._lich_su),
++                "playlists_count": len(self._playlists),
++            })
++        if duong == "integration/history" and phuong_thuc == "GET":
++            return _ok({"history": list(reversed(self._lich_su))})
++        if duong == "integration/stop" and phuong_thuc == "POST":
++            sid = than.get("session_id")
++            if sid is not None and sid not in self._phien:
++                return _loi(404, "session_not_found")
++            if sid is not None:
++                self._phien[sid]["status"] = "stopped"
++                if self._phien_hien_tai == sid:
++                    self._phien_hien_tai = None
++            else:
++                for p in self._phien.values():
++                    p["status"] = "stopped"
++                self._phien_hien_tai = None
++            self._luong.clear()  # dừng là dừng hẳn: vé luồng cũ vô hiệu
++            return _ok({"stopped": True})
++        if duong == "integration/session" and phuong_thuc == "POST":
++            try:
++                source, target, _, _ = await self._xac_thuc_muc_tieu(
++                    than.get("source") or "youtube", than.get("target"))
++            except ValueError as e:
++                return _loi(400, str(e) or "invalid_target")
++            sid = str(than.get("session_id") or secrets.token_urlsafe(12))
++            phien = {
++                "id": sid, "source": source, "target": target,
++                "title": than.get("title"), "duration": than.get("duration"),
++                "status": "stopped", "outputs": list(than.get("outputs") or []),
++                "position": 0, "muc": {"source": source, "target": target},
++            }
++            self._phien[sid] = phien
++            self._phien_hien_tai = sid
++            return _ok({"session": self._anh_xa_phien(phien)}, 201)
++        if duong == "integration/playlists" and phuong_thuc == "GET":
++            return _ok({"playlists": self._playlists})
++        if duong == "integration/playlists" and phuong_thuc == "POST":
++            return self._playlists_hanh_dong(than)
++        if duong == "integration/session/outputs" and phuong_thuc == "POST":
++            sid = than.get("session_id") or self._phien_hien_tai
++            if sid not in self._phien:
++                return _loi(404, "session_not_found")
++            outputs = than.get("outputs")
++            if not isinstance(outputs, list) or not all(isinstance(x, str) for x in outputs):
++                return _loi(400, "invalid_outputs")
++            self._phien[sid]["outputs"] = outputs
++            return _ok({"session": self._anh_xa_phien(self._phien[sid])})
++        if duong == "integration/stream" and phuong_thuc == "POST":
++            return await self._tao_luong(than)
++        if duong == "integration/play" and phuong_thuc == "POST":
++            return await self._phat(than)
++        if duong in ("integration/next", "integration/prev") and phuong_thuc == "POST":
++            phien = self._phien.get(self._phien_hien_tai) if self._phien_hien_tai else None
++            if phien is None:
++                return _loi(404, "session_not_found")
++            phien["status"] = "playing"
++            return _ok({"session": self._anh_xa_phien(phien)})
++        if duong == "integration/seek" and phuong_thuc == "POST":
++            phien = self._phien.get(self._phien_hien_tai) if self._phien_hien_tai else None
++            if phien is None:
++                return _loi(404, "session_not_found")
++            try:
++                vi_tri = float(than.get("position"))
++            except (TypeError, ValueError):
++                return _loi(400, "invalid_position")
++            if vi_tri < 0:
++                return _loi(400, "invalid_position")
++            phien["position"] = vi_tri
++            return _ok({"session": self._anh_xa_phien(phien)})
++        return _loi(404, "not_found")
++
++    def _playlists_hanh_dong(self, than):
++        hanh_dong = than.get("action") or "list"
++        if hanh_dong == "list":
++            return _ok({"playlists": self._playlists})
++        if hanh_dong == "export":
++            return _ok({"playlists": self._playlists})
++        if hanh_dong == "create":
++            ten = str(than.get("name") or "").strip()
++            if not ten:
++                return _loi(400, "invalid_playlist_name")
++            muc = {"id": secrets.token_urlsafe(8), "name": ten, "items": []}
++            self._playlists.append(muc)
++            return _ok({"playlist": muc}, 201)
++        if hanh_dong == "import":
++            ds = than.get("playlists")
++            if not isinstance(ds, list):
++                return _loi(400, "invalid_playlists")
++            self._playlists = [p for p in ds if isinstance(p, dict)]
++            return _ok({"playlists": self._playlists})
++        for muc in self._playlists:
++            if muc.get("id") != than.get("playlist_id"):
++                continue
++            if hanh_dong == "rename":
++                ten = str(than.get("name") or "").strip()
++                if not ten:
++                    return _loi(400, "invalid_playlist_name")
++                muc["name"] = ten
++                return _ok({"playlist": muc})
++            if hanh_dong == "delete":
++                self._playlists.remove(muc)
++                return _ok({"deleted": True})
++            if hanh_dong == "add":
++                item = than.get("item")
++                if not isinstance(item, dict):
++                    return _loi(400, "invalid_item")
++                muc.setdefault("items", []).append(item)
++                return _ok({"playlist": muc})
++            if hanh_dong == "remove":
++                muc["items"] = [i for i in muc.get("items", [])
++                                if i.get("id") != than.get("item_id")]
++                return _ok({"playlist": muc})
++            if hanh_dong == "move":
++                items = muc.get("items", [])
++                try:
++                    tu, den = int(than.get("from")), int(than.get("to"))
++                    items.insert(den, items.pop(tu))
++                except (TypeError, ValueError, IndexError):
++                    return _loi(400, "invalid_move")
++                return _ok({"playlist": muc})
++        return _loi(404, "playlist_not_found")
++
++    async def _tao_luong(self, than):
++        try:
++            source, target, _, _ = await self._xac_thuc_muc_tieu(
++                than.get("source") or "youtube", than.get("target"))
++        except ValueError as e:
++            return _loi(400, str(e) or "invalid_target")
++        self._xoa_luong_het_han()
++        if source == "http":
++            muc = {"url": target, "source": "http", "total": None}
++            return _ok(self._dang_ky_luong(muc))
++        sem = await self._chiem_cho_trich_xuat()
++        try:
++            giai = await self.trich_xuat.giai_am_thanh(source, target)
++        finally:
++            sem.release()
++        muc = {"url": giai["url"], "source": source, "title": giai.get("title"),
++               "total": None, "target": target,
++               "video_id": target if source == "youtube" else None}
++        return _ok(self._dang_ky_luong(muc))
++
++    async def _phat(self, than):
++        sid_yeu_cau = than.get("session_id")
++        if sid_yeu_cau is not None and sid_yeu_cau not in self._phien:
++            return _loi(404, "session_not_found")
++        phien = self._phien.get(sid_yeu_cau or self._phien_hien_tai) \
++            if (sid_yeu_cau or self._phien_hien_tai) else None
++        if phien is None:
++            # play trực tiếp không qua session: tạo phiên rồi phát.
++            try:
++                source, target, _, _ = await self._xac_thuc_muc_tieu(
++                    than.get("source") or "youtube", than.get("target"))
++            except ValueError as e:
++                return _loi(400, str(e) or "invalid_target")
++            sid = secrets.token_urlsafe(12)
++            phien = {"id": sid, "source": source, "target": target,
++                     "title": than.get("title"), "duration": None,
++                     "status": "playing", "outputs": list(than.get("outputs") or []),
++                     "position": 0, "muc": {"source": source, "target": target}}
++            self._phien[sid] = phien
++            self._phien_hien_tai = sid
++        else:
++            phien["status"] = "playing"
++            if than.get("outputs") is not None:
++                phien["outputs"] = list(than.get("outputs") or [])
++        self._ghi_lich_su({"source": phien["source"], "target": phien["target"],
++                           "title": phien.get("title")})
++        return _ok({"session": self._anh_xa_phien(phien)})
++
++    # ── đường luồng ─────────────────────────────────────────────────────
++
++    async def luong(self, ve, khoang, phuong_thuc):
++        """Trả (mã, headers, bytes | iterator) cho vé luồng đã đăng ký."""
++        self._xoa_luong_het_han()
++        muc = self._luong.get(ve)
++        if muc is None or self._dung:
++            return 404, {}, b""
++        if "bytes" in muc:
++            du_lieu = muc["bytes"]
++            tong = len(du_lieu)
++            pham_vi = _parse_range(khoang, tong)
++            if pham_vi is None:
++                return 416, {"Content-Range": f"bytes */{tong}"}, b""
++            dau, cuoi = pham_vi
++            cuoi = tong - 1 if cuoi is None else min(cuoi, tong - 1)
++            if dau > cuoi:
++                return 416, {"Content-Range": f"bytes */{tong}"}, b""
++            cat = du_lieu[dau:cuoi + 1]
++            if phuong_thuc == "HEAD":
++                return 200, {"Content-Length": str(len(cat)),
++                             "Accept-Ranges": "bytes"}, b""
++            headers = {"Content-Length": str(len(cat)), "Accept-Ranges": "bytes",
++                       "Content-Type": "audio/mpeg"}
++            if khoang:
++                headers["Content-Range"] = f"bytes {dau}-{cuoi}/{tong}"
++                return 206, headers, cat
++            return 200, headers, cat
++        url = muc["url"]
++        tong = muc.get("total")
++        pham_vi = _parse_range(khoang, tong)
++        if pham_vi is None:
++            return 416, {"Content-Range": f"bytes */{tong}" if tong else "bytes */*"}, b""
++        dau, cuoi = pham_vi
++        if cuoi is not None and tong is not None:
++            cuoi = min(cuoi, tong - 1)
++
++        async def _mo_khuc(tu, den):
++            headers = {"Range": f"bytes={tu}-{den}"}
++            if self.mo_nguon is not None:
++                return await self.mo_nguon(url, headers)
++            import httpx
++
++            client = httpx.AsyncClient(follow_redirects=True, timeout=30.0)
++            req = client.build_request("GET", url, headers=headers)
++            resp = await client.send(req, stream=True)
++            # Gắn client để đóng sau khi đọc xong (ban.httpx_client).
++            resp.httpx_client = client  # type: ignore[attr-defined]
++            return resp
++
++        async def _dong(ban):
++            try:
++                await ban.aclose()
++            except Exception as e:
++                log.warning("Đóng luồng thượng nguồn lỗi: %s", type(e).__name__)
++            client = getattr(ban, "httpx_client", None)
++            if client is not None:
++                try:
++                    await client.aclose()
++                except Exception as e:
++                    log.warning("Đóng client thượng nguồn lỗi: %s", type(e).__name__)
++
++        async def _giai_lai_link():
++            # Quên link cũ, giải lại từ mục tiêu (chỉ youtube/http; zing
++            # chưa hỗ trợ giải lại → giữ link cũ và để lần thử tính lỗi).
++            if muc["source"] == "youtube":
++                sem = await self._chiem_cho_trich_xuat()
++                try:
++                    giai = await self.trich_xuat.giai_am_thanh(
++                        "youtube", muc.get("video_id") or muc.get("target") or "")
++                    muc["url"] = giai["url"]
++                finally:
++                    sem.release()
++
++        async def _kiem_dung():
++            return self._dung
++
++        iterator = self._luong_chiu_loi(_mo_khuc, _dong, _giai_lai_link,
++                                        _kiem_dung, dau, cuoi, tong)
++        headers = {"Accept-Ranges": "bytes", "Content-Type": "audio/mpeg"}
++        if khoang:
++            headers["Content-Range"] = f"bytes {dau}-{cuoi}/{tong}" if tong \
++                else f"bytes {dau}-"
++            return 206, headers, iterator
++        if tong is not None:
++            headers["Content-Length"] = str(tong - dau)
++        return 200, headers, iterator
++
++    async def _luong_chiu_loi(self, mo_khuc, dong, giai_lai_link, kiem_dung,
++                              dau, cuoi, tong, ngu=None):
++        """Yield bytes từ dau đến cuoi (None = tới hết), nối lại tối đa 5 lần.
++
++        Giống ro_le.py của dịch vụ cũ: mỗi lần thất bại tính 1 lần, kiểm
++        Content-Range trước khi gửi byte nào của khúc mới; hết lần thì
++        raise LoiNguonKhongCuuDuoc (luồng ngắt); client ngắt
++        (GeneratorExit) thì đóng và return im lặng, không request thêm.
++        """
++        _ngu = asyncio.sleep if ngu is None else ngu
++        da_gui = dau
++        tong_biet = tong
++        dich = cuoi
++        so_lan = 0
++        ban = None
++        try:
++            while True:
++                if await kiem_dung():
++                    return
++                if dich is not None and dich < da_gui:
++                    return
++                tu = da_gui
++                den = tu + KHUC - 1 if dich is None else min(tu + KHUC - 1, dich)
++                try:
++                    ban = await mo_khuc(tu, den)
++                except Exception as exc:
++                    ban = None
++                    if await kiem_dung():
++                        return
++                    so_lan += 1
++                    if so_lan >= len(CHO_NOI_LAI):
++                        raise LoiNguonKhongCuuDuoc(
++                            f"thượng nguồn đứt ở offset {da_gui} sau {so_lan} lần "
++                            f"nối lại (lỗi cuối: {type(exc).__name__})") from exc
++                    await _ngu(CHO_NOI_LAI[so_lan - 1])
++                    continue
++                ma = getattr(ban, "status_code", 200)
++                headers = getattr(ban, "headers", {}) or {}
++                if ma == 416:
++                    await dong(ban)
++                    ban = None
++                    return
++                if ma in (403, 404, 410):
++                    await dong(ban)
++                    ban = None
++                    # Quên link cũ, giải lại, rồi tính là 1 lần thất bại.
++                    try:
++                        await giai_lai_link()
++                    except Exception as e:
++                        log.warning("Giải lại link lỗi: %s", type(e).__name__)
++                    so_lan += 1
++                    if so_lan >= len(CHO_NOI_LAI):
++                        raise LoiNguonKhongCuuDuoc(
++                            f"thượng nguồn trả {ma} ở offset {da_gui} sau {so_lan} "
++                            "lần nối lại") from None
++                    await _ngu(CHO_NOI_LAI[so_lan - 1])
++                    if await kiem_dung():
++                        return
++                    continue
++                if ma not in (200, 206):
++                    await dong(ban)
++                    ban = None
++                    so_lan += 1
++                    if so_lan >= len(CHO_NOI_LAI):
++                        raise LoiNguonKhongCuuDuoc(
++                            f"thượng nguồn trả {ma} ở offset {da_gui} sau {so_lan} "
++                            "lần nối lại") from None
++                    await _ngu(CHO_NOI_LAI[so_lan - 1])
++                    continue
++                if ma == 200 and tu > 0:
++                    # Thượng nguồn phớt lờ Range: không tự cắt byte (sợ sai
++                    # nguồn đã đổi) → tính thất bại, giải lại rồi thử lại.
++                    await dong(ban)
++                    ban = None
++                    try:
++                        await giai_lai_link()
++                    except Exception as e:
++                        log.warning("Giải lại link lỗi: %s", type(e).__name__)
++                    so_lan += 1
++                    if so_lan >= len(CHO_NOI_LAI):
++                        raise LoiNguonKhongCuuDuoc(
++                            f"thượng nguồn phớt Range ở offset {da_gui}") from None
++                    await _ngu(CHO_NOI_LAI[so_lan - 1])
++                    continue
++                cr = _parse_content_range(headers)
++                if cr is not None:
++                    cr_dau, _cr_cuoi, cr_tong = cr
++                    if cr_dau != da_gui or (tong_biet is not None and cr_tong is not None
++                                            and cr_tong != tong_biet):
++                        await dong(ban)
++                        ban = None
++                        so_lan += 1
++                        if so_lan >= len(CHO_NOI_LAI):
++                            raise LoiNguonKhongCuuDuoc(
++                                f"Content-Range lệch ở offset {da_gui}") from None
++                        await _ngu(CHO_NOI_LAI[so_lan - 1])
++                        continue
++                    if cr_tong is not None:
++                        tong_biet = cr_tong
++                        if dich is None:
++                            dich = tong_biet - 1
++                try:
++                    async for khuc in ban.aiter_bytes():
++                        if await kiem_dung():
++                            return
++                        if khuc:
++                            yield khuc
++                            da_gui += len(khuc)
++                    # Hết khúc mà chưa tới đích và tổng đã biết → đứt sớm.
++                    if tong_biet is not None and da_gui < tong_biet:
++                        raise ConnectionError("thượng nguồn ngắt sớm")
++                except GeneratorExit:
++                    return
++                except Exception as exc:
++                    if isinstance(exc, LoiNguonKhongCuuDuoc):
++                        raise
++                    await dong(ban)
++                    ban = None
++                    so_lan += 1
++                    if so_lan >= len(CHO_NOI_LAI):
++                        raise LoiNguonKhongCuuDuoc(
++                            f"thượng nguồn đứt ở offset {da_gui} sau {so_lan} lần "
++                            f"nối lại (lỗi cuối: {type(exc).__name__})") from exc
++                    await _ngu(CHO_NOI_LAI[so_lan - 1])
++                    if await kiem_dung():
++                        return
++                    continue
++                await dong(ban)
++                ban = None
++                if dich is not None and da_gui > dich:
++                    return
++                if dich is None and tong_biet is not None and da_gui >= tong_biet:
++                    return
++                if dich is None and tong_biet is None:
++                    return  # thượng nguồn tự hết (không biết tổng)
++        finally:
++            if ban is not None:
++                await dong(ban)
++
+diff --git a/modules/youtube/trich_xuat.py b/modules/youtube/trich_xuat.py
+new file mode 100644
+index 0000000..55e63e0
+--- /dev/null
++++ b/modules/youtube/trich_xuat.py
+@@ -0,0 +1,244 @@
++"""Trích xuất nguồn cho module youtube (NV277) — chuyển từ dich-vu/youtube-phat.
++
++Chức năng ở đây cố tình NHỎ hơn dịch vụ cũ: chỉ giữ phần lõi cần cho
++Home Assistant (tìm YouTube/Zing, giải link âm thanh YouTube). Lý do ghi
++thẳng trong báo cáo NV277:
++- Tìm YouTube: yt-dlp `ytsearch` (nạp lười, thiếu gói → lỗi rõ 502).
++- Tìm Zing: endpoint gợi ý công khai của Zing (urllib, giống search.py của
++  dịch vụ cũ: chỉ nhận entry type=1, status=1, privacy=1, playStatus=2,
++  link https://...zingmp3.vn/bai-hat/...), giới hạn phản hồi 1 MiB.
++- Giải luồng YouTube: yt-dlp, chọn format chỉ-âm-thanh tốt nhất, rồi tới
++  format tốt nhất có âm thanh. Giải luồng Zing/Facebook: CHƯA chuyển
++  (dịch vụ cũ dùng luồng lấy khoá web riêng của từng nguồn, chưa kiểm
++  chứng lại trong module này) → trả TrichXuatUnavailable rõ ràng, lõi
++  dịch thành 502, KHÔNG tự bịa link hay chuyển sang nguồn khác.
++- Mọi hàm chặn đều chạy qua asyncio.to_thread ở phía module.py, KHÔNG
++  gọi urllib/yt-dlp trực tiếp trong mã async.
++- KHÔNG có logic vượt/né/giải chống bot: yt-dlp chạy đúng như người dùng
++  chạy ngoài dòng lệnh; nguồn đòi đăng nhập/xác minh → lỗi rõ 502.
++"""
++
++from __future__ import annotations
++
++import asyncio
++import json
++import logging
++import re
++from urllib.parse import quote_plus, urlsplit
++
++log = logging.getLogger("web2api.youtube.trich_xuat")
++
++VIDEO_ID = re.compile(r"[A-Za-z0-9_-]{11}")
++PLAYLIST_ID = re.compile(r"[A-Za-z0-9_-]{10,}")
++ZING_ID = re.compile(r"[A-Za-z0-9]{8}")
++YOUTUBE_URL_HOSTS = {
++    "youtube.com", "www.youtube.com", "m.youtube.com", "music.youtube.com",
++    "youtu.be", "youtube-nocookie.com", "www.youtube-nocookie.com",
++}
++ZING_SEARCH_URL = "https://ac.zingmp3.vn/v1/web/ac-suggestions"
++SEARCH_RESPONSE_LIMIT = 1_048_576
++
++
++class TrichXuatUnavailable(Exception):
++    """Nguồn không giải được / gói trích xuất thiếu — dịch thành 502."""
++
++
++def _validated_query_and_limit(query, limit, *, max_length=500):
++    query = str(query or "").strip()
++    if not 1 <= len(query) <= max_length:
++        raise ValueError("invalid_search_query")
++    try:
++        limit = int(limit)
++    except (TypeError, ValueError) as error:
++        raise ValueError("invalid_search_limit") from error
++    if not 1 <= limit <= 30:
++        raise ValueError("invalid_search_limit")
++    return query, limit
++
++
++def youtube_url_query(query):
++    """Trả ("video", id) / ("playlist", id) nếu query là link YouTube, else None."""
++    text = str(query or "").strip()
++    if not text or len(text) > 2048 or any(ch.isspace() for ch in text):
++        return None
++    if "://" not in text:
++        text = f"https://{text}"
++    from urllib.parse import parse_qs
++
++    parsed = urlsplit(text)
++    host = (parsed.hostname or "").lower()
++    if parsed.scheme not in {"http", "https"} or host not in YOUTUBE_URL_HOSTS:
++        return None
++    values = parse_qs(parsed.query)
++    if host == "youtu.be":
++        video_id = parsed.path.strip("/").split("/", 1)[0]
++    elif parsed.path == "/watch":
++        video_id = values.get("v", [""])[0]
++    elif parsed.path.startswith(("/shorts/", "/embed/", "/live/")):
++        video_id = parsed.path.rstrip("/").rsplit("/", 1)[-1]
++    else:
++        video_id = ""
++    if VIDEO_ID.fullmatch(video_id):
++        return ("video", video_id)
++    playlist_id = values.get("list", [""])[0]
++    if parsed.path == "/playlist" and PLAYLIST_ID.fullmatch(playlist_id):
++        return ("playlist", playlist_id)
++    return None
++
++
++def _zing_suggestions(payload):
++    data = payload.get("data") if isinstance(payload, dict) else None
++    groups = data.get("items") if isinstance(data, dict) else []
++    for group in groups or []:
++        if not isinstance(group, dict):
++            continue
++        suggestions = group.get("suggestions")
++        if isinstance(suggestions, list):
++            yield from suggestions
++
++
++def parse_zing_payload(payload, *, limit):
++    """Chuyển gợi ý Zing thành dạng kết quả ổn định (giống dịch vụ cũ)."""
++    results = []
++    for entry in _zing_suggestions(payload):
++        if not isinstance(entry, dict) or entry.get("type") != 1:
++            continue
++        song_id = str(entry.get("id") or "")
++        song_url = str(entry.get("link") or "")
++        parsed_url = urlsplit(song_url)
++        song_host = (parsed_url.hostname or "").lower()
++        if (
++            not ZING_ID.fullmatch(song_id)
++            or parsed_url.scheme != "https"
++            or not (song_host == "zingmp3.vn" or song_host.endswith(".zingmp3.vn"))
++            or not parsed_url.path.startswith("/bai-hat/")
++            or entry.get("status") != 1
++            or entry.get("privacy") != 1
++            or entry.get("playStatus") != 2
++        ):
++            continue
++        artists = entry.get("artists") or []
++        artist_names = [str(a.get("name")) for a in artists
++                        if isinstance(a, dict) and a.get("name")]
++        duration = entry.get("duration")
++        try:
++            duration = int(duration) if duration is not None else None
++        except (TypeError, ValueError):
++            duration = None
++        results.append({
++            "id": song_id,
++            "title": str(entry.get("title") or ""),
++            "artists": artist_names,
++            "duration": duration,
++            "url": song_url,
++            "source": "zing",
++        })
++        if len(results) >= limit:
++            break
++    return results
++
++
++def search_zing(query, *, limit=20, timeout=10):
++    """Tìm Zing qua endpoint gợi ý công khai (chặn — gọi qua to_thread).
++
++    Dùng httpx sync (đã là gói của lõi) thay vì urllib.urlopen để khỏi
++    vướng B310; httpx tự giải nén gzip nên chỉ cần chặn theo độ dài
++    nội dung đã giải nén.
++    """
++    import httpx
++
++    query, limit = _validated_query_and_limit(query, limit)
++    try:
++        with httpx.Client(timeout=timeout, follow_redirects=False) as client:
++            resp = client.get(
++                f"{ZING_SEARCH_URL}?query={quote_plus(query)}&num={limit}",
++                headers={"Accept": "application/json",
++                         "User-Agent": "TriTue-YouTube-Player/0.6"})
++            body = resp.content
++            if len(body) > SEARCH_RESPONSE_LIMIT:
++                raise TrichXuatUnavailable("search_response_too_large")
++        payload = json.loads(body)
++    except TrichXuatUnavailable:
++        raise
++    except Exception as e:  # OSError / ValueError / JSON lỗi → lỗi nguồn rõ
++        raise TrichXuatUnavailable("search_provider_failed") from e
++    if not isinstance(payload, dict) or payload.get("err") != 0:
++        raise TrichXuatUnavailable("invalid_search_response")
++    return parse_zing_payload(payload, limit=limit)
++
++
++def _yt_dlp():
++    try:
++        import yt_dlp
++    except ImportError as error:
++        raise TrichXuatUnavailable("yt_dlp_missing") from error
++    return yt_dlp
++
++
++def search_youtube(query, *, limit=20):
++    """Tìm YouTube qua yt-dlp ytsearch (chặn — gọi qua to_thread)."""
++    query, limit = _validated_query_and_limit(query, limit)
++    yt_dlp = _yt_dlp()
++    opts = {"quiet": True, "no_warnings": True, "extract_flat": True,
++            "skip_download": True}
++    with yt_dlp.YoutubeDL(opts) as ydl:
++        data = ydl.extract_info(f"ytsearch{limit}:{query}", download=False)
++    results = []
++    for entry in (data or {}).get("entries") or []:
++        if not isinstance(entry, dict):
++            continue
++        vid = str(entry.get("id") or "")
++        if not VIDEO_ID.fullmatch(vid):
++            continue
++        results.append({
++            "id": vid,
++            "title": str(entry.get("title") or ""),
++            "artists": [],
++            "duration": entry.get("duration"),
++            "url": f"https://www.youtube.com/watch?v={vid}",
++            "source": "youtube",
++        })
++    return results[:limit]
++
++
++def resolve_youtube_audio(video_id):
++    """Giải link âm thanh trực tiếp cho một video YouTube (chặn)."""
++    yt_dlp = _yt_dlp()
++    opts = {"quiet": True, "no_warnings": True, "skip_download": True,
++            "format": "bestaudio/best"}
++    with yt_dlp.YoutubeDL(opts) as ydl:
++        info = ydl.extract_info(f"https://www.youtube.com/watch?v={video_id}",
++                                download=False)
++    if not isinstance(info, dict):
++        raise TrichXuatUnavailable("resolve_failed")
++    url = info.get("url")
++    if not url:
++        for fmt in info.get("formats") or []:
++            if isinstance(fmt, dict) and fmt.get("url") and fmt.get("acodec") != "none":
++                url = fmt["url"]
++                break
++    if not url:
++        raise TrichXuatUnavailable("resolve_failed")
++    return {
++        "url": url,
++        "title": str(info.get("title") or ""),
++        "duration": info.get("duration"),
++        "source": "youtube",
++        "video_id": video_id,
++    }
++
++
++class TrichXuat:
++    """Cổng trích xuất async của module: mọi hàm chặn chạy trong to_thread."""
++
++    async def tim_kiem(self, source, query, limit):
++        if source == "youtube":
++            return await asyncio.to_thread(search_youtube, query, limit=limit)
++        if source == "zing":
++            return await asyncio.to_thread(search_zing, query, limit=limit)
++        raise TrichXuatUnavailable("search_source_unavailable")
++
++    async def giai_am_thanh(self, source, target_id):
++        if source == "youtube":
++            return await asyncio.to_thread(resolve_youtube_audio, target_id)
++        raise TrichXuatUnavailable("resolve_source_unavailable")
+diff --git a/requirements.txt b/requirements.txt
+index b16ed7b..ea97add 100644
+--- a/requirements.txt
++++ b/requirements.txt
+@@ -16,3 +16,23 @@ noiseprotocol==0.3.1
+ protobuf==7.36.2
+ # Nhận và chuyển tiếp WebSocket hai chiều cho proxy noVNC (/novnc/.../websockify), Chuẩn C6; ghim đúng bản đã kiểm, 13/10/2026.
+ websockets==17.2
++# NV277 (ĐỀ XUẤT Ở NHÁNH, chủ kho duyệt mới dựng — KHÔNG đẩy lên main):
++# module youtube chạy thẳng trong lõi cần trích xuất YouTube. Giữ đúng
++# phiên bản của dịch-vu/youtube-phat (đã kiểm cùng nhau ở đó) để khỏi
++# lệch hành vi giải luồng giữa module mới và dịch vụ cũ.
++# - yt-dlp: tìm (ytsearch) + giải link âm thanh YouTube. Wheel x86_64
++#   sha256 (tính lại 02/11/2026): 1d57897e94c6665a0a6f9bc54b34e584284e32c034ffab3a7df25d8f7b24eedf
++# - yt-dlp-ejs: bộ script JavaScript để yt-dlp giải thử thách của YouTube.
++#   Wheel sha256 (tính lại 02/11/2026): 79300e5fca7f937a1eeede11f0456862c1b41107ce1d726871e0207424f4bdb4
++# - deno: trình chạy JavaScript cho yt-dlp-ejs (nhị phân, wheel RIÊNG
++#   THEO KIẾN TRÚC — wheel dưới đây là manylinux x86_64; dựng cho arm64
++#   thì tải lại wheel arm64 và thay hash). Wheel x86_64 sha256 (tính lại
++#   02/11/2026): 836f2ab5918723b47b638a05bc4fdac99fc35e69b49a6771c24e32b19dff5d8a
++#   (41,6 MB nén; tổng 3 gói tải về ~44,9 MB — kích thước ảnh tăng thực
++#   tế CHƯA đo được ở môi trường làm việc vì không có docker, chủ kho đo
++#   bằng `docker images` khi dựng thật). Module vẫn chạy khi thiếu 3 gói
++#   này (tìm/giải YouTube → 502 rõ), nên từ chối dựng chỉ khi chủ kho
++#   muốn YouTube thật chạy được.
++yt-dlp==2026.8.19
++yt-dlp-ejs==0.8.0
++deno==2.9.7
+diff --git a/test/test_duong_module_nv277.py b/test/test_duong_module_nv277.py
+new file mode 100644
+index 0000000..ab1449d
+--- /dev/null
++++ b/test/test_duong_module_nv277.py
+@@ -0,0 +1,167 @@
++"""Test lõi cho đường riêng của module /m/<id>/api/... (NV277).
++
++Lõi tự xác thực + giới hạn LAN, module chỉ là đối tượng giả có
++tich_hop/luong. Không Internet, không module thật, không kho thật:
++kho bí mật được monkeypatch, nguồn LAN được bật bằng cờ test loopback.
++
++Kiểm (theo nghiệm thu NV277):
++- Không khoá → 401; khoá sai → 401; khoá của module KHÁC → 403;
++  khoá đúng → 200 từ đúng module (không lộ dữ liệu module khác);
++- Module không chạy / không khai duong_module → 404;
++- Thân POST quá trần / JSON hỏng → 400;
++- Đổi id module trong đường dẫn không chạm dữ liệu module khác
++  (IDOR: khoá youtube gọi /m/other/... → 403, không phải dữ liệu other);
++- Luồng: vé ký đúng → 200/206, Range lặp lại vẫn chạy; vé giả →
++  404 THÂN RỖNG (không nêu lý do); vé hết hạn → 404; HEAD cùng vé
++  chỉ trả header, không đẩy byte.
++"""
++
++from __future__ import annotations
++
++import time
++from types import SimpleNamespace
++
++import pytest
++from fastapi import FastAPI
++from fastapi.testclient import TestClient
++
++from app import duong_module
++
++KHOA_YT = "khoa-gia-youtube-nv277-aaaaaaaaaaaaaaaaaaaa"
++KHOA_KHAC = "khoa-gia-khac-nv277-bbbbbbbbbbbbbbbbbbbb"
++
++
++class ModGia:
++    def __init__(self, nhan):
++        self.nhan = nhan
++
++    async def tich_hop(self, duong, phuong_thuc, query, than):
++        return 200, {}, {"nhan": self.nhan, "duong": duong,
++                         "phuong_thuc": phuong_thuc, "success": True}
++
++    async def luong(self, ve, khoang, phuong_thuc):
++        du_lieu = b"0123456789abcdef" * 4
++        if khoang == "bytes=10-19":
++            return 206, {"Content-Range": f"bytes 10-19/{len(du_lieu)}",
++                         "Content-Length": "10", "Accept-Ranges": "bytes"}, du_lieu[10:20]
++        return 200, {"Content-Length": str(len(du_lieu)), "Accept-Ranges": "bytes"}, du_lieu
++
++
++def _app(monkeypatch, tmp_path):
++    monkeypatch.setenv("WEB2API_DATA", str(tmp_path))
++    monkeypatch.setenv("WEB2API_TEST_CHO_PHEP_LOOPBACK", "1")
++    monkeypatch.setattr(duong_module.kho_mod, "doc_bi_mat",
++                        lambda ten: {"youtube": {"khoa_tich_hop": KHOA_YT},
++                                     "other": {"khoa_tich_hop": KHOA_KHAC}}.get(ten, {}))
++    app = FastAPI()
++    app.include_router(duong_module.router)
++    so = SimpleNamespace(
++        catalog={
++            "youtube": SimpleNamespace(manifest={
++                "duong_module": {"truong_bi_mat": "khoa_tich_hop", "lan_chi": True}}),
++            "other": SimpleNamespace(manifest={
++                "duong_module": {"truong_bi_mat": "khoa_tich_hop", "lan_chi": True}}),
++            "khong-duong": SimpleNamespace(manifest={}),
++        },
++        dang_chay={
++            "youtube": ModGia("youtube"),
++            "other": ModGia("other"),
++            "khong-duong": ModGia("khong-duong"),
++        },
++    )
++    app.state.so = so
++    return TestClient(app, raise_server_exceptions=False)
++
++
++def test_khong_khoa_va_sai_khoa_401(monkeypatch, tmp_path):
++    c = _app(monkeypatch, tmp_path)
++    assert c.get("/m/youtube/api/integration/health").status_code == 401
++    r = c.get("/m/youtube/api/integration/health",
++              headers={"Authorization": "Bearer sai"})
++    assert r.status_code == 401 and r.json() == {"error": "invalid_auth"}
++
++
++def test_khoa_module_khac_403_va_khoa_dung_200(monkeypatch, tmp_path):
++    c = _app(monkeypatch, tmp_path)
++    r = c.get("/m/youtube/api/integration/health",
++              headers={"Authorization": f"Bearer {KHOA_KHAC}"})
++    assert r.status_code == 403
++    r = c.get("/m/youtube/api/integration/health",
++              headers={"Authorization": f"Bearer {KHOA_YT}"})
++    assert r.status_code == 200 and r.json()["nhan"] == "youtube"
++    assert r.headers["Cache-Control"] == "no-store"
++
++
++def test_idor_doi_id_khong_cham_du_lieu_khac(monkeypatch, tmp_path):
++    c = _app(monkeypatch, tmp_path)
++    # Khoá youtube gọi đường của other → 403, không thấy dữ liệu other.
++    r = c.get("/m/other/api/integration/health",
++              headers={"Authorization": f"Bearer {KHOA_YT}"})
++    assert r.status_code == 403
++    # Khoá other gọi đúng đường other → thấy dữ liệu other.
++    r = c.get("/m/other/api/integration/health",
++              headers={"Authorization": f"Bearer {KHOA_KHAC}"})
++    assert r.status_code == 200 and r.json()["nhan"] == "other"
++
++
++def test_module_khong_chay_hoac_khong_khai_duong_404(monkeypatch, tmp_path):
++    c = _app(monkeypatch, tmp_path)
++    r = c.get("/m/khong-co/api/integration/health",
++              headers={"Authorization": f"Bearer {KHOA_YT}"})
++    assert r.status_code == 404
++    r = c.get("/m/khong-duong/api/integration/health",
++              headers={"Authorization": f"Bearer {KHOA_YT}"})
++    assert r.status_code == 404
++
++
++def test_than_post_qua_tran_va_json_hong_400(monkeypatch, tmp_path):
++    c = _app(monkeypatch, tmp_path)
++    h = {"Authorization": f"Bearer {KHOA_YT}"}
++    r = c.post("/m/youtube/api/integration/playlists", content=b"x" * 400_001,
++               headers=h)
++    assert r.status_code == 400
++    r = c.post("/m/youtube/api/integration/playlists", content=b"{hong",
++               headers=h)
++    assert r.status_code == 400
++
++
++def test_luong_ve_dung_range_lap_lai_ve_gia_het_han(monkeypatch, tmp_path):
++    c = _app(monkeypatch, tmp_path)
++    url = duong_module.tao_duong_luong("youtube", "ve-1")
++    r = c.get(url)
++    assert r.status_code == 200 and len(r.content) == 64
++    r1 = c.get(url, headers={"Range": "bytes=10-19"})
++    r2 = c.get(url, headers={"Range": "bytes=10-19"})
++    assert r1.status_code == 206 and r2.status_code == 206
++    assert r1.content == r2.content == bytes(b"0123456789abcdef" * 4)[10:20]
++    # Vé giả (thêm ký tự vào cuối query) → 404 thân rỗng, không nêu lý do.
++    r = c.get(url + "x")
++    assert r.status_code == 404 and r.content == b""
++    # Vé hết hạn (ký 1 giây rồi đợi qua biên giây — url_ky chỉ hết hạn
++    # khi now > _het_han, nên đợi 2,2 giây cho chắc) → 404.
++    url_ngan = duong_module.tao_duong_luong("youtube", "ve-2", het_han_giay=1)
++    time.sleep(2.2)
++    r = c.get(url_ngan)
++    assert r.status_code == 404 and r.content == b""
++    # HEAD cùng vé: chỉ header, không byte.
++    r = c.head(url)
++    assert r.status_code == 200 and r.content == b""
++    assert r.headers["Content-Length"] == "64"
++
++
++def test_luong_lan_chi_chan_nguon_ngoai(monkeypatch, tmp_path):
++    # Không bật cờ loopback: peer TestClient không phân tích được → chặn.
++    monkeypatch.setenv("WEB2API_DATA", str(tmp_path))
++    monkeypatch.delenv("WEB2API_TEST_CHO_PHEP_LOOPBACK", raising=False)
++    monkeypatch.setattr(duong_module.kho_mod, "doc_bi_mat",
++                        lambda ten: {"youtube": {"khoa_tich_hop": KHOA_YT}}.get(ten, {}))
++    app = FastAPI()
++    app.include_router(duong_module.router)
++    app.state.so = SimpleNamespace(
++        catalog={"youtube": SimpleNamespace(manifest={
++            "duong_module": {"truong_bi_mat": "khoa_tich_hop"}})},
++        dang_chay={"youtube": ModGia("youtube")})
++    c = TestClient(app, raise_server_exceptions=False)
++    url = duong_module.tao_duong_luong("youtube", "ve-1")
++    r = c.get(url)
++    assert r.status_code == 404
+diff --git a/test/test_module_youtube_nv277.py b/test/test_module_youtube_nv277.py
+new file mode 100644
+index 0000000..79e0353
+--- /dev/null
++++ b/test/test_module_youtube_nv277.py
+@@ -0,0 +1,282 @@
++"""Test module youtube (NV277) — máy phát chạy thẳng trong web2api.
++
++Chạy async qua asyncio.run (kho chưa có pytest-asyncio, theo khuôn
++test_module_youtube_phat.py). Không Internet thật: trich_xuat và nguồn
++thượng nguồn đều chích giả; conftest chung đã chặn đường ra ngoài.
++
++Kiểm:
++- manifest hợp lệ qua app.kham_pha.kiem_manifest (None = hợp lệ);
++  id youtube, tien_to youtube, khai duong_module, truong khoa_tich_hop.
++- nap đồng bộ, cai (thiếu khoá → ok False; có khoá → ok True + che),
++  suc_khoe (chưa cấu hình → ok False).
++- tich_hop: health/search (giả)/status/history/stop/session/playlists
++  (create/add/list)/outputs/stream/play/seek; search sai source → 400;
++  target youtube sai → 400; session không tồn tại → 404.
++- luong: vé giả → 404; Range lặp lại cho cùng vé → cùng byte, 206;
++  rơ-le nối lại từ đúng byte khi nguồn đứt giữa chừng (1 lần) và ngắt
++  sau 5 lần (LoiNguonKhongCuuDuoc, không lấp rác); dừng là dừng hẳn
++  (stop/dung xoá vé, iterator đang chạy dừng, không request thêm).
++- Độc lập: module chỉ import app.duong_module + app.tu_xa trong app.*;
++  "youtube" không xuất hiện trong app/ hay web/ (lõi không mang tên
++  nhà cung cấp/module cụ thể — khuôn youtube-phat).
++"""
++
++from __future__ import annotations
++
++import asyncio
++import importlib.util
++import json
++import pathlib
++import sys
++
++import pytest
++
++from app.kham_pha import kiem_manifest
++
++GOC = pathlib.Path(__file__).resolve().parent.parent
++THU_MUC_MODULE = GOC / "modules" / "youtube"
++MANIFEST_PATH = THU_MUC_MODULE / "manifest.json"
++MODULE_PY = THU_MUC_MODULE / "module.py"
++
++KHOA_GIA = "khoa-gia-test-youtube-nv277-0123456789abcdef"
++VIDEO_ID = "dQw4w9WgXcQ"
++
++
++def tai_module():
++    ten = "mod_youtube_test"
++    if ten in sys.modules:
++        del sys.modules[ten]
++    spec = importlib.util.spec_from_file_location(
++        ten, MODULE_PY, submodule_search_locations=[str(THU_MUC_MODULE)])
++    mod = importlib.util.module_from_spec(spec)
++    sys.modules[ten] = mod
++    spec.loader.exec_module(mod)
++    return mod
++
++
++class TrichXuatGia:
++    def __init__(self):
++        self.goi_giai = []
++
++    async def tim_kiem(self, source, query, limit):
++        return [{"id": VIDEO_ID, "title": "Bài giả", "artists": [],
++                 "duration": 213, "url": f"https://www.youtube.com/watch?v={VIDEO_ID}",
++                 "source": source}]
++
++    async def giai_am_thanh(self, source, target):
++        self.goi_giai.append((source, target))
++        return {"url": "fake://am-thanh-1", "title": "Bài giả",
++                "duration": 213, "source": source}
++
++
++class BanGia:
++    """Bản thượng nguồn giả: headers + aiter_bytes, có thể đứt giữa chừng."""
++
++    def __init__(self, du_lieu: bytes, *, status_code=206, dut_o=None):
++        self.status_code = status_code
++        self.headers = {"content-range": f"bytes 0-{len(du_lieu) - 1}/{len(du_lieu)}",
++                        "content-length": str(len(du_lieu))}
++        self._du_lieu = du_lieu
++        self._dut_o = dut_o  # số byte đã gửi thì ném (None = không đứt)
++        self.da_dong = False
++
++    async def aiter_bytes(self):
++        da_gui = 0
++        for i in range(0, len(self._du_lieu), 5):
++            khuc = self._du_lieu[i:i + 5]
++            if self._dut_o is not None and da_gui + len(khuc) > self._dut_o:
++                # Gửi tới đúng điểm đứt rồi ném.
++                con = self._dut_o - da_gui
++                if con > 0:
++                    yield self._du_lieu[i:i + con]
++                raise ConnectionError("nguồn giả đứt giữa chừng")
++            yield khuc
++            da_gui += len(khuc)
++
++    async def aclose(self):
++        self.da_dong = True
++
++
++class NguonGia:
++    """mo_nguon giả có trạng thái: mỗi lần mở theo Range, lần đầu có thể đứt."""
++
++    def __init__(self, du_lieu: bytes, *, dut_lan_dau=False, luon_dut=False):
++        self.du_lieu = du_lieu
++        self.dut_lan_dau = dut_lan_dau
++        self.luon_dut = luon_dut
++        self.lan_mo = []  # các Range đã mở
++
++    async def __call__(self, url, headers):
++        import re
++        m = re.fullmatch(r"bytes=(\d+)-(\d*)", headers.get("Range", ""))
++        dau = int(m.group(1)) if m else 0
++        self.lan_mo.append(dau)
++        phan = self.du_lieu[dau:]
++        if self.luon_dut:
++            return BanGia(phan, dut_o=0)
++        if self.dut_lan_dau and len(self.lan_mo) == 1:
++            return BanGia(phan, dut_o=7)
++        ban = BanGia(phan)
++        ban.headers = {"content-range": f"bytes {dau}-{len(self.du_lieu) - 1}/{len(self.du_lieu)}"}
++        return ban
++
++
++def _mod():
++    mod = tai_module()
++    m = mod.Module({})
++    m.nap({"khoa_tich_hop": KHOA_GIA})
++    m.trich_xuat = TrichXuatGia()
++    return mod, m
++
++
++def test_manifest_hop_le():
++    manifest = json.loads(MANIFEST_PATH.read_text(encoding="utf-8"))
++    assert kiem_manifest(dict(manifest)) is None, kiem_manifest(dict(manifest))
++    assert manifest["id"] == "youtube"
++    assert manifest["tien_to"] == "youtube"
++    assert manifest["duong_module"] == {"lan_chi": True, "truong_bi_mat": "khoa_tich_hop"}
++    assert any(f["khoa"] == "khoa_tich_hop" and f["kieu"] == "bi_mat"
++               for f in manifest["truong_cau_hinh"])
++
++
++def test_nap_cai_suc_khoe():
++    mod, m = _mod()
++    assert m.khoa_tich_hop == KHOA_GIA
++    assert asyncio.run(m.cai({}))["ok"] is False
++    ket = asyncio.run(m.cai({"khoa_tich_hop": KHOA_GIA}))
++    assert ket["ok"] is True and ket["cau_hinh_luu"]["khoa_tich_hop"] == KHOA_GIA
++    assert asyncio.run(m.suc_khoe())["ok"] is True
++    m2 = mod.Module({})
++    m2.nap({})
++    assert asyncio.run(m2.suc_khoe())["ok"] is False
++
++
++def test_tich_hop_health_search_status():
++    mod, m = _mod()
++    ma, _, nd = asyncio.run(m.tich_hop("integration/health", "GET", {}, None))
++    assert ma == 200 and nd["status"] == "ok"
++    ma, _, nd = asyncio.run(m.tich_hop("integration/search", "GET",
++                                       {"q": "test", "source": "youtube", "limit": 5}, None))
++    assert ma == 200 and nd["results"][0]["id"] == VIDEO_ID
++    ma, _, nd = asyncio.run(m.tich_hop("integration/search", "GET",
++                                       {"q": "test", "source": "la"}, None))
++    assert ma == 400
++    ma, _, nd = asyncio.run(m.tich_hop("integration/status", "GET", {}, None))
++    assert ma == 200 and nd["session"] is None
++
++
++def test_tich_hop_session_play_stop_history():
++    mod, m = _mod()
++    ma, _, nd = asyncio.run(m.tich_hop(
++        "integration/session", "POST", {},
++        {"source": "youtube", "target": VIDEO_ID}))
++    assert ma == 201
++    sid = nd["session"]["session_id"]
++    ma, _, nd = asyncio.run(m.tich_hop("integration/play", "POST", {},
++                                       {"session_id": sid}))
++    assert ma == 200 and nd["session"]["status"] == "playing"
++    ma, _, nd = asyncio.run(m.tich_hop("integration/history", "GET", {}, None))
++    assert ma == 200 and len(nd["history"]) == 1
++    ma, _, nd = asyncio.run(m.tich_hop("integration/stop", "POST", {}, {}))
++    assert ma == 200 and nd["stopped"] is True
++    ma, _, nd = asyncio.run(m.tich_hop("integration/status", "GET", {}, None))
++    assert ma == 200 and nd["session"] is None
++    ma, _, _ = asyncio.run(m.tich_hop("integration/play", "POST", {},
++                                      {"session_id": "khong-co"}))
++    assert ma == 404
++    ma, _, _ = asyncio.run(m.tich_hop("integration/session", "POST", {},
++                                      {"source": "youtube", "target": "khong-phai-id"}))
++    assert ma == 400
++
++
++def test_tich_hop_playlists_va_stream(monkeypatch, tmp_path):
++    monkeypatch.setenv("WEB2API_DATA", str(tmp_path))
++    mod, m = _mod()
++    ma, _, nd = asyncio.run(m.tich_hop("integration/playlists", "POST", {},
++                                       {"action": "create", "name": "Nghe sau"}))
++    assert ma == 201
++    pid = nd["playlist"]["id"]
++    ma, _, nd = asyncio.run(m.tich_hop("integration/playlists", "POST", {},
++                                       {"action": "add", "playlist_id": pid,
++                                        "item": {"id": VIDEO_ID, "title": "Bài giả"}}))
++    assert ma == 200 and len(nd["playlist"]["items"]) == 1
++    ma, _, nd = asyncio.run(m.tich_hop("integration/stream", "POST", {},
++                                       {"source": "youtube", "target": VIDEO_ID}))
++    assert ma == 200 and nd["expires_in"] == 3600
++    assert nd["stream_url"].startswith("/m/youtube/api/stream/")
++    assert "_ky=" in nd["stream_url"] and "_het_han=" in nd["stream_url"]
++
++
++def test_luong_ve_gia_va_range_lap_lai():
++    mod, m = _mod()
++    du_lieu = b"0123456789abcdef" * 4
++    ve = "ve-gia-test"
++    m._luong[ve] = {"bytes": du_lieu, "het_han": 9999999999}
++    ma, _, nd = asyncio.run(m.luong("ve-khong-co", None, "GET"))
++    assert ma == 404
++    ma, headers, nd = asyncio.run(m.luong(ve, "bytes=10-19", "GET"))
++    assert ma == 206 and nd == du_lieu[10:20]
++    assert headers["Content-Range"] == f"bytes 10-19/{len(du_lieu)}"
++    ma, _, nd2 = asyncio.run(m.luong(ve, "bytes=10-19", "GET"))
++    assert ma == 206 and nd2 == nd  # Range lặp lại trong hạn vé vẫn chạy
++    ma, _, _ = asyncio.run(m.luong(ve, "bytes=zzz", "GET"))
++    assert ma == 416
++
++
++def test_luong_noi_lai_dung_byte_va_ngat_sau_5_lan():
++    mod, m = _mod()
++    du_lieu = bytes(range(256)) * 2  # 512 byte
++    nguon = NguonGia(du_lieu, dut_lan_dau=True)
++    m.mo_nguon = nguon
++    m._luong["ve-1"] = {"url": "fake://am-thanh-1", "source": "youtube",
++                        "het_han": 9999999999, "video_id": VIDEO_ID}
++    ma, _, it = asyncio.run(m.luong("ve-1", None, "GET"))
++    assert ma == 200
++    got = b""
++
++    async def _doc():
++        nonlocal got
++        async for khuc in it:
++            got += khuc
++    asyncio.run(_doc())
++    assert got == du_lieu  # nối lại từ đúng byte, không thiếu/không lặp
++    assert nguon.lan_mo[0] == 0 and nguon.lan_mo[1] == 7  # mở lại đúng offset đứt
++
++    # Luôn đứt → sau 5 lần thì ngắt, không lấp rác.
++    nguon2 = NguonGia(du_lieu, luon_dut=True)
++    m.mo_nguon = nguon2
++    m._luong["ve-2"] = {"url": "fake://am-thanh-1", "source": "youtube",
++                        "het_han": 9999999999, "video_id": VIDEO_ID}
++    ma, _, it2 = asyncio.run(m.luong("ve-2", None, "GET"))
++    with pytest.raises(mod.LoiNguonKhongCuuDuoc):
++        async def _doc2():
++            async for _ in it2:
++                pass
++        asyncio.run(_doc2())
++    assert len(nguon2.lan_mo) == 5
++
++
++def test_dung_la_dung_han():
++    mod, m = _mod()
++    m._luong["ve-1"] = {"bytes": b"0123456789", "het_han": 9999999999}
++    asyncio.run(m.tich_hop("integration/session", "POST", {},
++                           {"source": "youtube", "target": VIDEO_ID}))
++    asyncio.run(m.dung())
++    assert m._luong == {} and m._phien == {}
++    ma, _, _ = asyncio.run(m.luong("ve-1", None, "GET"))
++    assert ma == 404  # vé cũ vô hiệu sau khi dừng
++
++
++def test_doc_lap_loi_module():
++    import ast
++    tree = ast.parse(MODULE_PY.read_text(encoding="utf-8"))
++    app_imports = set()
++    for node in ast.walk(tree):
++        if isinstance(node, ast.ImportFrom) and node.module and node.module.startswith("app."):
++            app_imports.add(node.module)
++    assert app_imports <= {"app.duong_module", "app.tu_xa"}, app_imports
++    for thu_muc in (GOC / "app", GOC / "web"):
++        for p in thu_muc.rglob("*"):
++            if p.is_file() and p.suffix in (".py", ".html", ".js", ".css"):
++                text = p.read_text(encoding="utf-8", errors="ignore")
++                assert "youtube" not in text, f"{p} chứa tên module youtube"
+diff --git a/test/test_web2api_ma_tran_quyen.py b/test/test_web2api_ma_tran_quyen.py
+index 4bfb5fb..d9585a4 100644
+--- a/test/test_web2api_ma_tran_quyen.py
++++ b/test/test_web2api_ma_tran_quyen.py
+@@ -37,6 +37,10 @@ from app.xac_thuc import can_phien_web, can_quan_tri, xac_thuc_v1
+ BANG_NGOAI_LE_MO: dict[tuple[str, str], str] = {
+     ("GET", "/health"): "Kiểm tra sức khỏe hệ thống (mở cho orchestrator/docker healthcheck, không chứa dữ liệu nhạy cảm)",
+     ("GET", "/m/{id_}/{duong:path}"): "Tệp tĩnh giao diện web của module đã cài (công khai, kiểm tra an toàn đường dẫn)",
++    ("GET", "/m/{id_}/api/stream/{ve}"): "Đường luồng mở cho loa (loa không gửi được header): xác thực bằng vé ký HMAC có hạn của lõi, chỉ nhận nguồn LAN, vé giả/hết hạn trả 404 trống không nêu lý do",
++    ("HEAD", "/m/{id_}/api/stream/{ve}"): "Đường luồng mở cho loa: dùng cùng vé GET, chỉ trả header, không đẩy byte",
++    ("GET", "/m/{id_}/api/{duong:path}"): "Đường riêng của module: xác thực Bearer bằng bí mật riêng của module ngay trong hàm xử lý (không gắn dependency của lõi vì khoá theo từng module), chỉ nhận nguồn LAN; thiếu/sai khoá 401, khoá module khác 403",
++    ("POST", "/m/{id_}/api/{duong:path}"): "Đường riêng của module: xác thực Bearer bằng bí mật riêng của module ngay trong hàm xử lý, chỉ nhận nguồn LAN; thân tối đa 400_000 byte, JSON hỏng 400",
+     ("GET", "/novnc/dang-nhap"): "Trang nút mở phiên trình duyệt từ xa (chỉ GET form, không script, không tiêu thụ vé)",
+     ("POST", "/novnc/dang-nhap"): "Đổi vé sử dụng một lần (60 giây) trong thân form urlencoded lấy phiên noVNC ngắn hạn",
+     ("*", "/novnc/s/{phien}/{duong:path}"): "Proxy HTTP noVNC bảo vệ bằng sha256 phiên 256-bit trong URL, CSP sandbox không same-origin",
+diff --git a/test/test_web2api_quyen_truong_hien_thi.py b/test/test_web2api_quyen_truong_hien_thi.py
+index f7dcd11..0fefcc2 100644
+--- a/test/test_web2api_quyen_truong_hien_thi.py
++++ b/test/test_web2api_quyen_truong_hien_thi.py
+@@ -13,9 +13,10 @@ GOC = Path(__file__).resolve().parents[1]
+ #: Trường cấp trên cùng mà manifest trong kho đang dùng và VẪN là quyền (đổi → phải duyệt), đã xem xét từng trường:
+ #: hang = hạng duyệt (tự hạ hạng là leo thang); dang_nhap_bang/webhook/quyen/thuc_the/cong_dung/duong/hoi_vong = khả năng hay tài nguyên;
+ #: model_tinh = danh sách model tĩnh module khai; tac_gia/nguon/giao_dien/nha_cung_cap = thông tin nguồn gốc (đổi đáng chú ý).
++#: duong_module = module được cấp đường riêng /m/<id>/api/... của lõi (NV277: integration Bearer + luồng vé ký, LAN).
+ DA_XEM_XET_LA_QUYEN = frozenset({
+     "hang", "dang_nhap_bang", "model_tinh", "quyen", "webhook", "duong", "hoi_vong", "cong_dung", "nha_cung_cap",
+-    "thuc_the", "tac_gia", "nguon", "giao_dien",
++    "thuc_the", "tac_gia", "nguon", "giao_dien", "duong_module",
+ })
+ 
+ 
