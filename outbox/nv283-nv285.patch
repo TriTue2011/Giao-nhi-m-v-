@@ -1,0 +1,2510 @@
+diff --git a/app/chi_tiet_tai_khoan.py b/app/chi_tiet_tai_khoan.py
+new file mode 100644
+index 0000000..47ed9c4
+--- /dev/null
++++ b/app/chi_tiet_tai_khoan.py
+@@ -0,0 +1,431 @@
++"""Chi tiết một tài khoản đã lưu (NV285): gói, trạng thái đăng nhập/phiên,
++lượng dùng, hạn mức từng tính năng, hạng xoay vòng.
++
++Một đường, một lượt gọi cho giao diện — gộp (i) bản công khai + ``dang_nhap``
+++ ``loai_hien_thi`` (NV283), (ii) lượng dùng 14 ngày từ
++``luong_dung_tai_khoan``, (iii) trạng thái từng đường từ ``duong_dung``,
++(iv) hạn mức từ khả năng tuỳ chọn ``chi_tiet_tai_khoan`` của module.
++
++Nguyên tắc:
++- CHỈ ĐỌC từ bộ đệm của lượt init/dùng gần nhất khi gọi
++  ``chi_tiet_tai_khoan`` — không gọi mạng thêm. Nút «Kiểm tra lại hạn mức»
++  (``lam_moi_han_muc``) mới được gọi mạng, MỘT tài khoản, giãn cách tối
++  thiểu ``LAM_MOI_GIAN_CACH_GIAY``.
++- KHÔNG bịa số: module không có số liệu → ``han_muc.nguon = "khong_biet"``,
++  mục không có số → các trường số là None, hạng là None.
++- Hạng #n lấy từ thứ tự xoay vòng THẬT: thứ tự tài khoản trong
++  ``liet_ke_tai_khoan`` của chính module sở hữu (thứ tự module thử các
++  tài khoản khi phục vụ) nếu module đang chạy và khai khả năng đó; không
++  thì thứ tự liệt kê của kho (``cap_nhat`` giảm dần, như ``liet_ke``).
++  Đường dùng trong một tài khoản thì theo ``duong_dung.chon_duong``
++  (codex trước, rồi web). KHÔNG tự đặt thứ tự mới.
++- Chỉ tài khoản còn lượt (không cạn mục đó, không hết hạn mức cấp tài
++  khoản) VÀ đăng nhập «ok» mới được xếp hạng.
++"""
++
++from __future__ import annotations
++
++import inspect
++import logging
++import re
++import time
++
++log = logging.getLogger("web2api.chi_tiet_tai_khoan")
++
++#: Giãn cách tối thiểu giữa hai lần «Kiểm tra lại hạn mức» của MỘT tài
++#: khoản (giây) — cùng cơ chế chống ồ ạt hiện có (NV285 §2b).
++LAM_MOI_GIAN_CACH_GIAY = 60
++
++#: Mốc làm mới hạn mức gần nhất theo id tài khoản (bộ nhớ tiến trình).
++_MOC_LAM_MOI: dict[str, float] = {}
++
++#: Tên mục hạn mức hợp lệ.
++_MAU_TEN_MUC = re.compile(r"^[a-z0-9_]{1,64}$")
++
++#: Thứ tự ưu tiên đường dùng trong một tài khoản (như duong_dung).
++_THU_TU_DUONG = ("codex", "web")
++
++
++def con_lai_lam_moi_giay(id_: str, bay_gio: float | None = None) -> float:
++    """Số giây còn phải chờ trước lần làm mới kế (0 = được làm mới ngay)."""
++    if not isinstance(id_, str) or not id_:
++        return 0.0
++    moc = _MOC_LAM_MOI.get(id_, 0.0)
++    if not moc:
++        return 0.0
++    con = LAM_MOI_GIAN_CACH_GIAY - ((bay_gio if bay_gio is not None else time.time()) - moc)
++    return con if con > 0 else 0.0
++
++
++def danh_dau_lam_moi(id_: str, bay_gio: float | None = None) -> None:
++    """Ghi mốc làm mới (chỉ gọi sau khi module đã chạy xong không ném)."""
++    if isinstance(id_, str) and id_:
++        _MOC_LAM_MOI[id_] = bay_gio if bay_gio is not None else time.time()
++
++
++def chuan_hoa_goi(goi) -> str:
++    """Gói theo hợp đồng NV285 §3b: chỉ «plus»/«free», còn lại «khong_biet».
++
++    (Các bậc khác như pro/team hiện gộp vào «khong_biet» theo đúng hợp
++    đồng đóng — xem hoi-nv285.md về việc có mở rộng hợp đồng hay không.)
++    """
++    if isinstance(goi, str) and goi.strip().lower() in ("plus", "free"):
++        return goi.strip().lower()
++    return "khong_biet"
++
++
++def _so_nguyen(gia_tri):
++    if isinstance(gia_tri, bool) or not isinstance(gia_tri, (int, float)):
++        return None
++    if gia_tri != gia_tri or abs(gia_tri) == float("inf"):
++        return None
++    return int(gia_tri)
++
++
++def _so_thuc(gia_tri):
++    if isinstance(gia_tri, bool) or not isinstance(gia_tri, (int, float)):
++        return None
++    if gia_tri != gia_tri or abs(gia_tri) == float("inf"):
++        return None
++    return float(gia_tri)
++
++
++def chuan_hoa_muc(muc_tho) -> dict | None:
++    """Một mục hạn mức từ module → khuôn chuẩn, None nếu không dùng được.
++
++    Chỉ giữ các trường đã biết; chuỗi/bí mật lạ (token, cookie, email…)
++    trong mục thô bị LOẠI (không bao giờ lọt ra phản hồi).
++    """
++    if not isinstance(muc_tho, dict):
++        return None
++    ten = muc_tho.get("ten")
++    if not isinstance(ten, str) or not _MAU_TEN_MUC.fullmatch(ten.strip()):
++        return None
++    nhan = muc_tho.get("nhan")
++    nhan = nhan.strip() if isinstance(nhan, str) and nhan.strip() else ten.strip()
++    pct = _so_thuc(muc_tho.get("da_dung_pct"))
++    if pct is not None:
++        pct = min(100.0, max(0.0, pct))
++    reset_luc = _so_nguyen(muc_tho.get("reset_luc"))
++    reset_sau = _so_nguyen(muc_tho.get("reset_sau_giay"))
++    if reset_sau is not None and reset_sau < 0:
++        reset_sau = None
++    return {
++        "ten": ten.strip(),
++        "nhan": nhan[:80],
++        "con_lai": _so_nguyen(muc_tho.get("con_lai")),
++        "tong": _so_nguyen(muc_tho.get("tong")),
++        "da_dung_pct": pct,
++        "reset_luc": reset_luc,
++        "reset_sau_giay": reset_sau,
++        "hang": None,
++    }
++
++
++def chuan_hoa_han_muc(chi_tiet_tho) -> dict:
++    """Kết quả ``chi_tiet_tai_khoan`` của module → khuôn ``han_muc`` chuẩn.
++
++    Không phải dict, hoặc không có mục nào có số liệu → «khong_biet»
++    (module khai khả năng nhưng chưa có số — không bịa).
++    """
++    rong = {"nguon": "khong_biet", "cap_nhat_luc": 0, "muc": []}
++    if not isinstance(chi_tiet_tho, dict):
++        return rong
++    muc_tho = chi_tiet_tho.get("muc")
++    if not isinstance(muc_tho, list):
++        return rong
++    muc = []
++    for m in muc_tho:
++        chuan = chuan_hoa_muc(m)
++        if chuan is not None:
++            muc.append(chuan)
++    if not muc:
++        return rong
++    cap_nhat = _so_nguyen(chi_tiet_tho.get("cap_nhat_luc")) or 0
++    return {"nguon": "module", "cap_nhat_luc": cap_nhat, "muc": muc}
++
++
++def _co_so_lieu(muc: dict) -> bool:
++    return muc.get("con_lai") is not None or muc.get("tong") is not None \
++        or muc.get("da_dung_pct") is not None
++
++
++def _can_muc(muc: dict) -> bool:
++    """Mục đã cạn: còn 0 lượt, hoặc đã dùng 100%."""
++    if muc.get("con_lai") is not None and muc["con_lai"] <= 0:
++        return True
++    if muc.get("da_dung_pct") is not None and muc["da_dung_pct"] >= 100.0:
++        return True
++    return False
++
++
++async def _goi_kha_nang(mod, ten, *args):
++    """Gọi khả năng module (đồng bộ hoặc coroutine); không có → None."""
++    ham = getattr(mod, ten, None) if mod is not None else None
++    if not callable(ham):
++        return None
++    kq = ham(*args)
++    if inspect.isawaitable(kq):
++        kq = await kq
++    return kq
++
++
++async def lay_han_muc_tu_module(so, ban_ghi: dict) -> tuple[dict, str]:
++    """Hạn mức + gói của một tài khoản từ module sở hữu (chỉ đọc bộ đệm).
++
++    Trả (han_muc_chuan, goi_chuan). Module không chạy/không khai khả
++    năng/không có số → thử hạn mức thụ động từ tiêu đề (nguồn «tieu_de»,
++    không có mục từng tính năng); không có gì → «khong_biet». Lỗi module
++    → log.warning có kiểu lỗi, trả «khong_biet» (không hỏng route).
++    """
++    from app import luong_dung_tai_khoan as ldtk
++
++    id_ = ban_ghi.get("id", "") if isinstance(ban_ghi, dict) else ""
++    module_id = ban_ghi.get("module_id", "") if isinstance(ban_ghi, dict) else ""
++    email = ban_ghi.get("email", "") if isinstance(ban_ghi, dict) else ""
++    goi_mac_dinh = chuan_hoa_goi(ban_ghi.get("bac_goi") if isinstance(ban_ghi, dict) else None)
++    mod = None
++    try:
++        mod = (so.dang_chay.get(module_id) if so is not None and module_id else None)
++    except Exception:
++        mod = None
++    if mod is not None and email:
++        try:
++            tho = await _goi_kha_nang(mod, "chi_tiet_tai_khoan", email)
++        except Exception as e:
++            log.warning("chi-tiet: module %s lỗi: %s", module_id, type(e).__name__)
++            tho = None
++        if isinstance(tho, dict):
++            han_muc = chuan_hoa_han_muc(tho)
++            if han_muc["nguon"] == "module":
++                return han_muc, chuan_hoa_goi(tho.get("goi")) \
++                    if tho.get("goi") else goi_mac_dinh
++    # Nguồn thụ động từ tiêu đề (luong_dung): có số liệu chung nhưng KHÔNG
++    # có mục từng tính năng → muc rỗng, không bịa mục «chung» thành tính năng.
++    try:
++        tieu_de = ldtk.lay_han_muc(id_) if id_ else None
++    except Exception:
++        tieu_de = None
++    if isinstance(tieu_de, dict) and tieu_de:
++        return {"nguon": "tieu_de",
++                "cap_nhat_luc": _so_nguyen(tieu_de.get("luc_doc")) or 0,
++                "muc": []}, goi_mac_dinh
++    return {"nguon": "khong_biet", "cap_nhat_luc": 0, "muc": []}, goi_mac_dinh
++
++
++def dung_thong_ke(id_: str) -> dict:
++    """Thống kê dùng cho chi-tiet.dung (NV285 §c3).
++
++    Cửa sổ 14 ngày gần nhất từ ``luong_dung_tai_khoan``: ``luot`` chỉ đếm
++    lượt thành công, ``loi_*`` đếm lỗi tách loại — nên thanh_cong/that_bai
++    tách được (không bao giờ phải trả null với lược đồ hiện tại; null giữ
++    trong hợp đồng cho lược đồ tương lai không tách được).
++    """
++    from app import luong_dung_tai_khoan as ldtk
++
++    rong = {"hom_nay": 0, "7_ngay": 0, "thanh_cong": 0, "that_bai": 0,
++            "theo_ngay": [], "lan_dung_cuoi": 0}
++    if not isinstance(id_, str) or not id_:
++        return rong
++    try:
++        tk = ldtk.thong_ke(id_)
++    except Exception:
++        return rong
++    if tk is None:
++        return rong
++    from datetime import datetime, timedelta, timezone
++
++    bay_gio = datetime.fromtimestamp(int(time.time()), tz=timezone.utc)
++    hom_nay_str = bay_gio.strftime("%Y-%m-%d")
++    muc_7 = (bay_gio - timedelta(days=6)).strftime("%Y-%m-%d")
++    muc_14 = (bay_gio - timedelta(days=13)).strftime("%Y-%m-%d")
++    hang_14 = [d for d in tk["ngay"] if d["ngay"] >= muc_14][-14:]
++    hom_nay = 0
++    bay_ngay = 0
++    thanh_cong = 0
++    that_bai = 0
++    theo_ngay = []
++    for d in hang_14:
++        theo_ngay.append({"ngay": d["ngay"], "so_luot": d["luot"]})
++        thanh_cong += d["luot"]
++        that_bai += d["loi_han_muc"] + d["loi_het_phien"] + d["loi_khac"]
++        if d["ngay"] == hom_nay_str:
++            hom_nay = d["luot"]
++        if d["ngay"] >= muc_7:
++            bay_ngay += d["luot"]
++    try:
++        lan_cuoi = ldtk.lan_dung_cuoi(id_)
++    except Exception:
++        lan_cuoi = 0
++    return {"hom_nay": hom_nay, "7_ngay": bay_ngay, "thanh_cong": thanh_cong,
++            "that_bai": that_bai, "theo_ngay": theo_ngay,
++            "lan_dung_cuoi": lan_cuoi or 0}
++
++
++def duong_cong_khai(ban_ghi: dict) -> list[dict]:
++    """Trạng thái từng đường của tài khoản, xếp theo thứ tự ưu tiên đường
++    của ``duong_dung`` (codex trước, rồi web, rồi các đường khác)."""
++    from app import kho_tai_khoan as ktk
++
++    tt = ktk.lay_trang_thai_duong(ban_ghi) if isinstance(ban_ghi, dict) else {}
++    if not isinstance(tt, dict):
++        return []
++    thu_tu = [d for d in _THU_TU_DUONG if d in tt]
++    thu_tu += [d for d in tt if d not in thu_tu]
++    return [{"dich": d,
++             "trang_thai": tt[d].get("trang_thai", ""),
++             "moc_hoi_lai": tt[d].get("moc_hoi_lai", 0)} for d in thu_tu]
++
++
++def nhom_duong_cua_ban(ban_cong_khai: dict) -> tuple[str, str]:
++    """Nhóm (nhà, đường) của một bản công khai: nhà = nhom hiệu lực,
++    đường = dich_dung chính, không có thì dung_cho đầu, không có thì ""."""
++    from app import kho_tai_khoan as ktk
++
++    nhom = ktk.nhom_hieu_luc(ban_cong_khai.get("nhom", "") or "")
++    duong = ban_cong_khai.get("dich_dung", "") or ""
++    if not duong:
++        dung_cho = ban_cong_khai.get("dung_cho") or []
++        duong = dung_cho[0] if dung_cho else ""
++    return nhom, duong
++
++
++def thu_tu_xoay_cua_nhom(so, cac_ban: list[dict]) -> dict[str, int]:
++    """Thứ tự xoay vòng của các tài khoản trong một nhóm (email → vị trí).
++
++    Ưu tiên thứ tự ``liet_ke_tai_khoan`` của chính module sở hữu (module
++    thử tài khoản theo thứ tự đó khi phục vụ); tài khoản không có trong
++    danh sách module xếp sau theo thứ tự liệt kê của kho. Module không
++    chạy/không khai liệt kê → toàn bộ theo thứ tự kho.
++    """
++    thu_tu: dict[str, int] = {}
++    # Thứ tự module trước (vị trí nhỏ = thử trước); tài khoản không có
++    # trong danh sách module xếp sau theo thứ tự liệt kê của kho
++    # (cap_nhat giảm dần, như kho.liet_ke).
++    if so is not None:
++        for module_id in sorted({b.get("module_id", "") for b in cac_ban if b.get("module_id")}):
++            try:
++                mod = so.dang_chay.get(module_id)
++                liet_ke = getattr(mod, "liet_ke_tai_khoan", None) if mod is not None else None
++                if not callable(liet_ke):
++                    continue
++                for i, muc in enumerate(liet_ke() or []):
++                    if isinstance(muc, dict):
++                        email = str(muc.get("email") or "").strip().lower()
++                        if email and email not in thu_tu:
++                            thu_tu[email] = i
++            except Exception as e:
++                log.warning("chi-tiet: đọc thứ tự module %s lỗi: %s",
++                            module_id, type(e).__name__)
++    for i, b in enumerate(cac_ban):
++        email = (b.get("_email_noi_bo") or "").strip().lower()
++        if email and email not in thu_tu:
++            thu_tu[email] = 100000 + i
++    return thu_tu
++
++
++def lap_bang_hang(nhom: str, duong: str, cac_ban: list[dict],
++                 han_muc_theo_id: dict, thu_tu: dict[str, int]) -> tuple[dict, list[dict]]:
++    """Hạng từng tài khoản theo từng mục + người giữ #1 của từng mục.
++
++    Trả (hang_theo_id: {id: {ten_muc: hang|None}},
++         giu_hang_1: [{nhom, muc, tai_khoan_id, email}]).
++    Ứng viên xếp hạng: không tạm dừng, dang_nhap «ok», còn lượt ở mục đó
++    (không cạn, không hết hạn mức cấp tài khoản — kiểm qua luong_dung).
++    """
++    from app import kho_tai_khoan as ktk
++    from app import luong_dung_tai_khoan as ldtk
++
++    ten_nhom = f"{nhom}/{duong}" if duong else nhom
++    ung_vien_theo_muc: dict[str, list[dict]] = {}
++    for b in cac_ban:
++        if b.get("trang_thai") == ktk.TRANG_THAI_TAM_DUNG:
++            continue
++        if b.get("dang_nhap", {}).get("trang_thai") != "ok":
++            continue
++        try:
++            if ldtk.con_het_han_muc(b["id"]):
++                continue
++        except Exception as e:
++            # Hạn mức là QoS (như _con_het_han_muc đã duyệt): lỗi đọc sổ
++            # → coi như chưa hết, nhưng ghi log kiểu lỗi, không nuốt im.
++            log.warning("lap_bang_hang: loi doc han muc: %s", type(e).__name__)
++        han_muc = han_muc_theo_id.get(b["id"]) or {}
++        for muc in han_muc.get("muc") or []:
++            if not _co_so_lieu(muc) or _can_muc(muc):
++                continue
++            ung_vien_theo_muc.setdefault(muc["ten"], []).append(b)
++    hang_theo_id: dict[str, dict] = {b["id"]: {} for b in cac_ban}
++    giu_hang_1: list[dict] = []
++    for ten_muc in sorted(ung_vien_theo_muc):
++        ds = ung_vien_theo_muc[ten_muc]
++        ds.sort(key=lambda b: (thu_tu.get((b.get("_email_noi_bo") or "").strip().lower(), 1 << 30),
++                               -b.get("cap_nhat", 0)))
++        for hang, b in enumerate(ds, start=1):
++            hang_theo_id[b["id"]][ten_muc] = hang
++        giu = ds[0]
++        email_hien = giu.get("email") or giu.get("email_che", "")
++        giu_hang_1.append({"nhom": ten_nhom, "muc": ten_muc,
++                           "tai_khoan_id": giu["id"], "email": email_hien})
++    return hang_theo_id, giu_hang_1
++
++
++def dem_tong_quan(cac_ban: list[dict], han_muc_theo_id: dict) -> dict:
++    """Đếm trạng thái + hết-limit theo mục cho một danh sách đã lọc
++    (không tính hạng — hạng tính riêng theo từng nhóm).
++
++    binh_thuong = dang_nhap ok VÀ không mục nào cạn; chua_biet = chưa có
++    kết quả đăng nhập; tài khoản ok nhưng cạn hạn mức KHÔNG rơi vào ô
++    trạng thái nào (đếm riêng ở het_limit_theo_muc — dải tổng hợp vẽ
++    riêng hàng «Hết limit theo mục»); tạm dừng đếm riêng.
++    het_limit_theo_muc CHỈ gồm mục mà danh sách có số liệu.
++    """
++    from app import kho_tai_khoan as ktk
++
++    tong = len(cac_ban)
++    binh_thuong = can_xu_ly = loi = tam_dung = chua_biet = 0
++    thong_ke_muc: dict[str, dict] = {}
++    for b in cac_ban:
++        if b.get("trang_thai") == ktk.TRANG_THAI_TAM_DUNG:
++            tam_dung += 1
++            continue
++        tt = b.get("dang_nhap", {}).get("trang_thai")
++        if tt == "can_xu_ly":
++            can_xu_ly += 1
++        elif tt == "loi":
++            loi += 1
++        elif tt == "chua":
++            chua_biet += 1
++        elif tt == "ok":
++            han_muc = han_muc_theo_id.get(b["id"]) or {}
++            if not any(_co_so_lieu(m) and _can_muc(m) for m in han_muc.get("muc") or []):
++                binh_thuong += 1
++        han_muc = han_muc_theo_id.get(b["id"]) or {}
++        for muc in han_muc.get("muc") or []:
++            if not _co_so_lieu(muc):
++                continue
++            thong = thong_ke_muc.setdefault(
++                muc["ten"], {"ten": muc["ten"], "nhan": muc["nhan"],
++                             "so_tai_khoan_can": 0, "so_tai_khoan_co_so_lieu": 0})
++            thong["so_tai_khoan_co_so_lieu"] += 1
++            if _can_muc(muc):
++                thong["so_tai_khoan_can"] += 1
++    het_limit = [thong_ke_muc[k] for k in sorted(thong_ke_muc)]
++    return {
++        "tong": tong,
++        "binh_thuong": binh_thuong,
++        "can_xu_ly": can_xu_ly,
++        "loi": loi,
++        "tam_dung": tam_dung,
++        "chua_biet": chua_biet,
++        "het_limit_theo_muc": het_limit,
++        "co_so_lieu_han_muc": bool(het_limit),
++    }
++
++
++def tinh_tong_quan(nhom: str, duong: str, cac_ban: list[dict],
++                   han_muc_theo_id: dict, thu_tu: dict[str, int]) -> dict:
++    """Tổng quan MỘT nhóm (NV285 §c2/2z): đếm + người giữ #1 từng mục."""
++    dem = dem_tong_quan(cac_ban, han_muc_theo_id)
++    _hang, giu_hang_1 = lap_bang_hang(nhom, duong, cac_ban, han_muc_theo_id, thu_tu)
++    return {**dem, "giu_hang_1": giu_hang_1}
+diff --git a/app/cong_mcp_cong_cu.py b/app/cong_mcp_cong_cu.py
+index 28570f3..e575fb8 100644
+--- a/app/cong_mcp_cong_cu.py
++++ b/app/cong_mcp_cong_cu.py
+@@ -470,6 +470,13 @@ async def _chay_dang_nhap(phien: dict, so: Any, tk_id: str, module_id: str) -> N
+             kq_module = await _thu_khoi_phuc_module(so, tk_id, module_id)
+             if kq_module is not None:
+                 _ap_ket_qua(phien, kq_module)
++                # NV283: đường khoi_phuc_tu_dong KHÔNG đi qua
++                # dang_nhap_tai_khoan_da_luu_noi_bo nên ghi riêng tại đây
++                # (đúng một lần; đường noi_bo đã tự ghi nên không ghi lại).
++                kho_tai_khoan.ghi_ket_qua_dang_nhap_tu_ket_qua(
++                    tk_id, {"thanh_cong": phien["trang_thai"] == "thanh_cong",
++                            "can_nguoi": phien["trang_thai"] == "can_nguoi",
++                            "ma_loi": phien["ma_loi"]})
+                 return
+             kq = await tuyen.dang_nhap_tai_khoan_da_luu_noi_bo(so, tk_id, module_id, False)
+             if not _ap_ket_qua(phien, kq):
+diff --git a/app/kho_tai_khoan.py b/app/kho_tai_khoan.py
+index afb3cef..cb5cdae 100644
+--- a/app/kho_tai_khoan.py
++++ b/app/kho_tai_khoan.py
+@@ -42,6 +42,10 @@ TEN_KHO = "_tai_khoan_da_luu"
+ TEN_CONG_TAC = "_tu_dang_nhap_lai"
+ #: Tệp trạng thái thử lại (số lần hỏng liên tiếp, lần thử cuối).
+ TEN_TRANG_THAI = "_tai_khoan_da_luu_trang_thai"
++#: Tệp sổ phụ KẾT QUẢ ĐĂNG NHẬP (NV283): cùng cơ chế sổ phụ như
++#: ``TEN_TRANG_THAI`` (kho bí mật, quyền 0600, không chứa bí mật — chỉ
++#: ket_qua/ma_loi/luc/co_phien/phien_het_han, khoá theo id tài khoản).
++TEN_KET_QUA_DANG_NHAP = "_tai_khoan_da_luu_ket_qua_dang_nhap"
+ 
+ #: Trạng thái «tạm dừng» (NV197b): tài khoản còn lưu trong kho nhưng bị lõi
+ #: BỎ QUA khi chọn/đăng nhập (lấy ý từ c2a `account_service.update_account`
+@@ -844,14 +848,355 @@ def _ghi(du_lieu: dict) -> None:
+     kho.ghi_bi_mat(TEN_KHO, du_lieu)
+ 
+ 
+-def ban_cong_khai(ban_ghi: dict, *, hien_email: bool = False) -> dict:
++# ── NV283: sổ kết quả đăng nhập thật + loại hiển thị ────────────────────────
++# Một chỗ ghi duy nhất cho MỌI đường đăng nhập (xem
++# ``ghi_ket_qua_dang_nhap_tu_ket_qua``): lõi ghi kết quả THẬT (thành công /
++# cần người / thất bại) vào sổ phụ ``TEN_KET_QUA_DANG_NHAP`` để giao diện
++# tô chấm đúng màu mà không đoán. Sổ phụ chỉ chứa dữ liệu KHÔNG bí mật:
++# {ket_qua, ma_loi, luc, co_phien, phien_het_han} — không email ngoài id,
++# không cookie/token/lý do tự do.
++
++#: Kết quả đăng nhập — danh sách ĐÓNG (như ``kiem_trang_thai``).
++KET_QUA_DANG_NHAP_CHO_PHEP = ("thanh_cong", "can_nguoi", "that_bai")
++
++#: Mã lỗi an toàn: đúng hình ``[A-Za-z0-9_-]{1,64}`` mới được lưu, còn lại
++#: suy từ mã trạng thái HTTP (như ``_ma_loi_an_toan`` của hợp đồng đăng nhập).
++_MAU_MA_LOI_KET_QUA = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
++
++#: Mã lỗi mà theo hợp đồng có nghĩa là «cần người» (CAPTCHA/2FA/xác minh/
++#: mã qua email) — danh sách ĐÓNG theo MÃ, không theo tên module.
++MA_LOI_CAN_NGUOI = ("can_nguoi", "cho_2fa", "can_ma_email",
++                    "thu_thach_truoc_khi_dien")
++
++
++def _doc_ket_qua() -> dict:
++    """Đọc sổ phụ kết quả đăng nhập; hỏng/sai hình → {} (không đóng cửa
++    đường đọc chính — kết quả đăng nhập là dữ liệu phụ, thiếu thì «chua»)."""
++    try:
++        du_lieu = kho.doc_bi_mat(TEN_KET_QUA_DANG_NHAP)
++    except Exception:
++        return {}
++    if not isinstance(du_lieu, dict):
++        return {}
++    ra = {}
++    for id_, muc in du_lieu.items():
++        if isinstance(id_, str) and isinstance(muc, dict):
++            ra[id_] = muc
++    return ra
++
++
++def _ghi_ket_qua(du_lieu: dict) -> None:
++    kho.ghi_bi_mat(TEN_KET_QUA_DANG_NHAP, du_lieu)
++
++
++def _ma_loi_ket_qua_an_toan(ma_loi, ma_trang_thai=None) -> str:
++    """Mã lỗi lưu được: đúng hình thì giữ, không thì suy từ mã HTTP
++    (``phan_loai_loi`` của hợp đồng), cuối cùng là «loi_module»."""
++    if isinstance(ma_loi, str) and _MAU_MA_LOI_KET_QUA.fullmatch(ma_loi.strip()):
++        return ma_loi.strip()
++    try:
++        from app.tai_khoan_hang_loat import phan_loai_loi
++        if isinstance(ma_trang_thai, int) and not isinstance(ma_trang_thai, bool):
++            return phan_loai_loi(ma_trang_thai)
++    except Exception as e:
++        # Rơi về mã chung nhưng ghi log kiểu lỗi, không nuốt im.
++        log.warning("ma_loi_an_toan: loi phan loai: %s", type(e).__name__)
++    return "loi_module"
++
++
++def kiem_ket_qua_dang_nhap(ket_qua) -> str:
++    """Kiểm kết quả đăng nhập: phải thuộc danh sách đóng, không thì
++    ``LoiKhoTaiKhoan("invalid_value")``."""
++    if isinstance(ket_qua, bool) or not isinstance(ket_qua, str):
++        raise LoiKhoTaiKhoan("invalid_value")
++    k = ket_qua.strip()
++    if k not in KET_QUA_DANG_NHAP_CHO_PHEP:
++        raise LoiKhoTaiKhoan("invalid_value")
++    return k
++
++
++def ghi_ket_qua_dang_nhap(id_, ket_qua, ma_loi="", co_phien=None) -> dict | None:
++    """Ghi MỘT kết quả đăng nhập vào sổ phụ (NV283) — hàm duy nhất ghi sổ này.
++
++    ``id_`` lạ → None (không tạo bản ghi mới). ``co_phien`` phải là
++    bool/None. Ghi thành công → xoá cờ ``phien_het_han`` cũ (lần đăng nhập
++    mới nhất thay thế quan sát hết hạn trước đó; quan sát hết hạn mới do
++    ``danh_dau_phien_het_han`` ghi riêng). Lỗi kho → ném ``LoiKhoTaiKhoan``
++    (người gọi qua hàm bọc ``ghi_ket_qua_dang_nhap_tu_ket_qua`` sẽ chỉ
++    log.warning, không làm hỏng kết quả đăng nhập). Trả mục đã ghi.
++    """
++    ket_qua_sach = kiem_ket_qua_dang_nhap(ket_qua)
++    if co_phien is not None and not isinstance(co_phien, bool):
++        raise LoiKhoTaiKhoan("invalid_value")
++    ma_sach = _ma_loi_ket_qua_an_toan(ma_loi) if ket_qua_sach != "thanh_cong" else ""
++    if not isinstance(id_, str) or not id_:
++        return None
++    with kho.giu_khoa_kho():
++        du_lieu = _doc()
++        muc_tieu = None
++        for k in du_lieu:
++            if hmac.compare_digest(k, id_):
++                muc_tieu = k
++                break
++        if muc_tieu is None:
++            return None
++        ket_qua_luu = _doc_ket_qua()
++        muc = {
++            "ket_qua": ket_qua_sach,
++            "ma_loi": ma_sach,
++            "luc": int(time.time()),
++            "co_phien": co_phien,
++            "phien_het_han": False,
++        }
++        ket_qua_luu[muc_tieu] = muc
++        _ghi_ket_qua(ket_qua_luu)
++        return dict(muc)
++
++
++def lay_ket_qua_dang_nhap(id_) -> dict | None:
++    """Mục kết quả đăng nhập đã chuẩn hoá của một tài khoản; không có → None."""
++    if not isinstance(id_, str) or not id_:
++        return None
++    muc = _doc_ket_qua().get(id_)
++    if not isinstance(muc, dict):
++        return None
++    ket_qua = muc.get("ket_qua")
++    if ket_qua not in KET_QUA_DANG_NHAP_CHO_PHEP:
++        return None
++    luc = muc.get("luc")
++    luc = luc if isinstance(luc, int) and not isinstance(luc, bool) else 0
++    co_phien = muc.get("co_phien")
++    co_phien = co_phien if isinstance(co_phien, bool) else None
++    return {
++        "ket_qua": ket_qua,
++        "ma_loi": muc.get("ma_loi") if isinstance(muc.get("ma_loi"), str) else "",
++        "luc": luc,
++        "co_phien": co_phien,
++        "phien_het_han": bool(muc.get("phien_het_han")),
++    }
++
++
++def danh_dau_phien_het_han(id_) -> bool:
++    """Đánh dấu phiên của tài khoản ĐÃ HẾT HẠN THẬT (NV283 §2c).
++
++    Chỉ gọi khi một lượt dùng/kiểm CÓ SẴN thấy 401 (không gọi mạng thêm,
++    không kiểm hàng loạt). Tài khoản lạ → False. Không có mục kết quả nào
++    vẫn đánh dấu được (phiên hết hạn là dữ liệu thật, không phải đoán «ok»):
++    ``dang_nhap_cong_khai`` khi đó trả «can_xu_ly». Trả True khi đã ghi.
++    """
++    if not isinstance(id_, str) or not id_:
++        return False
++    with kho.giu_khoa_kho():
++        du_lieu = _doc()
++        muc_tieu = None
++        for k in du_lieu:
++            if hmac.compare_digest(k, id_):
++                muc_tieu = k
++                break
++        if muc_tieu is None:
++            return False
++        ket_qua_luu = _doc_ket_qua()
++        muc = dict(ket_qua_luu.get(muc_tieu) or {})
++        muc["phien_het_han"] = True
++        if muc.get("ket_qua") not in KET_QUA_DANG_NHAP_CHO_PHEP:
++            muc.setdefault("ket_qua", "")
++            muc.setdefault("ma_loi", "")
++            muc.setdefault("luc", 0)
++            muc.setdefault("co_phien", False)
++        ket_qua_luu[muc_tieu] = muc
++        _ghi_ket_qua(ket_qua_luu)
++        return True
++
++
++def xoa_ket_qua_dang_nhap(id_) -> None:
++    """Xoá mục kết quả đăng nhập (vòng đời: tài khoản xoá ⇒ kết quả xoá theo).
++    Không bao giờ ném."""
++    try:
++        if not isinstance(id_, str) or not id_:
++            return
++        with kho.giu_khoa_kho():
++            ket_qua_luu = _doc_ket_qua()
++            if id_ in ket_qua_luu:
++                del ket_qua_luu[id_]
++                _ghi_ket_qua(ket_qua_luu)
++    except Exception as e:
++        log.warning("xoá kết quả đăng nhập hỏng: %s", type(e).__name__)
++
++
++def dang_nhap_cong_khai(ban_ghi: dict, ket_qua: dict | None = None) -> dict:
++    """Hợp đồng cứng NV283 §3 cho một bản ghi (không bí mật).
++
++    - ok = lần gần nhất thành công VÀ chưa thấy phiên hết hạn.
++    - can_xu_ly = cần người HOẶC phiên hết hạn thật.
++    - loi = lần gần nhất thất bại.
++    - chua = chưa có số liệu (KHÔNG đoán «ok»).
++    ``ket_qua`` truyền vào để liệt kê hàng loạt chỉ đọc sổ phụ một lần;
++    không truyền thì tự đọc.
++    """
++    id_ = ban_ghi.get("id", "") if isinstance(ban_ghi, dict) else ""
++    muc = ket_qua if isinstance(ket_qua, dict) else lay_ket_qua_dang_nhap(id_)
++    if muc is None:
++        return {"trang_thai": "chua", "luc": 0, "ma_loi": "", "co_phien": None}
++    kq = muc.get("ket_qua")
++    het_han = bool(muc.get("phien_het_han"))
++    if kq == "that_bai":
++        tt = "loi"
++    elif kq == "can_nguoi" or het_han:
++        tt = "can_xu_ly"
++    elif kq == "thanh_cong":
++        tt = "ok"
++    else:
++        # Chỉ có cờ hết hạn mà chưa từng ghi kết quả → vẫn là can_xu_ly
++        # (phiên hết hạn là dữ liệu thật); còn lại là chua.
++        tt = "can_xu_ly" if het_han else "chua"
++    luc = muc.get("luc")
++    luc = luc if isinstance(luc, int) and not isinstance(luc, bool) else 0
++    co_phien = muc.get("co_phien")
++    co_phien = co_phien if isinstance(co_phien, bool) else None
++    return {
++        "trang_thai": tt,
++        "luc": luc,
++        "ma_loi": muc.get("ma_loi") if isinstance(muc.get("ma_loi"), str) else "",
++        "co_phien": co_phien,
++    }
++
++
++def _tai_loai_manifest() -> dict:
++    """Nhãn loại tài khoản theo module, đọc từ ``manifest.json`` lúc import
++    (cùng cơ chế hợp nhất manifest như ``_tai_bang_phan_loai_ai``).
++
++    Module khai ``loai_tai_khoan_ten`` (chuỗi ≤ 40 ký tự) thì nhãn đó được
++    dùng; không khai → không có trong bảng (lõi rơi về ``kieu_bi_mat``).
++    Lỗi đọc/bỏ qua từng manifest, không làm hỏng import.
++    """
++    import json
++    from pathlib import Path
++
++    bang: dict[str, str] = {}
++    try:
++        thu_muc = Path(__file__).resolve().parent.parent / "modules"
++        if thu_muc.is_dir():
++            for man in sorted(thu_muc.glob("*/manifest.json")):
++                try:
++                    du_lieu = json.loads(man.read_text(encoding="utf-8"))
++                    mid = du_lieu.get("id")
++                    ten = du_lieu.get("loai_tai_khoan_ten")
++                except (OSError, ValueError):
++                    continue
++                if isinstance(mid, str) and mid \
++                        and isinstance(ten, str) and ten.strip() \
++                        and len(ten.strip()) <= 40:
++                    bang[mid] = ten.strip()
++    except OSError:
++        pass
++    return bang
++
++
++#: Nhãn loại theo module sở hữu (NV283 §2d) — BẢNG DỮ LIỆU từ manifest,
++#: không phải bảng từ khoá tên module trong lõi.
++LOAI_TAI_KHOAN_TEN_THEO_MODULE = _tai_loai_manifest()
++
++
++def loai_hien_thi(ban_ghi: dict) -> str:
++    """«Loại hiển thị» KHÔNG BAO GIỜ rỗng (NV283 §2d), suy theo NGUYÊN TẮC:
++
++    1. ``loai_tai_khoan`` người dùng đã đặt → tên hiển thị trong bảng
++       phân loại (``TEN_LOAI_TAI_KHOAN``).
++    2. Không có → nhãn ``loai_tai_khoan_ten`` trong manifest của module
++       sở hữu (``LOAI_TAI_KHOAN_TEN_THEO_MODULE``).
++    3. Không module → theo ``kieu_bi_mat``: mat_khau → «Mật khẩu»,
++       khoá/token/cookie → «API».
++    Bản ghi nhập (loại «nhap») không có module: dùng tên nhóm theo nguồn nhập.
++    """
++    if not isinstance(ban_ghi, dict):
++        return "Mật khẩu"
++    loai = ban_ghi.get("loai_tai_khoan") or ""
++    if isinstance(loai, str) and loai:
++        return TEN_LOAI_TAI_KHOAN.get(loai, loai)
++    if ban_ghi.get("loai") == "nhap":
++        nguon = ban_ghi.get("nguon") or ""
++        return TEN_NHOM_AI.get(nguon, nguon) if nguon else "Nhập"
++    module_id = ban_ghi.get("module_id") or ""
++    if isinstance(module_id, str) and module_id:
++        ten = LOAI_TAI_KHOAN_TEN_THEO_MODULE.get(module_id)
++        if ten:
++            return ten
++    kieu = ban_ghi.get("kieu_bi_mat") or "mat_khau"
++    return "Mật khẩu" if kieu == "mat_khau" else "API"
++
++
++def phan_loai_ket_qua_dang_nhap(kq) -> tuple[str, str, bool | None]:
++    """Phân loại một kết quả đăng nhập (object hợp đồng hoặc dict) thành
++    (ket_qua, ma_loi, co_phien) cho ``ghi_ket_qua_dang_nhap``.
++
++    - thanh_cong → («thanh_cong», «», True).
++    - can_nguoi/cho_2fa (cờ hoặc mã trong ``MA_LOI_CAN_NGUOI``) →
++      («can_nguoi», mã, None) — phiên chưa rõ, không đoán có/không.
++    - còn lại → («that_bai», mã an toàn, False).
++    Không đọc cookie/token trong kết quả (chỉ cờ, không giá trị).
++    """
++    if isinstance(kq, dict):
++        lay = lambda k: kq.get(k)
++    else:
++        lay = lambda k: getattr(kq, k, None)
++    thanh_cong = bool(lay("thanh_cong"))
++    if thanh_cong:
++        return ("thanh_cong", "", True)
++    ma_loi = lay("ma_loi") or ""
++    ma_trang_thai = lay("ma_trang_thai")
++    if bool(lay("can_nguoi")) or bool(lay("cho_2fa")) \
++            or (isinstance(ma_loi, str) and ma_loi.strip() in MA_LOI_CAN_NGUOI):
++        return ("can_nguoi", _ma_loi_ket_qua_an_toan(ma_loi, ma_trang_thai), None)
++    return ("that_bai", _ma_loi_ket_qua_an_toan(ma_loi, ma_trang_thai), False)
++
++
++def ghi_ket_qua_dang_nhap_tu_ket_qua(id_, kq) -> dict | None:
++    """HÀM BỌC CHUNG (NV283 §2a): mọi đường đăng nhập ghi qua đây, đúng
++    một lần cho một lượt đăng nhập.
++
++    Phân loại kết quả rồi gọi ``ghi_ket_qua_dang_nhap``. Lỗi ghi sổ KHÔNG
++    làm hỏng kết quả đăng nhập: chỉ ``log.warning`` có KIỂU lỗi (không nuốt
++    âm thầm, không ghi nội dung ngoại lệ/bí mật), trả None. Id lạ → None.
++    """
++    try:
++        ket_qua, ma_loi, co_phien = phan_loai_ket_qua_dang_nhap(kq)
++        return ghi_ket_qua_dang_nhap(id_, ket_qua, ma_loi, co_phien)
++    except Exception as e:
++        log.warning("ghi kết quả đăng nhập hỏng: %s", type(e).__name__)
++        return None
++
++
++def ghi_ket_qua_theo_email(email, kq) -> str | None:
++    """Ghi kết quả đăng nhập cho tài khoản đã lưu khớp email (dùng ở các
++    đường hàng loạt — dòng chạy chỉ mang email, không mang id kho).
++
++    Email không khớp tài khoản đã lưu nào → không ghi gì (tài khoản dán
++    ngoài kho không có bản ghi để gắn), trả None. Không bao giờ ném.
++    """
++    try:
++        ban_ghi = tim_theo_email(email) if isinstance(email, str) and email else None
++    except Exception as e:
++        # Không ghi gì khi không tìm được tài khoản, nhưng ghi log kiểu lỗi.
++        log.warning("ghi_theo_email: loi tim tai khoan: %s", type(e).__name__)
++        return None
++    if ban_ghi is None:
++        return None
++    ghi_ket_qua_dang_nhap_tu_ket_qua(ban_ghi.get("id", ""), kq)
++    return ban_ghi.get("id")
++
++
++def ban_cong_khai(ban_ghi: dict, *, hien_email: bool = False,
++                  ket_qua_dang_nhap: dict | None = None) -> dict:
+     """Dạng công khai (xem ``_ban_cong_khai_goc``): email CHE, cờ có/không bí mật, KHÔNG bí mật thô.
+ 
+     ``hien_email=True`` (chỉ giao diện quản trị xin, qua ``GET /api/tai-khoan/da-luu?hien_email=true``) thêm trường ``email`` đầy đủ: ``email_che``
+     chỉ chừa tên miền nên các tài khoản cùng miền (gmail…) không phân biệt được. Mặc định KHÔNG có trường ``email``; MCP, nhật ký và mọi đường khác
+     gọi không kèm cờ này. Email được escape HTML ở biên ra như nhãn.
++    ``ket_qua_dang_nhap`` (NV283): mục sổ phụ đã đọc sẵn cho bản ghi này —
++    liệt kê hàng loạt truyền vào để chỉ đọc sổ phụ một lần; không truyền thì
++    tự đọc. Thêm hai trường hợp đồng cứng: ``dang_nhap`` + ``loai_hien_thi``.
+     """
+-    ra = _ban_cong_khai_goc(ban_ghi)
++    ra = _ban_cong_khai_goc(ban_ghi, ket_qua_dang_nhap=ket_qua_dang_nhap)
+     if hien_email:
+         email = ban_ghi.get("email", "")
+         if isinstance(email, str) and email:
+@@ -859,7 +1204,7 @@ def ban_cong_khai(ban_ghi: dict, *, hien_email: bool = False) -> dict:
+     return ra
+ 
+ 
+-def _ban_cong_khai_goc(ban_ghi: dict) -> dict:
++def _ban_cong_khai_goc(ban_ghi: dict, ket_qua_dang_nhap: dict | None = None) -> dict:
+     """Dạng công khai: email CHE, cờ có/không bí mật — KHÔNG bí mật thô.
+ 
+     Nhãn được escape HTML ở biên ra (chống XSS khi giao diện chèn vào DOM).
+@@ -894,6 +1239,9 @@ def _ban_cong_khai_goc(ban_ghi: dict) -> dict:
+             "cap_nhat": ban_ghi.get("cap_nhat", 0),
+             # NV197d: lượng dùng hôm nay/7 ngày + hạn mức thụ động («khong_biet» khi chưa có số liệu).
+             **_tom_tat_dung(id_),
++            # NV283: trạng thái đăng nhập thật + loại hiển thị (không bao giờ rỗng).
++            "dang_nhap": dang_nhap_cong_khai(ban_ghi, ket_qua_dang_nhap),
++            "loai_hien_thi": loai_hien_thi(ban_ghi),
+         }
+     email = ban_ghi.get("email", "")
+     id_ = ban_ghi.get("id", "")
+@@ -933,6 +1281,9 @@ def _ban_cong_khai_goc(ban_ghi: dict) -> dict:
+         "cap_nhat": ban_ghi.get("cap_nhat", 0),
+         # NV197d: lượng dùng hôm nay/7 ngày + hạn mức thụ động («khong_biet» khi chưa có số liệu).
+         **_tom_tat_dung(id_),
++        # NV283: trạng thái đăng nhập thật + loại hiển thị (không bao giờ rỗng).
++        "dang_nhap": dang_nhap_cong_khai(ban_ghi, ket_qua_dang_nhap),
++        "loai_hien_thi": loai_hien_thi(ban_ghi),
+     }
+ 
+ 
+@@ -1189,11 +1540,31 @@ def luu_tai_khoan(email, mat_khau, totp_secret=None, nhan="",
+ def liet_ke(*, hien_email: bool = False) -> list[dict]:
+     """Liệt kê mọi tài khoản đã lưu (dạng công khai, không bí mật). ``hien_email``: xem ``ban_cong_khai``."""
+     du_lieu = _doc()
+-    ds = [ban_cong_khai(b, hien_email=hien_email) for b in du_lieu.values()]
++    # NV283: đọc sổ phụ kết quả đăng nhập MỘT lần cho cả danh sách.
++    ket_qua_map = _doc_ket_qua()
++    ds = [ban_cong_khai(b, hien_email=hien_email,
++                        ket_qua_dang_nhap=ket_qua_map.get(b.get("id", "")))
++          for b in du_lieu.values()]
+     ds.sort(key=lambda d: d["cap_nhat"], reverse=True)
+     return ds
+ 
+ 
++def dem_can_xu_ly(*, hien_email: bool = False) -> int:
++    """Tổng «cần xử lý» (NV283 §2e): số tài khoản có ``dang_nhap`` ở trạng
++    thái «can_xu_ly» (cần người / phiên hết hạn thật) hoặc «loi» — tức mọi
++    tài khoản không dùng được ngay vì đăng nhập, để bảng «Cần xử lý» không
++    phải tự đếm. Tạm dừng KHÔNG tính (giao diện tô riêng)."""
++    # NB: brief §2e ghi «can_nguoi/that_bai/phien_het_han»; hợp đồng §3 gộp
++    # chúng thành hai trạng thái công khai can_xu_ly + loi — đếm cả hai.
++    try:
++        ds = liet_ke(hien_email=hien_email)
++    except LoiKhoTaiKhoan:
++        return 0
++    return sum(1 for b in ds
++               if b.get("trang_thai") != TRANG_THAI_TAM_DUNG
++               and b.get("dang_nhap", {}).get("trang_thai") in ("can_xu_ly", "loi"))
++
++
+ def gom_theo_nhom_loai(*, hien_email: bool = False) -> dict:
+     """Gom tài khoản theo nhóm → loại (NV218, thiết kế chủ máy 21/10).
+ 
+@@ -1242,6 +1613,13 @@ def gom_theo_nhom_loai(*, hien_email: bool = False) -> dict:
+     return gom
+ 
+ 
++def tat_ca_ban_ghi() -> list[dict]:
++    """Mọi bản ghi NỘI BỘ (NV285: tính tổng quan/hạng cần email + module_id
++    của mọi tài khoản trong một lần đọc — CHỈ dùng trong lõi, KHÔNG BAO
++    GIỜ trả ra API; đường API dùng ``liet_ke``/``ban_cong_khai``)."""
++    return list(_doc().values())
++
++
+ def tim_theo_id(id_) -> dict | None:
+     """Tìm bản ghi nội bộ theo id (so bằng ``hmac.compare_digest``, chống IDOR)."""
+     if isinstance(id_, bool) or not isinstance(id_, str):
+@@ -1379,6 +1757,9 @@ def xoa_tai_khoan(id_) -> bool:
+         if muc_tieu in tt:
+             del tt[muc_tieu]
+             _ghi_trang_thai(tt)
++        # NV283: kết quả đăng nhập xoá theo (không để lại chấm màu của
++        # tài khoản đã mất).
++        xoa_ket_qua_dang_nhap(muc_tieu)
+     return True
+ 
+ 
+@@ -1581,9 +1962,14 @@ async def thu_dang_nhap_lai(*, module, module_id: str, dinh_danh: str) -> dict:
+     try:
+         kq = await dang_nhap(dong)
+         thanh_cong = bool(getattr(kq, "thanh_cong", False))
++        # NV283: tự đăng nhập lại cũng ghi kết quả thật qua hàm bọc chung
++        # (đúng một lần cho lượt này; lỗi ghi chỉ log, không hỏng kết quả).
++        ghi_ket_qua_dang_nhap_tu_ket_qua(id_, kq)
+     except Exception as e:
+         log.warning("tu-dang-nhap-lai: %s lỗi: %s", che_email(email), type(e).__name__)
+         thanh_cong = False
++        ghi_ket_qua_dang_nhap_tu_ket_qua(
++            id_, {"thanh_cong": False, "ma_loi": "loi_module"})
+     finally:
+         dong.xoa_bi_mat()
+     # Ghi trạng thái cuối DƯỚI KHOÁ KHO, đọc lại bản ghi trước: trong lúc
+diff --git a/app/luong_dung_tai_khoan.py b/app/luong_dung_tai_khoan.py
+index cba8591..82460cb 100644
+--- a/app/luong_dung_tai_khoan.py
++++ b/app/luong_dung_tai_khoan.py
+@@ -173,6 +173,16 @@ def ghi_luot(tai_khoan_id: str, *, viec: str = "chat", ma: int = 200,
+             du_lieu = _doc()
+             ds = du_lieu.setdefault("tai_khoan", {})
+             ban = ds.setdefault(id_, {"ngay": {}, "thay_lan_cuoi": 0})
++            if ma == 401:
++                # NV283 §2c: lượt dùng CÓ SẴN thấy 401 → phiên hết hạn THẬT:
++                # đánh dấu trong sổ tài khoản (không gọi mạng thêm, không
++                # kiểm hàng loạt; id không phải tài khoản đã lưu → không ghi).
++                # Lỗi đánh dấu không làm hỏng ghi lượt dùng.
++                try:
++                    from app import kho_tai_khoan as _ktk
++                    _ktk.danh_dau_phien_het_han(id_)
++                except Exception as e:
++                    LOG.warning("đánh dấu phiên hết hạn hỏng: %s", type(e).__name__)
+             ngay_str = datetime.fromtimestamp(bay_gio, tz=timezone.utc).strftime("%Y-%m-%d")
+             o_ngay = ban["ngay"].setdefault(
+                 ngay_str, {"luot": 0, "token_vao": 0, "token_ra": 0,
+@@ -268,6 +278,22 @@ def lay_han_muc(tai_khoan_id: str) -> dict | None:
+     return dict(han_muc) if isinstance(han_muc, dict) else None
+ 
+ 
++def lan_dung_cuoi(tai_khoan_id: str) -> int:
++    """Epoch lượt dùng gần nhất của tài khoản (NV285: chi-tiet.dung).
++    Không có số liệu → 0."""
++    id_ = _kiem_id(tai_khoan_id)
++    if id_ is None:
++        return 0
++    with _KHOA:
++        ban = (_doc().get("tai_khoan") or {}).get(id_)
++    if not isinstance(ban, dict):
++        return 0
++    try:
++        return int(ban.get("thay_lan_cuoi", 0) or 0)
++    except (TypeError, ValueError):
++        return 0
++
++
+ def danh_dau_het_han_muc(tai_khoan_id: str, den_luc: int) -> bool:
+     """Đánh dấu tài khoản hết hạn mức tới `den_luc` (epoch). Trả False khi id lạ."""
+     id_ = _kiem_id(tai_khoan_id)
+diff --git a/app/quyen_module.py b/app/quyen_module.py
+index 3911abe..8cb67ee 100644
+--- a/app/quyen_module.py
++++ b/app/quyen_module.py
+@@ -40,6 +40,9 @@ _TRUONG_KHONG_QUYEN = frozenset({
+     # giới hạn độ dài); không cấp khả năng nào. Trước 28/10/2026 thiếu ở đây nên mọi module thêm nhóm con (37/46 manifest) bị
+     # coi là «xin thêm quyền truong_la: nhom_con» và KHÔNG cập nhật được nếu không duyệt tay (chủ máy: «toàn bộ tiện ích»).
+     "nhom_con",
++    # NV283: `loai_tai_khoan_ten` CHỈ là nhãn hiển thị loại tài khoản (như
++    # `loai_ten`); lõi không dùng nó để cấp khả năng hay chọn đường nào.
++    "loai_tai_khoan_ten",
+ })
+ 
+ #: Khoá đã biết trong mỗi phần tử `truong_cau_hinh` (ngoài `nhan_cookie` mang quyền).
+diff --git a/app/tuyen.py b/app/tuyen.py
+index b0f40cb..c277f92 100644
+--- a/app/tuyen.py
++++ b/app/tuyen.py
+@@ -3651,7 +3651,207 @@ def liet_ke_tai_khoan_da_luu(nhom: str | None = None, hien_email: bool = False):
+         raise _loi_kho_tai_khoan(e) from None
+     if nhom is not None:
+         ds = [b for b in ds if b.get("nhom") == nhom]
+-    return {"tai_khoan": ds}
++    # NV283 §2e: tổng «cần xử lý» để bảng Cần xử lý không phải tự đếm
++    # (đếm trên danh sách ĐÃ lọc nhóm nếu có ?nhom; không lọc → toàn kho).
++    can_xu_ly = sum(
++        1 for b in ds
++        if b.get("trang_thai") != kho_tai_khoan_mod.TRANG_THAI_TAM_DUNG
++        and b.get("dang_nhap", {}).get("trang_thai") in ("can_xu_ly", "loi"))
++    return {"tai_khoan": ds, "can_xu_ly": can_xu_ly}
++
++
++async def _bang_chi_tiet(request, hien_email: bool):
++    """Bảng làm việc cho chi-tiet/tong-quan (NV285).
++
++    Trả (danh sách bản công khai kèm ``_email_noi_bo`` để xếp hạng theo
++    thứ tự module, hàm lấy (han_muc, goi) có cache theo id). ``_email_noi_bo``
++    chỉ dùng trong lõi để xếp hạng, KHÔNG trả ra API (route xoá trước khi trả).
++    """
++    from app import chi_tiet_tai_khoan as ct_mod
++
++    so = request.app.state.so
++    cong = []
++    ban_ghi_list = kho_tai_khoan_mod.tat_ca_ban_ghi()
++    for bg in ban_ghi_list:
++        ck = kho_tai_khoan_mod.ban_cong_khai(bg, hien_email=hien_email)
++        ck["_email_noi_bo"] = bg.get("email", "") if isinstance(bg, dict) else ""
++        cong.append(ck)
++    cong.sort(key=lambda d: d["cap_nhat"], reverse=True)
++    theo_id = {bg.get("id"): bg for bg in ban_ghi_list if isinstance(bg, dict)}
++    cache: dict = {}
++
++    async def lay(id_):
++        if id_ not in cache:
++            bg = theo_id.get(id_)
++            if bg is None:
++                cache[id_] = ({"nguon": "khong_biet", "cap_nhat_luc": 0, "muc": []},
++                              "khong_biet")
++            else:
++                cache[id_] = await ct_mod.lay_han_muc_tu_module(so, bg)
++        return cache[id_]
++
++    return cong, lay, theo_id
++
++
++def _bo_email_noi_bo(ban: dict) -> dict:
++    ra = dict(ban)
++    ra.pop("_email_noi_bo", None)
++    return ra
++
++
++async def _xay_chi_tiet(request, ban_ghi: dict, hien_email: bool) -> dict:
++    """Dựng khuôn chi-tiet NV285 §3b cho một bản ghi nội bộ."""
++    from app import chi_tiet_tai_khoan as ct_mod
++
++    cong, lay, _theo_id = await _bang_chi_tiet(request, hien_email)
++    id_ = ban_ghi.get("id", "")
++    ck = next((b for b in cong if b["id"] == id_), None)
++    if ck is None:
++        ck = kho_tai_khoan_mod.ban_cong_khai(ban_ghi, hien_email=hien_email)
++    han_muc, goi = await lay(id_)
++    nhom, duong = ct_mod.nhom_duong_cua_ban(ck)
++    nhom_ban = [b for b in cong if ct_mod.nhom_duong_cua_ban(b) == (nhom, duong)]
++    han_muc_theo_id = {}
++    for b in nhom_ban:
++        hm, _g = await lay(b["id"])
++        han_muc_theo_id[b["id"]] = hm
++    thu_tu = ct_mod.thu_tu_xoay_cua_nhom(request.app.state.so, nhom_ban)
++    hang_theo_id, giu_hang_1 = ct_mod.lap_bang_hang(
++        nhom, duong, nhom_ban, han_muc_theo_id, thu_tu)
++    giu_theo_muc = {g["muc"]: {"tai_khoan_id": g["tai_khoan_id"], "email": g["email"]}
++                    for g in giu_hang_1}
++    muc_out = []
++    for m in han_muc.get("muc") or []:
++        mm = dict(m)
++        mm["hang"] = hang_theo_id.get(id_, {}).get(m["ten"])
++        mm["giu_hang_1_cua_nhom"] = giu_theo_muc.get(m["ten"])
++        muc_out.append(mm)
++    han_muc_out = dict(han_muc)
++    han_muc_out["muc"] = muc_out
++    ra = {
++        "id": id_,
++        "email_che": ck.get("email_che", ""),
++        "nhan": ck.get("nhan", ""),
++        "module_id": ck.get("module_id", ""),
++        "nhom": ck.get("nhom", ""),
++        "bac_goi": ck.get("bac_goi", ""),
++        "loai_hien_thi": ck.get("loai_hien_thi", ""),
++        "trang_thai": ck.get("trang_thai", ""),
++        "dang_nhap": ck.get("dang_nhap", {}),
++        "goi": goi,
++        "dung": ct_mod.dung_thong_ke(id_),
++        "duong": ct_mod.duong_cong_khai(ban_ghi),
++        "han_muc": han_muc_out,
++    }
++    if hien_email and ck.get("email"):
++        ra["email"] = ck["email"]
++    return ra
++
++
++@tai_khoan.get("/da-luu/{id}/chi-tiet")
++async def chi_tiet_tai_khoan_da_luu(id: str, request: Request, hien_email: bool = False):
++    """Chi tiết một tài khoản đã lưu (NV285 §3b): gộp bản công khai +
++    dang_nhap + loai_hien_thi (NV283), lượng dùng 14 ngày, trạng thái từng
++    đường, hạn mức từng tính năng từ module (chỉ đọc bộ đệm, không gọi
++    mạng thêm). Id lạ → 404 (không phân biệt «không có» với «của module
++    khác»). Không bao giờ trả bí mật (không token/cookie; email theo quy
++    tắc công khai sẵn có — đầy đủ chỉ khi ?hien_email=true như da-luu)."""
++    try:
++        ban_ghi = kho_tai_khoan_mod.tim_theo_id(id)
++    except kho_tai_khoan_mod.LoiKhoTaiKhoan as e:
++        raise _loi_kho_tai_khoan(e) from None
++    if ban_ghi is None or ban_ghi.get("loai") == "nhap":
++        raise LoiOpenAI(404, "Không tìm thấy tài khoản đã lưu.", code="khong_tim_thay")
++    return await _xay_chi_tiet(request, ban_ghi, hien_email)
++
++
++@tai_khoan.post("/da-luu/{id}/chi-tiet/lam-moi")
++async def lam_moi_chi_tiet_tai_khoan_da_luu(id: str, request: Request):
++    """Nút «Kiểm tra lại hạn mức» (NV285 §2b): MỘT tài khoản, gọi đúng
++    đường init/usage MỘT lần của module đó (khả năng ``lam_moi_han_muc``),
++    giãn cách tối thiểu ``LAM_MOI_GIAN_CACH_GIAY`` mỗi tài khoản — quá sớm
++    trả 429 kèm giây chờ. Chạm nhà cung cấp → cần step-up như các thao tác
++    chạm nhà cung cấp khác. Không bao giờ lặp qua nhiều tài khoản."""
++    from app import chi_tiet_tai_khoan as ct_mod
++
++    kiem_tra_step_up(request)
++    try:
++        ban_ghi = kho_tai_khoan_mod.tim_theo_id(id)
++    except kho_tai_khoan_mod.LoiKhoTaiKhoan as e:
++        raise _loi_kho_tai_khoan(e) from None
++    if ban_ghi is None or ban_ghi.get("loai") == "nhap":
++        raise LoiOpenAI(404, "Không tìm thấy tài khoản đã lưu.", code="khong_tim_thay")
++    if ban_ghi.get("trang_thai") == kho_tai_khoan_mod.TRANG_THAI_TAM_DUNG:
++        raise LoiOpenAI(403, "Tài khoản đã tạm dừng; bật lại mới kiểm tra được.",
++                        code="tam_dung")
++    con = ct_mod.con_lai_lam_moi_giay(id)
++    if con > 0:
++        import math
++
++        from fastapi.responses import JSONResponse
++        return JSONResponse(
++            status_code=429,
++            content={"error": {"message": "Làm mới hạn mức quá sớm.",
++                               "type": "rate_limit_error", "code": "lam_moi_qua_som"},
++                     "cho_lai_sau_giay": int(math.ceil(con))})
++    module_id = ban_ghi.get("module_id", "") or ""
++    email = ban_ghi.get("email", "") or ""
++    mod = request.app.state.so.dang_chay.get(module_id) if module_id else None
++    ham = getattr(mod, "lam_moi_han_muc", None) if mod is not None else None
++    if not callable(ham):
++        raise LoiOpenAI(502, "Module chưa triển khai kiểm tra lại hạn mức.",
++                        code="chua_ho_tro")
++    try:
++        kq = ham(email)
++        if inspect.isawaitable(kq):
++            kq = await kq
++    except Exception as e:
++        # Không tiêu giãn cách khi module ném (cho phép thử lại ngay) và
++        # không nuốt lỗi: báo rõ kiểu lỗi như các handler khác.
++        log.warning("lam-moi han muc: module %s lỗi: %s", module_id, type(e).__name__)
++        raise LoiOpenAI(502, "Module kiểm tra hạn mức thất bại.", code="loi_module") from None
++    ct_mod.danh_dau_lam_moi(id)
++    if kq is None:
++        raise LoiOpenAI(502, "Module không trả được hạn mức mới.", code="loi_module")
++    return {"ok": True, "chi_tiet": await _xay_chi_tiet(request, ban_ghi, False)}
++
++
++@tai_khoan.get("/tong-quan")
++async def tong_quan_tai_khoan(request: Request, nha: str = "", duong: str = "",
++                             hien_email: bool = False):
++    """Tổng quan nhóm tài khoản (NV285 §c2/2z, chỉ đọc, quản trị).
++
++    Tham số ``nha`` (id nhóm) và ``duong`` (đường dùng)
++    để đếm đúng nhóm; không truyền thì đếm toàn kho (hạng #1 tính riêng
++    theo từng nhóm). Nhóm không có mục nào có số liệu → het_limit rỗng +
++    co_so_lieu_han_muc false (không vẽ 0 giả)."""
++    from app import chi_tiet_tai_khoan as ct_mod
++
++    cong, lay, _theo_id = await _bang_chi_tiet(request, hien_email)
++    loc = []
++    for b in cong:
++        n, d = ct_mod.nhom_duong_cua_ban(b)
++        if nha and n != nha:
++            continue
++        if duong and d != duong:
++            continue
++        loc.append(b)
++    han_muc_theo_id = {}
++    for b in loc:
++        hm, _g = await lay(b["id"])
++        han_muc_theo_id[b["id"]] = hm
++    dem = ct_mod.dem_tong_quan(loc, han_muc_theo_id)
++    # Hạng #1 tính riêng theo từng (nhà, đường) trong danh sách đã lọc.
++    giu_hang_1: list = []
++    nhom_theo_khoa: dict = {}
++    for b in loc:
++        nhom_theo_khoa.setdefault(ct_mod.nhom_duong_cua_ban(b), []).append(b)
++    for (n, d) in sorted(nhom_theo_khoa):
++        nhom_ban = nhom_theo_khoa[(n, d)]
++        thu_tu = ct_mod.thu_tu_xoay_cua_nhom(request.app.state.so, nhom_ban)
++        _hang, giu = ct_mod.lap_bang_hang(n, d, nhom_ban, han_muc_theo_id, thu_tu)
++        giu_hang_1.extend(giu)
++    return {**dem, "giu_hang_1": giu_hang_1}
+ 
+ 
+ @tai_khoan.get("/nhom-loai")
+@@ -4347,6 +4547,10 @@ async def dang_nhap_tai_khoan_da_luu_noi_bo(so, id: str, module_id: str, kiem_tr
+         for _bm in bi_mat_dnh:
+             if _bm is not None:
+                 _bm.xoa()
++    # NV283: ghi kết quả thật qua hàm bọc chung (đúng một lần cho lượt này;
++    # đường MCP dang_nhap_bat_dau đi qua đây nên cũng được ghi — trừ khi nó
++    # dùng đường khoi_phuc_tu_dong riêng, xem app/cong_mcp_cong_cu.py).
++    kho_tai_khoan_mod.ghi_ket_qua_dang_nhap_tu_ket_qua(id, kq)
+     thanh_cong = bool(getattr(kq, "thanh_cong", False))
+     if thanh_cong:
+         # NV210: đưa JWT mới (nếu module đăng nhập trả) vào module SỞ HỮU tài khoản — theo khả năng
+@@ -4517,6 +4721,22 @@ async def bat_dau_dang_nhap_hang_loat(request: Request):
+         raise LoiOpenAI(400, "Không có tài khoản hợp lệ nào để chạy.", code="khong_co_tai_khoan")
+ 
+     ham_dang_nhap = _ham_dang_nhap_cua_module(request, module_id)
++    if ham_dang_nhap is not None:
++        # NV283: bọc hàm đăng nhập của module để mỗi dòng ghi kết quả thật
++        # qua hàm bọc chung (dòng không khớp tài khoản đã lưu → không ghi).
++        ham_goc = ham_dang_nhap
++
++        async def ham_dang_nhap_ghi(dong):
++            try:
++                kq = await ham_goc(dong)
++            except Exception:
++                kho_tai_khoan_mod.ghi_ket_qua_theo_email(
++                    dong.email, {"thanh_cong": False, "ma_loi": "loi_module"})
++                raise
++            kho_tai_khoan_mod.ghi_ket_qua_theo_email(dong.email, kq)
++            return kq
++
++        ham_dang_nhap = ham_dang_nhap_ghi
+     quan_ly = request.app.state.quan_ly_luot_chay
+     try:
+         thong_tin = quan_ly.bat_dau(giu, ham_dang_nhap, module_id)
+@@ -4641,11 +4861,18 @@ async def dang_nhap_da_luu_theo_module(request: Request):
+     async def ham_chay(dong):
+         try:
+             kq = await ham(dong)
++        except Exception:
++            # NV283: dòng ném lỗi vẫn là một kết quả thất bại thật.
++            kho_tai_khoan_mod.ghi_ket_qua_theo_email(
++                dong.email, {"thanh_cong": False, "ma_loi": "loi_module"})
++            raise
+         finally:
+             # NV223: dọn bí mật đăng nhập hộ sau mỗi dòng
+             for _bm in getattr(dong, "_bi_mat_dnh_nv223", None) or []:
+                 if _bm is not None:
+                     _bm.xoa()
++        # NV283: mỗi dòng ghi kết quả thật qua hàm bọc chung.
++        kho_tai_khoan_mod.ghi_ket_qua_theo_email(dong.email, kq)
+         if getattr(kq, "thanh_cong", False):
+             # NV210: mỗi tài khoản đăng nhập xong thì gắn JWT mới + hồ sơ vào module sở hữu.
+             gan_ket_qua_dang_nhap_mod.ap_dung(so_loi, kq, module_so_huu)
+@@ -5200,6 +5427,22 @@ async def bat_dau_dang_nhap_tu_dong(request: Request):
+ 
+         ham_chay = ham_dong_danh_tinh
+ 
++    # NV283: bọc hàm chạy của cả hai kiểu (truc_tiep/danh_tinh) để mỗi dòng
++    # ghi kết quả thật qua hàm bọc chung (dòng không khớp tài khoản đã lưu
++    # → không ghi).
++    ham_chay_goc = ham_chay
++
++    async def ham_chay_ghi(dong):
++        try:
++            kq = await ham_chay_goc(dong)
++        except Exception:
++            kho_tai_khoan_mod.ghi_ket_qua_theo_email(
++                dong.email, {"thanh_cong": False, "ma_loi": "loi_module"})
++            raise
++        kho_tai_khoan_mod.ghi_ket_qua_theo_email(dong.email, kq)
++        return kq
++
++    ham_chay = ham_chay_ghi
+     quan_ly = request.app.state.quan_ly_luot_chay
+     try:
+         thong_tin = quan_ly.bat_dau(giu, ham_chay, module_id)
+diff --git a/docs/CHUAN-MODULE.md b/docs/CHUAN-MODULE.md
+index 25c3e53..d149685 100644
+--- a/docs/CHUAN-MODULE.md
++++ b/docs/CHUAN-MODULE.md
+@@ -301,6 +301,43 @@ Khai báo nhóm của các module mẫu trong kho:
+ 
+ > **Lưu ý kiến trúc**: Không bao giờ coi `nhom` là định danh duy nhất của module hay của nhà cung cấp ngoài đời. Nhiều module có thể dùng chung một `nhom` (ví dụ một module cổng API/provider và một module hồ sơ/đăng nhập trình duyệt của cùng một hãng); một module không khai báo thì thuộc nhóm Khác.
+ 
++### Trường tuỳ chọn `loai_tai_khoan_ten` (nhãn loại tài khoản, NV283)
++
++Module sở hữu tài khoản khai nhãn loại hiển thị của nó trong
++`manifest.json`, ví dụ chatgpt-web/gemini-web/claude-web/grok-web/muse2api
++khai `"Web"`, openaicodex khai `"Codex"`, module API khai `"API"`:
++
++```json
++"loai_tai_khoan_ten": "Web"
++```
++
++Lõi suy `loai_hien_thi` của tài khoản từ nhãn này khi người dùng chưa đặt
++`loai_tai_khoan`; module không khai thì lõi rơi về `kieu_bi_mat`. Nhãn là
++chuỗi ≤ 40 ký tự, sai khuôn thì lõi bỏ qua (module vẫn nạp bình thường).
++Đổi nhãn là đổi manifest → nhớ nâng `phien_ban`.
++
++### Hai khả năng tuỳ chọn về hạn mức (NV285)
++
++Module nào thật sự có số liệu hạn mức thì khai hai phương thức (không có
++số liệu thì không khai — lõi trả `han_muc.nguon = "khong_biet"`, không bịa):
++
++- `chi_tiet_tai_khoan(email) -> dict | None`: CHỈ ĐỌC từ bộ đệm của lượt
++  init/dùng gần nhất, KHÔNG gọi mạng. Trả `{"goi": str|None,
++  "cap_nhat_luc": epoch|0, "muc": [{"ten", "nhan", "con_lai", "tong",
++  "da_dung_pct", "reset_luc", "reset_sau_giay"}]}`; chưa có số liệu → `None`.
++  Lõi chỉ giữ các trường đã biết trong khuôn trên (trường lạ như token/
++  cookie/email bị loại, không ra phản hồi).
++- `lam_moi_han_muc(email) -> dict | None`: làm mới MỘT tài khoản bằng đúng
++  MỘT lần gọi đường init/usage của chính module đó rồi trả cùng khuôn
++  `chi_tiet_tai_khoan`; email lạ → `None`. Lõi giãn cách tối thiểu 60 giây
++  mỗi tài khoản trước khi gọi lại.
++
++Hiện khai: chatgpt-web (giữ `limits_progress`/gói từ bước init vào đối
++tượng tài khoản trong bộ nhớ + `luc_do`; hình dạng thật của
++`limits_progress` từ nhà cung cấp chưa được kiểm), openaicodex (cửa sổ
++chính/phụ từ `han_muc.py` — chỉ % đã dùng + mốc hồi, không có số lượt
++tuyệt đối nên `con_lai`/`tong` là null).
++
+ ### Trường tuỳ chọn `xac_minh_email` (mã xác minh qua email, NV122)
+ 
+ Module đăng nhập muốn dùng nút tích «Lấy mã từ hộp thư» khai trong `manifest.json`:
+diff --git a/docs/THAM-CHIEU.md b/docs/THAM-CHIEU.md
+index a7c4d94..a54cd6f 100644
+--- a/docs/THAM-CHIEU.md
++++ b/docs/THAM-CHIEU.md
+@@ -595,6 +595,50 @@ nhà cung cấp; việc đăng nhập THẬT do từng module thực hiện qua
+     bí mật từ kho, gọi hợp đồng `module.dang_nhap(dong)` với `BiMatTam`/
+     `BiMatTotp` (CHỈ GỌI, không sửa module); trình duyệt/giao diện KHÔNG nhận
+     lại mật khẩu; bí mật bị `xoa()` khỏi bộ nhớ ngay sau lượt gọi.
++  - NV283 — trạng thái đăng nhập thật: sau MỖI lần đăng nhập (một tài khoản,
++    `dang-nhap-theo-module`, hàng loạt qua `QuanLyLuotChay`, tự đăng nhập
++    lại, MCP `dang_nhap_bat_dau`) lõi ghi kết quả thật vào sổ phụ
++    `bi_mat/_tai_khoan_da_luu_ket_qua_dang_nhap.json` qua MỘT hàm duy nhất
++    `kho_tai_khoan.ghi_ket_qua_dang_nhap_tu_ket_qua` (chỉ `{ket_qua ∈
++    thanh_cong/can_nguoi/that_bai, ma_loi, luc, co_phien, phien_het_han}` —
++    không bí mật; lỗi ghi chỉ `log.warning` có kiểu lỗi, không hỏng kết quả
++    đăng nhập). Lượt dùng có sẵn thấy 401 → `danh_dau_phien_het_han` (không
++    gọi mạng thêm, không kiểm hàng loạt). `GET …/da-luu` mỗi bản ghi thêm
++    hợp đồng cứng `"dang_nhap": {"trang_thai": "ok"|"can_xu_ly"|"loi"|"chua",
++    "luc": epoch|0, "ma_loi": ""|mã, "co_phien": true|false|null}` (ok = lần
++    gần nhất thành công và chưa thấy phiên hết hạn; can_xu_ly = cần người
++    HOẶC phiên hết hạn thật; loi = thất bại; chua = chưa có số liệu, KHÔNG
++    đoán ok) và `"loai_hien_thi"` KHÔNG BAO GIỜ rỗng, suy theo nguyên tắc:
++    `loai_tai_khoan` người dùng đặt → nhãn `loai_tai_khoan_ten` trong manifest
++    của module sở hữu → `kieu_bi_mat` (mat_khau → «Mật khẩu», khoá/token/
++    cookie → «API»); không bảng từ khoá tên module trong lõi. Phản hồi
++    `da-luu` thêm tổng `"can_xu_ly"` (can_xu_ly + loi, trừ tạm dừng).
++    Tài khoản tạm dừng vẫn `trang_thai` = `"tam_dung"` như cũ.
++  - NV285 — chi tiết một tài khoản: `GET /api/tai-khoan/da-luu/{id}/chi-tiet`
++    (quản trị; id lạ → `404`) gộp một lượt: bản công khai + `dang_nhap` +
++    `loai_hien_thi` (NV283), `"dung": {"hom_nay", "7_ngay", "thanh_cong",
++    "that_bai", "theo_ngay": [{ngay, so_luot}] tối đa 14 ngày,
++    "lan_dung_cuoi"}`, `"duong": [{dich, trang_thai, moc_hoi_lai}]`,
++    `"han_muc": {"nguon": "module"|"tieu_de"|"khong_biet", "cap_nhat_luc",
++    "muc": [{ten, nhan, con_lai, tong, da_dung_pct, reset_luc,
++    reset_sau_giay, hang, giu_hang_1_cua_nhom}]}`, `"goi": "plus"|"free"|
++    "khong_biet"`; không bí mật (email đầy đủ chỉ khi `?hien_email=true`).
++    `POST /api/tai-khoan/da-luu/{id}/chi-tiet/lam-moi` (cần step-up): MỘT tài khoản, gọi khả năng
++    `lam_moi_han_muc` của module đó MỘT lần, giãn cách tối thiểu 60 giây
++    (`LAM_MOI_GIAN_CACH_GIAY`) — quá sớm trả `429` kèm `cho_lai_sau_giay`;
++    module không hỗ trợ → `502 chua_ho_tro`; tạm dừng → `403 tam_dung`.
++    `GET /api/tai-khoan/tong-quan?nha=&duong=` (chỉ đọc, quản trị) trả
++    `{tong, binh_thuong, can_xu_ly, loi, tam_dung, chua_biet,
++    het_limit_theo_muc: [{ten, nhan, so_tai_khoan_can,
++    so_tai_khoan_co_so_lieu}], giu_hang_1: [{nhom: "nha/duong", muc,
++    tai_khoan_id, email}], co_so_lieu_han_muc}`; `binh_thuong` = đăng nhập
++    ok VÀ không mục nào cạn; tài khoản ok nhưng cạn chỉ đếm ở
++    `het_limit_theo_muc` (không rơi vào ô trạng thái nào); hạng #n theo thứ
++    tự xoay vòng thật (thứ tự `liet_ke_tai_khoan` của module, không thì thứ
++    tự liệt kê của kho), chỉ tài khoản còn lượt VÀ đăng nhập ok được xếp
++    hạng; nhóm không có mục nào có số liệu → `het_limit` rỗng +
++    `co_so_lieu_han_muc: false`. Chưa kiểm với nhà cung cấp thật; hình dạng
++    `limits_progress` của chatgpt-web chưa được xác nhận (xem hoi-nv285).
+   - Công tắc `GET`/`PUT /api/tai-khoan/tu-dang-nhap-lai` (`{"bat": bool}`,
+     mặc định BẬT): khi `tu_lam_moi` khôi phục rơi tới `can_nguoi`, server tự
+     đăng nhập lại bằng tài khoản đã lưu khớp email phiên (qua sổ danh tính);
+diff --git a/modules/chatgpt-web/manifest.json b/modules/chatgpt-web/manifest.json
+index bdc2b60..8c62987 100644
+--- a/modules/chatgpt-web/manifest.json
++++ b/modules/chatgpt-web/manifest.json
+@@ -12,6 +12,7 @@
+   "id": "chatgpt-web",
+   "loai": "ai",
+   "loai_ten": "AI",
++  "loai_tai_khoan_ten": "Web",
+   "loai_thu_tu": 23,
+   "nhom_con": {
+     "id": "nha-cung-cap",
+@@ -28,7 +29,7 @@
+       "nhan": "Trò chuyện"
+     }
+   ],
+-  "phien_ban": "0.1.1",
++  "phien_ban": "0.1.2",
+   "tai_nguyen": {
+     "dia_mb": null,
+     "ghi_chu": "Dùng giao thức nội bộ của web app chatgpt.com (học luồng từ kho tham khảo chatgpt2api, không chính thức). OpenAI đổi web có thể làm module ngừng hoạt động; dùng cá nhân, tự chịu rủi ro. Giai đoạn này chưa gửi/nhận ảnh, video; chưa tự làm mới token (hết hạn thì dán lại).",
+diff --git a/modules/chatgpt-web/module.py b/modules/chatgpt-web/module.py
+index cfa4a2c..019db91 100644
+--- a/modules/chatgpt-web/module.py
++++ b/modules/chatgpt-web/module.py
+@@ -22,6 +22,7 @@ import asyncio
+ import hashlib
+ import json
+ import logging
++import re
+ import threading
+ import time
+ from datetime import datetime, timezone
+@@ -100,6 +101,11 @@ class _TaiKhoan:
+         self.trang_thai: str = "hoat_dong"
+         self.lan_dung_cuoi: str | None = None
+         self.model_that: list[dict] | None = None
++        # NV285: hạn mức từng tính năng giữ từ bước init gần nhất (CHỈ BỘ
++        # NHỚ + mốc đo — không ghi vào kho riêng của module, không gọi
++        # mạng khi chỉ đọc qua chi_tiet_tai_khoan).
++        self.han_muc: list[dict] | None = None
++        self.han_muc_luc: float = 0.0
+ 
+     def ten_che(self) -> str:
+         return che(self.token)
+@@ -260,6 +266,77 @@ def _goi_toi_thieu(ten: str) -> str:
+ 
+ _QUY_TAC_TIN_HIEU = [{'loai': 'cookie', 'mien': 'chatgpt.com', 'ten': 'access_token', 'tin_hieu': 'da_dang_nhap'}, {'loai': 'url_chua', 'gia_tri': 'auth/login', 'tin_hieu': 'chua_dang_nhap'}]
+ 
++def _so_han_muc(gia_tri):
++    if isinstance(gia_tri, bool) or not isinstance(gia_tri, (int, float)):
++        return None
++    if gia_tri != gia_tri or abs(gia_tri) == float("inf"):
++        return None
++    return gia_tri
++
++
++def _muc_tu_limits_progress(lp) -> list[dict] | None:
++    """``limits_progress`` từ thân /backend-api/me → danh sách mục chuẩn NV285.
++
++    Chấp nhận hai hình: danh sách các mục, hoặc bản đồ tên tính năng →
++    giá trị mục. Mỗi mục đọc các khoá số đã biết (remaining/limit/
++    used_percent/reset_at/reset_after_seconds và biến thể tên); khoá lạ
++    bị bỏ, mục không có tên/không có số nào bị bỏ. Hình lạ → None (lõi
++    trả «khong_biet», không bịa). HÌNH DẠNG THẬT từ nhà cung cấp chưa
++    được kiểm bằng tài khoản thật — xem hoi-nv285.md.
++    """
++    if isinstance(lp, dict):
++        muc_tho = [{"ten": k, **(v if isinstance(v, dict) else {})}
++                   for k, v in lp.items()]
++    elif isinstance(lp, list):
++        muc_tho = lp
++    else:
++        return None
++    ra: list[dict] = []
++    for m in muc_tho:
++        if not isinstance(m, dict):
++            continue
++        ten = None
++        for k in ("feature_name", "name", "ten", "feature", "id"):
++            if isinstance(m.get(k), str) and m[k].strip():
++                ten = m[k].strip()
++                break
++        if ten is None or not re.fullmatch(r"[A-Za-z0-9_.-]{1,64}", ten):
++            continue
++        nhan = None
++        for k in ("label", "nhan", "title"):
++            if isinstance(m.get(k), str) and m[k].strip():
++                nhan = m[k].strip()
++                break
++        con_lai = _so_han_muc(m.get("remaining", m.get("con_lai")))
++        tong = _so_han_muc(m.get("limit", m.get("tong")))
++        pct = _so_han_muc(m.get("used_percent", m.get("da_dung_pct",
++                                       m.get("percent_used"))))
++        if pct is None and tong and tong > 0:
++            da_dung = _so_han_muc(m.get("used", m.get("da_dung")))
++            if da_dung is not None:
++                pct = da_dung / tong * 100.0
++            elif con_lai is not None:
++                pct = (tong - con_lai) / tong * 100.0
++        if pct is not None:
++            pct = min(100.0, max(0.0, float(pct)))
++        reset_luc = _so_han_muc(m.get("reset_at", m.get("reset_luc")))
++        reset_sau = _so_han_muc(m.get("reset_after_seconds",
++                                      m.get("reset_sau_giay",
++                                            m.get("reset_in_seconds"))))
++        if con_lai is None and tong is None and pct is None:
++            continue
++        ra.append({
++            "ten": ten,
++            "nhan": (nhan or ten)[:80],
++            "con_lai": int(con_lai) if con_lai is not None else None,
++            "tong": int(tong) if tong is not None else None,
++            "da_dung_pct": pct,
++            "reset_luc": int(reset_luc) if reset_luc is not None else None,
++            "reset_sau_giay": int(reset_sau) if reset_sau is not None and reset_sau >= 0 else None,
++        })
++    return ra or None
++
++
+ class Module:
+     """Lớp Module theo hợp đồng app/kham_pha.py."""
+ 
+@@ -398,6 +475,53 @@ class Module:
+             "lan_dung_cuoi": tk.lan_dung_cuoi,
+         } for tk in ds]
+ 
++    def _ap_dung_han_muc_tu_me(self, tk, me) -> None:
++        """Giữ limits_progress/gói từ thân /backend-api/me vào đối tượng
++        tài khoản trong bộ nhớ + mốc đo (NV285). Thân không có
++        limits_progress → giữ nguyên giá trị cũ (không xoá)."""
++        if not isinstance(me, dict):
++            return
++        muc = _muc_tu_limits_progress(me.get("limits_progress"))
++        if muc is not None:
++            tk.han_muc = muc
++            tk.han_muc_luc = time.time()
++
++    def chi_tiet_tai_khoan(self, email: str) -> dict | None:
++        """Khả năng tuỳ chọn NV285: hạn mức đã BIẾT của một tài khoản,
++        CHỈ ĐỌC từ bộ đệm của lượt init gần nhất — không gọi mạng.
++        Chưa từng init có limits_progress → None (lõi trả «khong_biet»)."""
++        em = str(email or "").strip().casefold()
++        if not em:
++            return None
++        with self._khoa:
++            ds = list(self._tai_khoan)
++        for tk in ds:
++            if str(tk.email or "").strip().casefold() == em:
++                if tk.han_muc is None:
++                    return None
++                return {"goi": tk.goi, "cap_nhat_luc": int(tk.han_muc_luc),
++                        "muc": [dict(m) for m in tk.han_muc]}
++        return None
++
++    async def lam_moi_han_muc(self, email: str) -> dict | None:
++        """Khả năng tuỳ chọn NV285: làm mới hạn mức MỘT tài khoản bằng
++        đúng MỘT lần gọi init (/backend-api/me) rồi giữ limits_progress.
++        Token hỏng → init ném LoiXacThuc (lõi đổi thành 502, không tiêu
++        giãn cách); email lạ → None."""
++        em = str(email or "").strip().casefold()
++        if not em:
++            return None
++        with self._khoa:
++            ds = list(self._tai_khoan)
++        tk = next((t for t in ds if str(t.email or "").strip().casefold() == em), None)
++        if tk is None:
++            return None
++        if tk.client is None:
++            tk.client = self._tao_client(tk.token)
++        me = await tk.client.init()
++        self._ap_dung_han_muc_tu_me(tk, me)
++        return self.chi_tiet_tai_khoan(email)
++
+     def go_tai_khoan(self, khoa: str) -> bool:
+         """Gỡ đúng MỘT tài khoản của module này; ghi sổ gỡ bỏ vào kho riêng để
+         khởi động lại không dựng lại. Không động module khác, không động hồ sơ."""
+@@ -803,6 +927,12 @@ class Module:
+             return None
+         except Exception:
+             return None
++        if isinstance(me, dict):
++            # NV285: cùng bước init này cũng giữ limits_progress (nếu có).
++            with self._khoa:
++                for tk in self._tai_khoan:
++                    if tk.token == token:
++                        self._ap_dung_han_muc_tu_me(tk, me)
+         return me if isinstance(me, dict) else {}
+ 
+     async def _dang_nhap_bang_trinh_duyet(self, email: str, mat_khau: BiMatTam,
+@@ -1296,6 +1426,8 @@ class Module:
+             email = str(me.get("email") or "").strip()
+             if email and not tk.email:
+                 tk.email = email
++            # NV285: giữ limits_progress từ chính bước init này.
++            self._ap_dung_han_muc_tu_me(tk, me)
+         if not tk.goi or tk.goi == "khong_ro":
+             tk.goi = await self._lay_goi(tk.token)
+         try:
+diff --git a/modules/claude-web/manifest.json b/modules/claude-web/manifest.json
+index 73510d4..d440b3b 100644
+--- a/modules/claude-web/manifest.json
++++ b/modules/claude-web/manifest.json
+@@ -10,6 +10,7 @@
+   "id": "claude-web",
+   "loai": "ai",
+   "loai_ten": "AI",
++  "loai_tai_khoan_ten": "Web",
+   "loai_thu_tu": 21,
+   "nhom_con": {
+     "id": "nha-cung-cap",
+@@ -30,7 +31,7 @@
+       "nhan": "Trò chuyện"
+     }
+   ],
+-  "phien_ban": "0.1.1",
++  "phien_ban": "0.1.2",
+   "tai_nguyen": {
+     "dia_mb": null,
+     "ghi_chu": "Dùng giao thức web nội bộ của claude.ai (đã reverse-engineer từ web app, không chính thức). Anthropic đổi web app có thể làm module ngừng hoạt động; dùng cá nhân, tự chịu rủi ro.",
+diff --git a/modules/gemini-api/manifest.json b/modules/gemini-api/manifest.json
+index caef73e..e187727 100644
+--- a/modules/gemini-api/manifest.json
++++ b/modules/gemini-api/manifest.json
+@@ -2,10 +2,11 @@
+   "id": "gemini-api",
+   "ten": "Gemini API (Google AI Studio)",
+   "mo_ta": "Gọi model Gemini bằng khoá API của Google AI Studio: chat (endpoint tương thích OpenAI của Google), tạo ảnh và tạo video Veo (chỉ khoá TRẢ PHÍ — hạng miễn phí của Google không có ảnh/video); xoay vòng nhiều khoá, nghỉ khoá khi hết hạn mức.",
+-  "phien_ban": "0.2.0",
++  "phien_ban": "0.2.1",
+   "hang": "A",
+   "loai": "ai",
+   "loai_ten": "AI",
++  "loai_tai_khoan_ten": "API",
+   "loai_thu_tu": 10,
+   "nhom_con": {
+     "id": "nha-cung-cap",
+diff --git a/modules/gemini-web/manifest.json b/modules/gemini-web/manifest.json
+index 1924d2e..b3d3126 100644
+--- a/modules/gemini-web/manifest.json
++++ b/modules/gemini-web/manifest.json
+@@ -10,6 +10,7 @@
+   "id": "gemini-web",
+   "loai": "ai",
+   "loai_ten": "AI",
++  "loai_tai_khoan_ten": "Web",
+   "loai_thu_tu": 22,
+   "nhom_con": {
+     "id": "nha-cung-cap",
+@@ -30,7 +31,7 @@
+       "nhan": "Trò chuyện"
+     }
+   ],
+-  "phien_ban": "0.1.1",
++  "phien_ban": "0.1.2",
+   "tai_nguyen": {
+     "dia_mb": null,
+     "ghi_chu": "Dùng giao thức nội bộ của web app gemini.google.com (học luồng từ gói gemini_webapi qua kho tham khảo, không chính thức). Google đổi web có thể làm module ngừng hoạt động; dùng cá nhân, tự chịu rủi ro. Giai đoạn này chưa gửi/nhận ảnh, video.",
+diff --git a/modules/grok-api/manifest.json b/modules/grok-api/manifest.json
+index de10d36..4f9b82d 100644
+--- a/modules/grok-api/manifest.json
++++ b/modules/grok-api/manifest.json
+@@ -7,6 +7,7 @@
+   "id": "grok-api",
+   "loai": "ai",
+   "loai_ten": "AI",
++  "loai_tai_khoan_ten": "API",
+   "loai_thu_tu": 24,
+   "nhom_con": {
+     "id": "nha-cung-cap",
+@@ -14,7 +15,7 @@
+     "thu_tu": 2
+   },
+   "mo_ta": "Gọi các model Grok bằng khoá API chính thức của xAI qua endpoint tương thích OpenAI (https://api.x.ai/v1): trò chuyện (kể cả stream); xoay vòng nhiều khoá, cho khoá nghỉ khi hết hạn mức hoặc bị từ chối. Không qua Cloudflare, không cần đăng nhập web.",
+-  "phien_ban": "0.1.0",
++  "phien_ban": "0.1.1",
+   "tai_nguyen": {
+     "dia_mb": null,
+     "ghi_chu": "Chưa đo RAM/đĩa thật (null = chưa đo). Danh sách model lấy trực tiếp từ GET /models của xAI lúc chạy — xAI đổi tên model thì danh sách tự theo, module không viết cứng tên model nào.",
+diff --git a/modules/grok-web/manifest.json b/modules/grok-web/manifest.json
+index ee987ea..38eda8e 100644
+--- a/modules/grok-web/manifest.json
++++ b/modules/grok-web/manifest.json
+@@ -10,6 +10,7 @@
+   "id": "grok-web",
+   "loai": "ai",
+   "loai_ten": "AI",
++  "loai_tai_khoan_ten": "Web",
+   "loai_thu_tu": 20,
+   "nhom_con": {
+     "id": "nha-cung-cap",
+@@ -30,7 +31,7 @@
+       "nhan": "Trò chuyện"
+     }
+   ],
+-  "phien_ban": "0.1.1",
++  "phien_ban": "0.1.2",
+   "tai_nguyen": {
+     "dia_mb": null,
+     "ghi_chu": "Giao thức nội bộ đã reverse-engineer, không chính thức — grok.com đổi web app có thể làm module ngừng hoạt động. Chưa kiểm với grok.com thật (cần cookie tài khoản thật).",
+diff --git a/modules/muse2api/manifest.json b/modules/muse2api/manifest.json
+index 7491242..7dc0944 100644
+--- a/modules/muse2api/manifest.json
++++ b/modules/muse2api/manifest.json
+@@ -7,6 +7,7 @@
+   "id": "muse2api",
+   "loai": "ai",
+   "loai_ten": "AI",
++  "loai_tai_khoan_ten": "Web",
+   "loai_thu_tu": 21,
+   "nhom_con": {
+     "id": "nha-cung-cap",
+@@ -23,7 +24,7 @@
+       "nhan": "Trò chuyện"
+     }
+   ],
+-  "phien_ban": "0.2.2",
++  "phien_ban": "0.2.3",
+   "tai_nguyen": {
+     "dia_mb": null,
+     "ghi_chu": "Dùng giao thức nội bộ của web app muse.ai (đã reverse-engineer, không chính thức). Meta đổi web có thể làm module ngừng hoạt động; điều khoản của Muse cấm reverse engineering — dùng cá nhân, tự chịu rủi ro.",
+diff --git a/modules/openaicodex/manifest.json b/modules/openaicodex/manifest.json
+index 557c1f6..b5fe43e 100644
+--- a/modules/openaicodex/manifest.json
++++ b/modules/openaicodex/manifest.json
+@@ -9,6 +9,7 @@
+   "id": "openaicodex",
+   "loai": "ai",
+   "loai_ten": "AI",
++  "loai_tai_khoan_ten": "Codex",
+   "loai_thu_tu": 21,
+   "nhom_con": {
+     "id": "nha-cung-cap",
+@@ -29,7 +30,7 @@
+     "id": "chatgpt",
+     "ten": "ChatGPT"
+   },
+-  "phien_ban": "0.1.1",
++  "phien_ban": "0.1.2",
+   "tai_nguyen": {
+     "dia_mb": null,
+     "ghi_chu": "RAM/đĩa chưa đo. Cần mạng ra tới auth.openai.com (đổi mã, làm mới token) và chatgpt.com (Codex Responses API, wham/usage). Bộ nghe callback OAuth chỉ nghe trên 127.0.0.1:1455 và tự đóng sau khi xong.",
+diff --git a/modules/openaicodex/module.py b/modules/openaicodex/module.py
+index 52983d3..b852844 100644
+--- a/modules/openaicodex/module.py
++++ b/modules/openaicodex/module.py
+@@ -506,6 +506,78 @@ class Module:
+             "cho_duyet_deactivated": len(cho_duyet),
+         }
+ 
++    def _tim_theo_email(self, email: str):
++        em = str(email or "").strip().casefold()
++        if not em:
++            return None
++        with self._khoa:
++            ds = list(self._tai_khoan)
++        for tk in ds:
++            if str(tk.email or "").strip().casefold() == em:
++                return tk
++        return None
++
++    @staticmethod
++    def _muc_tu_cua_so(ban: dict | None, ten: str, nhan: str) -> dict | None:
++        """Một cửa sổ hạn mức (chính/phụ) từ han_muc.py → mục chuẩn NV285.
++
++        Chỉ có % đã dùng + mốc hồi (không có số lượt tuyệt đối) nên
++        con_lai/tong là None — không bịa số lượt từ %.
++        """
++        if not isinstance(ban, dict):
++            return None
++        cua_so = ban.get("chinh" if ten == "codex_chinh" else "phu")
++        if not isinstance(cua_so, dict):
++            return None
++        pct = cua_so.get("da_dung_pct")
++        if not isinstance(pct, (int, float)) or isinstance(pct, bool):
++            return None
++        return {
++            "ten": ten,
++            "nhan": nhan,
++            "con_lai": None,
++            "tong": None,
++            "da_dung_pct": min(100.0, max(0.0, float(pct))),
++            "reset_luc": cua_so.get("reset_at") if isinstance(
++                cua_so.get("reset_at"), int) else None,
++            "reset_sau_giay": cua_so.get("con_bao_lau_giay") if isinstance(
++                cua_so.get("con_bao_lau_giay"), int) else None,
++        }
++
++    def chi_tiet_tai_khoan(self, email: str) -> dict | None:
++        """Khả năng tuỳ chọn NV285: hạn mức đã BIẾT, CHỈ ĐỌC từ kho hạn
++        mức trong bộ nhớ (han_muc.kho_han_muc) — không gọi mạng.
++        Chưa có bản ghi wham → None (lõi trả «khong_biet»)."""
++        tk = self._tim_theo_email(email)
++        if tk is None:
++            return None
++        ban = han_muc.kho_han_muc.lay(tk.access_token)
++        if not isinstance(ban, dict):
++            return None
++        muc = []
++        for ten, nhan in (("codex_chinh", "Codex chính"),
++                          ("codex_phu", "Codex phụ")):
++            m = self._muc_tu_cua_so(ban, ten, nhan)
++            if m is not None:
++                muc.append(m)
++        if not muc:
++            return None
++        luc = ban.get("luc_do")
++        return {"goi": tk.plan,
++                "cap_nhat_luc": int(luc) if isinstance(luc, (int, float)) else 0,
++                "muc": muc}
++
++    async def lam_moi_han_muc(self, email: str) -> dict | None:
++        """Khả năng tuỳ chọn NV285: làm mới hạn mức MỘT tài khoản bằng
++        đúng MỘT lần gọi usage (han_muc.lam_moi — chỉ ra mạng khi bản
++        đang có đã quá TTL 120 giây, còn không trả bộ đệm). Email lạ →
++        None; usage hỏng → None (lõi đổi thành 502)."""
++        tk = self._tim_theo_email(email)
++        if tk is None:
++            return None
++        await han_muc.lam_moi(tk.access_token)
++        return self.chi_tiet_tai_khoan(email)
++
+     # -- chuẩn thiet_bi (C1): thực thể = tài khoản + luồng đăng nhập ----------
+ 
+     async def thuc_the(self, loc: dict | None = None) -> list[dict]:
+diff --git a/test/test_nv283_trang_thai_dang_nhap.py b/test/test_nv283_trang_thai_dang_nhap.py
+new file mode 100644
+index 0000000..5a2ae2a
+--- /dev/null
++++ b/test/test_nv283_trang_thai_dang_nhap.py
+@@ -0,0 +1,407 @@
++"""NV283 — trạng thái đăng nhập thật + loại suy từ module (backend).
++
++Kiểm với module GIẢ (conftest chặn Internet), tài khoản GIẢ dạng
++``nv283-...@example.com`` — không đăng nhập thật, không bí mật thật.
++Mỗi đường đăng nhập phải ghi kết quả đúng một lần qua hàm bọc chung
++``kho_tai_khoan.ghi_ket_qua_dang_nhap_tu_ket_qua`` (sổ phụ một mục/tài
++khoản nên «một lần» nghĩa là mục cuối đúng, không ghi chéo tài khoản).
++"""
++
++from __future__ import annotations
++
++import asyncio
++import time
++from types import SimpleNamespace
++
++import pytest
++
++_KHOA_QT = "khoa-qt-nv283-0123456789abcdef"
++_QT = {"Authorization": f"Bearer {_KHOA_QT}"}
++_MODULE = "chatgpt-web"  # id module giả trùng tên module thật để đo loai_hien_thi=Web
++
++
++class _KetQua:
++    """Kết quả hợp đồng đăng nhập (object, như module thật trả)."""
++
++    def __init__(self, thanh_cong, ma_loi="", can_nguoi=False, cho_2fa=False):
++        self.thanh_cong = thanh_cong
++        self.ma_loi = ma_loi
++        self.can_nguoi = can_nguoi
++        self.cho_2fa = cho_2fa
++        self.cookie = None
++        self.ma_trang_thai = None
++
++
++class _ModuleGia:
++    """Module giả: dang_nhap theo bảng email → kết quả; không gọi mạng."""
++
++    def __init__(self, bang):
++        self._bang = bang  # email lower → _KetQua
++        self.goi = []
++
++    async def dang_nhap(self, dong):
++        email = str(dong.email or "").strip().lower()
++        self.goi.append(email)
++        return self._bang.get(email, _KetQua(False, ma_loi="loi_module"))
++
++    def liet_ke_tai_khoan(self):
++        return []
++
++
++@pytest.fixture()
++def moi_truong(tmp_path, monkeypatch):
++    from fastapi.testclient import TestClient
++
++    from app.main import app
++    from app.so_module import SoModule
++
++    data_dir = tmp_path / "data-loi"
++    data_dir.mkdir(parents=True, exist_ok=True)
++    monkeypatch.setenv("WEB2API_DATA", str(data_dir))
++    monkeypatch.setenv("WEB2API_ADMIN_KEY", _KHOA_QT)
++    monkeypatch.setenv("WEB2API_DANG_NHAP_GIAN_CACH_GIAY", "0")
++    with TestClient(app) as client:
++        so = SoModule()
++        client.app.state.so = so
++        yield client, so
++
++
++def _cai_module_gia(so, fake):
++    fake.manifest = {"id": _MODULE, "nhom": {"id": "chatgpt", "ten": "ChatGPT"}}
++    so.catalog[_MODULE] = SimpleNamespace(tien_to=_MODULE, manifest=fake.manifest)
++    so.dang_chay[_MODULE] = fake
++
++
++def _them(client, email, module_id=None):
++    body = {"email": email, "mat_khau": "MatKhauGia123!"}
++    if module_id:
++        body["module_id"] = module_id
++    r = client.post("/api/tai-khoan/da-luu", headers=_QT, json=body)
++    assert r.status_code == 200, r.text
++    return r.json()["tai_khoan"]
++
++
++def _da_luu_theo_id(client, tk_id):
++    r = client.get("/api/tai-khoan/da-luu", headers=_QT)
++    assert r.status_code == 200, r.text
++    for b in r.json()["tai_khoan"]:
++        if b["id"] == tk_id:
++            return b
++    raise AssertionError(f"không thấy {tk_id} trong da-luu")
++
++
++def _cho_luot_xong(client, timeout=15.0):
++    bat_dau = time.time()
++    while time.time() - bat_dau < timeout:
++        r = client.get("/api/tai-khoan/dang-nhap-hang-loat/trang-thai", headers=_QT)
++        assert r.status_code == 200, r.text
++        if r.json()["trang_thai_luot"] == "hoan_thanh":
++            return r.json()
++        time.sleep(0.05)
++    raise AssertionError("lượt hàng loạt không xong trong hạn")
++
++
++# ── Một tài khoản ────────────────────────────────────────────────────────────
++
++def test_dang_nhap_mot_thanh_cong_ghi_ok_va_loai_web(moi_truong):
++    client, so = moi_truong
++    _cai_module_gia(so, _ModuleGia({"ok-nv283@example.com": _KetQua(True)}))
++    bk = _them(client, "ok-nv283@example.com")
++    r = client.post(f"/api/tai-khoan/da-luu/{bk['id']}/dang-nhap", headers=_QT,
++                    json={"module_id": _MODULE})
++    assert r.status_code == 200, r.text
++    assert r.json()["thanh_cong"] is True
++    sau = _da_luu_theo_id(client, bk["id"])
++    assert sau["dang_nhap"]["trang_thai"] == "ok"
++    assert sau["dang_nhap"]["co_phien"] is True
++    assert sau["dang_nhap"]["luc"] > 0
++    assert sau["loai_hien_thi"] == "Web"
++
++
++def test_dang_nhap_mot_can_nguoi_va_2fa_ghi_can_xu_ly(moi_truong):
++    client, so = moi_truong
++    _cai_module_gia(so, _ModuleGia({
++        "captcha-nv283@example.com": _KetQua(False, ma_loi="thu_thach_truoc_khi_dien"),
++        "hai-fa-nv283@example.com": _KetQua(False, cho_2fa=True),
++    }))
++    for email in ("captcha-nv283@example.com", "hai-fa-nv283@example.com"):
++        bk = _them(client, email)
++        r = client.post(f"/api/tai-khoan/da-luu/{bk['id']}/dang-nhap", headers=_QT,
++                        json={"module_id": _MODULE})
++        assert r.status_code == 200, r.text
++        assert _da_luu_theo_id(client, bk["id"])["dang_nhap"]["trang_thai"] == "can_xu_ly"
++
++
++def test_dang_nhap_mot_sai_mat_khau_ghi_loi(moi_truong):
++    client, so = moi_truong
++    _cai_module_gia(so, _ModuleGia({"sai-nv283@example.com": _KetQua(False, ma_loi="sai_mat_khau")}))
++    bk = _them(client, "sai-nv283@example.com")
++    r = client.post(f"/api/tai-khoan/da-luu/{bk['id']}/dang-nhap", headers=_QT,
++                    json={"module_id": _MODULE})
++    assert r.status_code == 200, r.text
++    sau = _da_luu_theo_id(client, bk["id"])["dang_nhap"]
++    assert sau["trang_thai"] == "loi"
++    assert sau["ma_loi"] == "sai_mat_khau"
++    assert sau["co_phien"] is False
++
++
++def test_module_khong_ho_tro_khong_ghi_ket_qua(moi_truong):
++    client, so = moi_truong
++    fake = SimpleNamespace()  # không có dang_nhap
++    _cai_module_gia(so, fake)
++    bk = _them(client, "khong-ho-tro-nv283@example.com")
++    r = client.post(f"/api/tai-khoan/da-luu/{bk['id']}/dang-nhap", headers=_QT,
++                    json={"module_id": _MODULE})
++    assert r.status_code == 502, r.text
++    # Đăng nhập chưa từng chạy → vẫn «chua», không bị ghi thành lỗi.
++    assert _da_luu_theo_id(client, bk["id"])["dang_nhap"]["trang_thai"] == "chua"
++
++
++def test_tam_dung_khong_dang_nhap_khong_ghi(moi_truong):
++    client, so = moi_truong
++    _cai_module_gia(so, _ModuleGia({"tam-nv283@example.com": _KetQua(True)}))
++    bk = _them(client, "tam-nv283@example.com")
++    r = client.post(f"/api/tai-khoan/da-luu/{bk['id']}/tam-dung", headers=_QT,
++                    json={"tam_dung": True})
++    assert r.status_code == 200, r.text
++    r = client.post(f"/api/tai-khoan/da-luu/{bk['id']}/dang-nhap", headers=_QT,
++                    json={"module_id": _MODULE})
++    assert r.status_code == 403, r.text
++    sau = _da_luu_theo_id(client, bk["id"])
++    assert sau["trang_thai"] == "tam_dung"
++    assert sau["dang_nhap"]["trang_thai"] == "chua"
++
++
++def test_loi_ghi_so_khong_hong_ket_qua_dang_nhap(moi_truong, monkeypatch, caplog):
++    """nv45: lỗi ghi sổ chỉ log.warning có kiểu lỗi, kết quả vẫn thành công."""
++    import logging
++
++    from app import kho_tai_khoan as ktk
++
++    client, so = moi_truong
++    _cai_module_gia(so, _ModuleGia({"ok2-nv283@example.com": _KetQua(True)}))
++    bk = _them(client, "ok2-nv283@example.com")
++
++    def _hong(*_a, **_k):
++        raise OSError("kho phu gia hong")
++
++    monkeypatch.setattr(ktk, "_ghi_ket_qua", _hong)
++    with caplog.at_level(logging.WARNING, logger="web2api.kho_tai_khoan"):
++        r = client.post(f"/api/tai-khoan/da-luu/{bk['id']}/dang-nhap", headers=_QT,
++                        json={"module_id": _MODULE})
++    assert r.status_code == 200, r.text
++    assert r.json()["thanh_cong"] is True
++    assert any("ghi kết quả đăng nhập hỏng" in rec.message for rec in caplog.records)
++
++
++# ── Hàng loạt ────────────────────────────────────────────────────────────────
++
++# Thứ tự xen kẽ ok/hỏng: LuotChay dừng cả hàng sau 2 hỏng LIÊN TIẾP
++# (mặc định) nên b3/b4 không được đứng cạnh nhau — nếu không b5 bị bo_qua
++# đúng luật, không phải lỗi ghi sổ.
++_BANG_5 = {
++    "b1-nv283@example.com": _KetQua(True),
++    "b3-nv283@example.com": _KetQua(False, can_nguoi=True, ma_loi="can_nguoi"),
++    "b2-nv283@example.com": _KetQua(True),
++    "b4-nv283@example.com": _KetQua(False, ma_loi="sai_mat_khau"),
++    "b5-nv283@example.com": _KetQua(True),
++}
++_MONG_5 = {
++    "b1-nv283@example.com": "ok",
++    "b2-nv283@example.com": "ok",
++    "b3-nv283@example.com": "can_xu_ly",
++    "b4-nv283@example.com": "loi",
++    "b5-nv283@example.com": "ok",
++}
++
++
++def _kiem_5(client):
++    r = client.get("/api/tai-khoan/da-luu", headers=_QT)
++    assert r.status_code == 200, r.text
++    ds = {b["id"]: b for b in r.json()["tai_khoan"]}
++    assert r.json()["can_xu_ly"] == 2  # b3 can_xu_ly + b4 loi
++    return ds
++
++
++def test_hang_loat_theo_module_5_tai_khoan_khong_ghi_cheo(moi_truong):
++    client, so = moi_truong
++    fake = _ModuleGia(_BANG_5)
++    _cai_module_gia(so, fake)
++    ids = {}
++    for email in _BANG_5:
++        ids[email] = _them(client, email, module_id=_MODULE)["id"]
++    r = client.post("/api/tai-khoan/da-luu/dang-nhap-theo-module", headers=_QT,
++                    json={"module_id": _MODULE, "module_so_huu": _MODULE,
++                          "chi_chua_co_ho_so": True})
++    assert r.status_code == 200, r.text
++    _cho_luot_xong(client)
++    ds = _kiem_5(client)
++    for email, mong in _MONG_5.items():
++        assert ds[ids[email]]["dang_nhap"]["trang_thai"] == mong, email
++    assert fake.goi and len(fake.goi) == 5
++
++
++def test_hang_loat_theo_module_chay_lai_khong_ghi_trung_sai(moi_truong):
++    client, so = moi_truong
++    _cai_module_gia(so, _ModuleGia(_BANG_5))
++    ids = {email: _them(client, email, module_id=_MODULE)["id"] for email in _BANG_5}
++    for _lan in range(2):
++        r = client.post("/api/tai-khoan/da-luu/dang-nhap-theo-module", headers=_QT,
++                        json={"module_id": _MODULE, "module_so_huu": _MODULE,
++                              "chi_chua_co_ho_so": True})
++        assert r.status_code == 200, r.text
++        _cho_luot_xong(client)
++    ds = _kiem_5(client)
++    for email, mong in _MONG_5.items():
++        assert ds[ids[email]]["dang_nhap"]["trang_thai"] == mong, email
++
++
++def test_hang_loat_dan_van_ban_ghi_qua_quan_ly_luot_chay(moi_truong):
++    client, so = moi_truong
++    _cai_module_gia(so, _ModuleGia(_BANG_5))
++    ids = {email: _them(client, email)["id"] for email in _BANG_5}
++    van_ban = "\n".join(f"{email}|MatKhauGia123!" for email in _BANG_5)
++    r = client.post("/api/tai-khoan/dang-nhap-hang-loat/bat-dau", headers=_QT,
++                    json={"module_id": _MODULE, "van_ban": van_ban})
++    assert r.status_code == 200, r.text
++    _cho_luot_xong(client)
++    ds = _kiem_5(client)
++    for email, mong in _MONG_5.items():
++        assert ds[ids[email]]["dang_nhap"]["trang_thai"] == mong, email
++
++
++def test_dang_nhap_tu_dong_ghi_qua_quan_ly_luot_chay(moi_truong):
++    client, so = moi_truong
++    _cai_module_gia(so, _ModuleGia({
++        "td1-nv283@example.com": _KetQua(True),
++        "td2-nv283@example.com": _KetQua(False, ma_loi="sai_mat_khau"),
++    }))
++    id1 = _them(client, "td1-nv283@example.com")["id"]
++    id2 = _them(client, "td2-nv283@example.com")["id"]
++    r = client.post("/api/tai-khoan/dang-nhap-tu-dong/bat-dau", headers=_QT,
++                    json={"module_id": _MODULE, "kieu": "truc_tiep",
++                          "tai_khoan": [
++                              {"email": "td1-nv283@example.com", "mat_khau": "MatKhauGia123!"},
++                              {"email": "td2-nv283@example.com", "mat_khau": "MatKhauGia123!"},
++                          ]})
++    assert r.status_code == 200, r.text
++    _cho_luot_xong(client)
++    assert _da_luu_theo_id(client, id1)["dang_nhap"]["trang_thai"] == "ok"
++    assert _da_luu_theo_id(client, id2)["dang_nhap"]["trang_thai"] == "loi"
++
++
++def test_luot_chay_tuan_thu_gian_cach(monkeypatch):
++    """LuotChay giãn cách giữa các dòng (đồng hồ/ngủ giả, không chờ thật)."""
++    from app.tai_khoan_hang_loat import DongDaTach, LuotChay
++    from app.tai_khoan_hang_loat import BiMatTam
++
++    monkeypatch.setenv("WEB2API_DANG_NHAP_GIAN_CACH_GIAY", "5")
++    ngu = []
++    dong_ho = [1000.0]
++
++    async def _ngu(giay):
++        ngu.append(giay)
++
++    async def _ham(_dong):
++        from app.tai_khoan_hang_loat import KetQuaDangNhap
++        return KetQuaDangNhap(True)
++
++    dong = []
++    for email in ("g1-nv283@example.com", "g2-nv283@example.com", "g3-nv283@example.com"):
++        dong.append(DongDaTach(0, email, "mat_khau", mat_khau=BiMatTam("MatKhauGia123!")))
++    luot = LuotChay(dong, _ham, dong_ho=lambda: dong_ho[0], ngu=_ngu)
++    asyncio.run(luot.chay())
++    assert ngu == [5.0, 5.0]
++
++
++# ── Tự đăng nhập lại + 401 + MCP ─────────────────────────────────────────────
++
++def test_tu_dang_nhap_lai_ghi_ok(moi_truong):
++    import asyncio
++
++    from app import kho_tai_khoan as ktk
++
++    client, so = moi_truong
++    fake = _ModuleGia({"tu-nv283@example.com": _KetQua(True)})
++    bk = _them(client, "tu-nv283@example.com")
++    kq = asyncio.run(ktk.thu_dang_nhap_lai(module=fake, module_id=_MODULE,
++                                          dinh_danh="tu-nv283@example.com"))
++    assert kq == {"thu": True, "thanh_cong": True}
++    assert _da_luu_theo_id(client, bk["id"])["dang_nhap"]["trang_thai"] == "ok"
++
++
++def test_luot_dung_thay_401_danh_dau_phien_het_han(moi_truong):
++    from app import kho_tai_khoan as ktk
++    from app import luong_dung_tai_khoan as ldtk
++
++    client, so = moi_truong
++    _cai_module_gia(so, _ModuleGia({"het-nv283@example.com": _KetQua(True)}))
++    bk = _them(client, "het-nv283@example.com")
++    ktk.ghi_ket_qua_dang_nhap(bk["id"], "thanh_cong", co_phien=True)
++    assert _da_luu_theo_id(client, bk["id"])["dang_nhap"]["trang_thai"] == "ok"
++    assert ldtk.ghi_luot(bk["id"], ma=401) is True
++    sau = _da_luu_theo_id(client, bk["id"])["dang_nhap"]
++    assert sau["trang_thai"] == "can_xu_ly"
++    # Ghi lại thành công thì hết cờ hết hạn.
++    ktk.ghi_ket_qua_dang_nhap(bk["id"], "thanh_cong", co_phien=True)
++    assert _da_luu_theo_id(client, bk["id"])["dang_nhap"]["trang_thai"] == "ok"
++
++
++def test_mcp_dang_nhap_qua_khoi_phuc_ghi_dung_mot_lan(moi_truong):
++    import asyncio
++
++    from app import cong_mcp_cong_cu as mcp
++
++    client, so = moi_truong
++
++    class _KhoiPhuc:
++        async def khoi_phuc_tu_dong(self, tk_id, email, nghi_t1_giay=0.0):
++            return {"thanh_cong": True}
++
++    bk = _them(client, "mcp-nv283@example.com")
++    so_gia = SimpleNamespace(dang_chay={_MODULE: _KhoiPhuc()})
++    phien = {"phien_id": "phien-gia-nv283", "tai_khoan_id": bk["id"],
++             "trang_thai": "dang_chay", "ma_loi": "", "huong_dan": "",
++             "bat_dau_luc": "2026-11-02T00:00:00Z", "ket_thuc_luc": None}
++    asyncio.run(mcp._chay_dang_nhap(phien, so_gia, bk["id"], _MODULE))
++    assert phien["trang_thai"] == "thanh_cong"
++    assert _da_luu_theo_id(client, bk["id"])["dang_nhap"]["trang_thai"] == "ok"
++
++
++# ── Loại hiển thị + hợp đồng ─────────────────────────────────────────────────
++
++def test_30_tai_khoan_chatgpt_web_loai_web_khong_chua_phan_loai(moi_truong):
++    client, so = moi_truong
++    _cai_module_gia(so, _ModuleGia({}))
++    for i in range(30):
++        _them(client, f"loai-{i:02d}-nv283@example.com", module_id=_MODULE)
++    r = client.get("/api/tai-khoan/da-luu", headers=_QT)
++    assert r.status_code == 200, r.text
++    ds = r.json()["tai_khoan"]
++    assert len(ds) == 30
++    assert all(b["loai_hien_thi"] == "Web" for b in ds)
++    assert "Chưa phân loại" not in r.text
++    assert "can_xu_ly" in r.json()
++
++
++def test_loai_hien_thi_theo_kieu_bi_mat_khi_khong_module(moi_truong):
++    from app import kho_tai_khoan as ktk
++
++    client, _so = moi_truong
++    bk = _them(client, "api-nv283@example.com")
++    # Đổi kiểu bí mật qua kho trực tiếp (đường HTTP chưa cho đổi kiểu).
++    ktk.luu_tai_khoan(email="api-nv283@example.com", mat_khau=None,
++                      bi_mat="KhoaGiaNv2830123456789", kieu_bi_mat="khoa_api",
++                      id=bk["id"])
++    sau = _da_luu_theo_id(client, bk["id"])
++    assert sau["loai_hien_thi"] == "API"
++    assert sau["dang_nhap"]["trang_thai"] == "chua"
++
++
++def test_ghi_ket_qua_sai_hinh_va_id_la(moi_truong):
++    from app import kho_tai_khoan as ktk
++
++    _client, _so = moi_truong
++    with pytest.raises(ktk.LoiKhoTaiKhoan):
++        ktk.ghi_ket_qua_dang_nhap("tk-khong-co", "khong_hop_le")
++    assert ktk.ghi_ket_qua_dang_nhap("tk-khong-co", "thanh_cong") is None
+diff --git a/test/test_nv285_chi_tiet_tai_khoan.py b/test/test_nv285_chi_tiet_tai_khoan.py
+new file mode 100644
+index 0000000..3503313
+--- /dev/null
++++ b/test/test_nv285_chi_tiet_tai_khoan.py
+@@ -0,0 +1,274 @@
++"""NV285 — API chi tiết một tài khoản (limit, đã dùng, phiên).
++
++Module GIẢ, tài khoản GIẢ (example.com), không gọi mạng, không tài khoản
++thật. Chuỗi bí mật giả cấy vào module để quét rò rỉ.
++"""
++
++from __future__ import annotations
++
++from types import SimpleNamespace
++
++import pytest
++
++_KHOA_QT = "khoa-qt-nv285-0123456789abcdef"
++_QT = {"Authorization": f"Bearer {_KHOA_QT}"}
++_MODULE = "chatgpt-web"
++_TOKEN_GIA = "TOKEN-GIA-NV285-9f8e7d6c5b4a"
++_COOKIE_GIA = "COOKIE-GIA-NV285-1a2b3c4d5e6f"
++
++
++class _ModuleGia:
++    """Module giả có/không có khả năng chi_tiet/lam_moi (tuỳ bảng)."""
++
++    def __init__(self, bang_chi_tiet=None, thu_tu_email=None):
++        self._bang = bang_chi_tiet or {}
++        self._thu_tu = thu_tu_email or []
++        self.lam_moi_goi = []
++
++    def chi_tiet_tai_khoan(self, email):
++        return self._bang.get(str(email or "").strip().lower())
++
++    async def lam_moi_han_muc(self, email):
++        self.lam_moi_goi.append(str(email or "").strip().lower())
++        return self._bang.get(str(email or "").strip().lower())
++
++    def liet_ke_tai_khoan(self):
++        return [{"email": e} for e in self._thu_tu]
++
++
++class _ModuleKhongChiTiet:
++    def liet_ke_tai_khoan(self):
++        return []
++
++
++@pytest.fixture()
++def moi_truong(tmp_path, monkeypatch):
++    from fastapi.testclient import TestClient
++
++    from app.main import app
++    from app.so_module import SoModule
++
++    data_dir = tmp_path / "data-loi"
++    data_dir.mkdir(parents=True, exist_ok=True)
++    monkeypatch.setenv("WEB2API_DATA", str(data_dir))
++    monkeypatch.setenv("WEB2API_ADMIN_KEY", _KHOA_QT)
++    monkeypatch.setenv("WEB2API_DANG_NHAP_GIAN_CACH_GIAY", "0")
++    with TestClient(app) as client:
++        so = SoModule()
++        client.app.state.so = so
++        yield client, so
++
++
++def _cai(so, fake):
++    fake.manifest = {"id": _MODULE, "nhom": {"id": "chatgpt", "ten": "ChatGPT"}}
++    so.catalog[_MODULE] = SimpleNamespace(tien_to=_MODULE, manifest=fake.manifest)
++    so.dang_chay[_MODULE] = fake
++
++
++def _tao(client_or_none, email, ket_qua=None, han_muc=None):
++    """Tạo tài khoản qua kho thật (không qua HTTP để set đủ nhóm/loại/đích)."""
++    from app import kho_tai_khoan as ktk
++
++    bk = ktk.luu_tai_khoan(email=email, mat_khau="MatKhauGia123!",
++                           module_id=_MODULE, nhom="chatgpt",
++                           loai_tai_khoan="web", dich_dung="web")
++    if ket_qua is not None:
++        ktk.ghi_ket_qua_dang_nhap(bk["id"], ket_qua,
++                                  co_phien=(ket_qua == "thanh_cong"))
++    return bk
++
++
++def _chi_tiet(client, tk_id, headers=_QT):
++    return client.get(f"/api/tai-khoan/da-luu/{tk_id}/chi-tiet", headers=headers)
++
++
++_MUC_ANH = {"ten": "image_gen", "nhan": "Tạo ảnh", "con_lai": 5, "tong": 20,
++            "da_dung_pct": None, "reset_luc": None, "reset_sau_giay": 3600}
++
++
++def test_chi_tiet_du_truong_voi_module_co_han_muc(moi_truong):
++    client, so = moi_truong
++    fake = _ModuleGia({
++        "ct1-nv285@example.com": {"goi": "plus", "cap_nhat_luc": 1700000000,
++                                  "muc": [_MUC_ANH],
++                                  "token": _TOKEN_GIA, "cookie": _COOKIE_GIA},
++    }, thu_tu_email=["ct1-nv285@example.com"])
++    _cai(so, fake)
++    bk = _tao(client, "ct1-nv285@example.com", ket_qua="thanh_cong")
++    r = _chi_tiet(client, bk["id"])
++    assert r.status_code == 200, r.text
++    d = r.json()
++    assert d["id"] == bk["id"]
++    assert d["loai_hien_thi"] == "Web"
++    assert d["goi"] == "plus"
++    assert d["dang_nhap"]["trang_thai"] == "ok"
++    assert d["dung"] == {"hom_nay": 0, "7_ngay": 0, "thanh_cong": 0,
++                         "that_bai": 0, "theo_ngay": [], "lan_dung_cuoi": 0}
++    assert {"dich": "web", "trang_thai": "san_sang", "moc_hoi_lai": 0} in d["duong"]
++    assert d["han_muc"]["nguon"] == "module"
++    assert d["han_muc"]["cap_nhat_luc"] == 1700000000
++    muc = d["han_muc"]["muc"][0]
++    assert muc["ten"] == "image_gen" and muc["con_lai"] == 5 and muc["tong"] == 20
++    assert muc["hang"] == 1
++    assert muc["giu_hang_1_cua_nhom"]["tai_khoan_id"] == bk["id"]
++    # Chuỗi bí mật cấy trong trường lạ của module KHÔNG lọt ra phản hồi.
++    assert _TOKEN_GIA not in r.text and _COOKIE_GIA not in r.text
++    assert "MatKhauGia123!" not in r.text
++
++
++def test_chi_tiet_module_khong_co_han_muc_tra_khong_biet(moi_truong):
++    client, so = moi_truong
++    _cai(so, _ModuleKhongChiTiet())
++    bk = _tao(client, "ct2-nv285@example.com", ket_qua="thanh_cong")
++    r = _chi_tiet(client, bk["id"])
++    assert r.status_code == 200, r.text
++    d = r.json()
++    assert d["han_muc"] == {"nguon": "khong_biet", "cap_nhat_luc": 0, "muc": []}
++    assert d["goi"] == "khong_biet"
++
++
++def test_chi_tiet_han_muc_tu_tieu_de_khi_module_khong_khai(moi_truong):
++    from app import luong_dung_tai_khoan as ldtk
++
++    client, so = moi_truong
++    _cai(so, _ModuleKhongChiTiet())
++    bk = _tao(client, "ct3-nv285@example.com", ket_qua="thanh_cong")
++    assert ldtk.ghi_luot(bk["id"], ma=200,
++                         headers={"x-ratelimit-remaining": "7"}) is True
++    d = _chi_tiet(client, bk["id"]).json()
++    assert d["han_muc"]["nguon"] == "tieu_de"
++    assert d["han_muc"]["muc"] == []  # tiêu đề không có mục từng tính năng
++
++
++def test_lam_moi_gian_cach_lan_hai_429(moi_truong):
++    client, so = moi_truong
++    fake = _ModuleGia({"lm-nv285@example.com": {"goi": "plus", "cap_nhat_luc": 1,
++                                                "muc": [_MUC_ANH]}})
++    _cai(so, fake)
++    bk = _tao(client, "lm-nv285@example.com", ket_qua="thanh_cong")
++    r1 = client.post(f"/api/tai-khoan/da-luu/{bk['id']}/chi-tiet/lam-moi", headers=_QT)
++    assert r1.status_code == 200, r1.text
++    assert r1.json()["ok"] is True
++    assert fake.lam_moi_goi == ["lm-nv285@example.com"]
++    r2 = client.post(f"/api/tai-khoan/da-luu/{bk['id']}/chi-tiet/lam-moi", headers=_QT)
++    assert r2.status_code == 429, r2.text
++    assert 0 < r2.json()["cho_lai_sau_giay"] <= 60
++    assert fake.lam_moi_goi == ["lm-nv285@example.com"]  # lần hai không gọi module
++
++
++def test_lam_moi_module_khong_ho_tro_502_va_tam_dung_403(moi_truong):
++    from app import kho_tai_khoan as ktk
++
++    client, so = moi_truong
++    _cai(so, _ModuleKhongChiTiet())
++    bk = _tao(client, "lm2-nv285@example.com", ket_qua="thanh_cong")
++    r = client.post(f"/api/tai-khoan/da-luu/{bk['id']}/chi-tiet/lam-moi", headers=_QT)
++    assert r.status_code == 502, r.text
++    bk2 = _tao(client, "lm3-nv285@example.com", ket_qua="thanh_cong")
++    ktk.dat_tam_dung(bk2["id"], True)
++    r = client.post(f"/api/tai-khoan/da-luu/{bk2['id']}/chi-tiet/lam-moi", headers=_QT)
++    assert r.status_code == 403, r.text
++
++
++def test_chi_tiet_404_va_xac_thuc(moi_truong):
++    client, so = moi_truong
++    _cai(so, _ModuleGia({}))
++    bk = _tao(client, "ct4-nv285@example.com")
++    r = client.get("/api/tai-khoan/da-luu/tk-khong-co/chi-tiet", headers=_QT)
++    assert r.status_code == 404, r.text
++    r = _chi_tiet(client, bk["id"], headers={})
++    assert r.status_code == 401, r.text
++    # Khoá lạ (không khớp khoá nào) cũng 401; khoá khách đúng nhưng sai
++    # phạm vi (chỉ chat, không phải quản trị) → 403.
++    r = _chi_tiet(client, bk["id"],
++                  headers={"Authorization": "Bearer khoa-sai-nv285"})
++    assert r.status_code == 401, r.text
++    from app import khoa_khach as kk
++
++    _muc, khoa_khach = kk.tao_khoa(nhan="khach-nv285", pham_vi=["chat"])
++    r = _chi_tiet(client, bk["id"],
++                  headers={"Authorization": f"Bearer {khoa_khach}"})
++    assert r.status_code == 403, r.text
++    # IDOR: chi-tiet của A không chứa gì của tài khoản khác.
++    bk2 = _tao(client, "khac-nv285@example.com")
++    r = _chi_tiet(client, bk["id"])
++    assert "khac-nv285" not in r.text
++
++
++def test_dung_thong_ke_thanh_cong_that_bai_tach_duoc(moi_truong):
++    from app import luong_dung_tai_khoan as ldtk
++
++    client, so = moi_truong
++    _cai(so, _ModuleGia({}))
++    bk = _tao(client, "tk-nv285@example.com", ket_qua="thanh_cong")
++    for _ in range(3):
++        assert ldtk.ghi_luot(bk["id"], ma=200) is True
++    for _ in range(2):
++        assert ldtk.ghi_luot(bk["id"], ma=500) is True
++    d = _chi_tiet(client, bk["id"]).json()
++    assert d["dung"]["hom_nay"] == 3
++    assert d["dung"]["7_ngay"] == 3
++    assert d["dung"]["thanh_cong"] == 3
++    assert d["dung"]["that_bai"] == 2
++    assert len(d["dung"]["theo_ngay"]) == 1
++    assert d["dung"]["theo_ngay"][0]["so_luot"] == 3
++    assert d["dung"]["lan_dung_cuoi"] > 0
++
++
++def test_tong_quan_nhom_va_hang_xoay_vong(moi_truong):
++    client, so = moi_truong
++    bang = {
++        "a-nv285@example.com": {"goi": "plus", "cap_nhat_luc": 1, "muc": [
++            {"ten": "image_gen", "nhan": "Tạo ảnh", "con_lai": 5, "tong": 20}]},
++        "d-nv285@example.com": {"goi": "plus", "cap_nhat_luc": 1, "muc": [
++            {"ten": "image_gen", "nhan": "Tạo ảnh", "con_lai": 3, "tong": 20}]},
++        "b-nv285@example.com": {"goi": "plus", "cap_nhat_luc": 1, "muc": [
++            {"ten": "image_gen", "nhan": "Tạo ảnh", "con_lai": 0, "tong": 20}]},
++        "c-nv285@example.com": {"goi": "plus", "cap_nhat_luc": 1, "muc": [
++            {"ten": "image_gen", "nhan": "Tạo ảnh", "con_lai": 9, "tong": 20}]},
++    }
++    thu_tu = ["d-nv285@example.com", "a-nv285@example.com",
++              "b-nv285@example.com", "c-nv285@example.com"]
++    _cai(so, _ModuleGia(bang, thu_tu_email=thu_tu))
++    ids = {
++        "a": _tao(client, "a-nv285@example.com", ket_qua="thanh_cong")["id"],
++        "d": _tao(client, "d-nv285@example.com", ket_qua="thanh_cong")["id"],
++        "b": _tao(client, "b-nv285@example.com", ket_qua="thanh_cong")["id"],
++        "c": _tao(client, "c-nv285@example.com")["id"],  # chua: chưa đăng nhập
++    }
++    r = client.get("/api/tai-khoan/tong-quan?nha=chatgpt&duong=web", headers=_QT)
++    assert r.status_code == 200, r.text
++    tq = r.json()
++    assert tq["tong"] == 4
++    assert tq["binh_thuong"] == 2  # a, d ok và còn lượt
++    assert tq["chua_biet"] == 1
++    assert tq["can_xu_ly"] == 0 and tq["loi"] == 0 and tq["tam_dung"] == 0
++    # b ok nhưng cạn: không rơi vào ô trạng thái nào, chỉ đếm ở het_limit.
++    assert tq["het_limit_theo_muc"] == [
++        {"ten": "image_gen", "nhan": "Tạo ảnh",
++         "so_tai_khoan_can": 1, "so_tai_khoan_co_so_lieu": 4}]
++    assert tq["co_so_lieu_han_muc"] is True
++    assert len(tq["giu_hang_1"]) == 1
++    giu = tq["giu_hang_1"][0]
++    assert giu["nhom"] == "chatgpt/web" and giu["muc"] == "image_gen"
++    assert giu["tai_khoan_id"] == ids["d"]  # thứ tự module: d trước a
++    # Hạng trong chi-tiet từng tài khoản.
++    assert _chi_tiet(client, ids["d"]).json()["han_muc"]["muc"][0]["hang"] == 1
++    assert _chi_tiet(client, ids["a"]).json()["han_muc"]["muc"][0]["hang"] == 2
++    assert _chi_tiet(client, ids["b"]).json()["han_muc"]["muc"][0]["hang"] is None
++    assert _chi_tiet(client, ids["c"]).json()["han_muc"]["muc"][0]["hang"] is None
++    ct_a = _chi_tiet(client, ids["a"]).json()["han_muc"]["muc"][0]
++    assert ct_a["giu_hang_1_cua_nhom"]["tai_khoan_id"] == ids["d"]
++
++
++def test_tong_quan_nhom_khong_so_lieu_rong(moi_truong):
++    client, so = moi_truong
++    _cai(so, _ModuleGia({}))
++    _tao(client, "x-nv285@example.com", ket_qua="thanh_cong")
++    r = client.get("/api/tai-khoan/tong-quan?nha=google&duong=web", headers=_QT)
++    assert r.status_code == 200, r.text
++    tq = r.json()
++    assert tq["tong"] == 0
++    assert tq["het_limit_theo_muc"] == []
++    assert tq["co_so_lieu_han_muc"] is False
++    assert tq["giu_hang_1"] == []
+diff --git a/test/test_web2api_anh_video.py b/test/test_web2api_anh_video.py
+index edf17cb..be08560 100644
+--- a/test/test_web2api_anh_video.py
++++ b/test/test_web2api_anh_video.py
+@@ -123,7 +123,7 @@ def suc_khoe_kn(c, khoa, kn):
+ def test_manifest_gemini_khai_cung_cap_va_catalog_tra_ra(client):
+     m = json.loads((GOC_GEMINI / "manifest.json").read_text(encoding="utf-8"))
+     assert m["cung_cap"] == ["chat", "anh", "video"]
+-    assert m["phien_ban"] == "0.2.0"
++    assert m["phien_ban"] == "0.2.1"  # NV285: them loai_tai_khoan_ten -> tang phien_ban
+     # Không đổi phần quyền: đổi là bản cập nhật bị coi «xin thêm quyền» và không tự cập nhật được.
+     assert m["yeu_cau_goi"] == ["httpx"] and m["tai_nguyen"]["mang_ra"] == ["generativelanguage.googleapis.com"]
+     cat = next(x for x in client.get("/api/modules/catalog", headers=QT).json()["modules"] if x["id"] == "gemini-api")
