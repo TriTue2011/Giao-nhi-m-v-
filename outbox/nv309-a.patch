@@ -1,0 +1,1003 @@
+From d2ef37ef11c3ad8e7022f5856f5ca6e85c02c8d8 Mon Sep 17 00:00:00 2001
+From: Muse <muse@local>
+Date: Tue, 3 Nov 2026 11:46:55 +0000
+Subject: [PATCH] NV309-a: noi cau noi trinh duyet that cua loi vao MCP + duong
+ module.dang_nhap
+
+- app/khoi_phuc_phien.py (moi): tim_module_trinh_duyet,
+  lay_trinh_duyet_cho_tai_khoan (ho_so -> tai dung; email -> tao workspace
+  moi), dong_workspace_moi (chi dong workspace do luot nay tao, chi o
+  trang thai cuoi, khong dong khi can_nguoi, khong bao gio dong workspace
+  san co).
+- 4 module *-web: dang_nhap(..., trinh_duyet=None); tham so tuong minh
+  thang factory/hook; grok-web + claude-web bo doc hook truc tiep (cho S1).
+- app/tuyen.py (batch truc_tiep + tai khoan da luu), app/cong_mcp_cong_cu.py
+  (MCP), app/kho_tai_khoan.py + app/tu_lam_moi.py (NV144): loi CAP
+  controller khi co, khong bao gio chan loi goi khi khong co (module tu
+  quyet co can trinh duyet khong); dong()/dong workspace o finally.
+- test/test_nv309_a.py (moi, 11 test) + kiem toan NV45 cho 4 diem
+  td.dong() best-effort.
+---
+ app/cong_mcp_cong_cu.py              |  52 ++++-
+ app/kho_tai_khoan.py                 |  42 +++-
+ app/khoi_phuc_phien.py               |  88 +++++++++
+ app/tai_khoan_hang_loat.py           |   5 +
+ app/tu_lam_moi.py                    |   5 +-
+ app/tuyen.py                         | 133 +++++++++++--
+ modules/chatgpt-web/module.py        |  16 +-
+ modules/claude-web/module.py         |  20 +-
+ modules/gemini-web/module.py         |  16 +-
+ modules/grok-web/module.py           |  25 ++-
+ test/test_nv309_a.py                 | 282 +++++++++++++++++++++++++++
+ test/test_web2api_nv45_a_nuot_loi.py |   9 +
+ 12 files changed, 634 insertions(+), 59 deletions(-)
+ create mode 100644 test/test_nv309_a.py
+
+diff --git a/app/cong_mcp_cong_cu.py b/app/cong_mcp_cong_cu.py
+index c171242..d2779b6 100644
+--- a/app/cong_mcp_cong_cu.py
++++ b/app/cong_mcp_cong_cu.py
+@@ -446,6 +446,9 @@ async def _thu_khoi_phuc_module(so: Any, tk_id: str, module_id: str) -> dict | N
+     người gọi dùng đường cũ làm fallback. Mọi cổng MCP (allowlist, một
+     phiên, nghỉ, giới hạn ngày, timeout) vẫn ở dang_nhap_bat_dau/_chay_dang_nhap.
+     """
++    # NV309-a: vẫn chuyển tiếp mỏng — lõi chỉ CẤP controller (theo hồ sơ của
++    # tài khoản) rồi đóng workspace mới tạo khi lượt kết thúc; mọi tầng và
++    # quyết định vẫn ở trong module.
+     mod = so.dang_chay.get(module_id) if so is not None else None
+     ham = getattr(mod, "khoi_phuc_tu_dong", None) if mod is not None else None
+     if not callable(ham):
+@@ -465,15 +468,48 @@ async def _thu_khoi_phuc_module(so: Any, tk_id: str, module_id: str) -> dict | N
+     if chu_ky is not None and kho_tai_khoan.TRUONG_HO_SO in chu_ky.parameters:
+         tham_so[kho_tai_khoan.TRUONG_HO_SO] = kho_tai_khoan.ho_so_cua(ban_ghi) \
+             if isinstance(ban_ghi, dict) else ""
+-    kq = await ham(tk_id, email, nghi_t1_giay=0.0, **tham_so)
++    # NV309-a: lõi cấp controller trước khi gọi (SAI S1 — trước đây module chỉ
++    # chạy được T0/T1 vì khoi_phuc_tu_dong không nhận trinh_duyet). Thứ tự hồ
++    # sơ: bản ghi → tạo workspace mới theo email. Đường danh tính (tier-b)
++    # giữ logic riêng của nó trong app/khoi_phuc_phien, không nhân đôi ở đây
++    # (production hiện không module nào triển khai danh_tinh_id_cua nên
++    # đường đó trả None). Chỉ truyền khi module nhận tham số (mẫu signature cũ).
++    from app import khoi_phuc_phien as kp  # nhập muộn: tránh vòng nhập
++    td = None
++    hs_moi = ""
++    da_tao = False
++    if chu_ky is not None and "trinh_duyet" in chu_ky.parameters:
++        hs = kho_tai_khoan.ho_so_cua(ban_ghi) if isinstance(ban_ghi, dict) else ""
++        td, hs_moi, da_tao = await kp.lay_trinh_duyet_cho_tai_khoan(
++            so.dang_chay, ho_so=hs, email=email)
++        if td is not None:
++            tham_so["trinh_duyet"] = td
++    if td is not None:
++        async with kp.phien_dieu_khien_that(td):
++            kq = await ham(tk_id, email, nghi_t1_giay=0.0, **tham_so)
++        try:
++            await td.dong()
++        except Exception:
++            pass
++    else:
++        kq = await ham(tk_id, email, nghi_t1_giay=0.0, **tham_so)
+     if isinstance(kq, dict):
+-        return kq
+-    return {
+-        "thanh_cong": bool(getattr(kq, "thanh_cong", False)),
+-        "ma_loi": getattr(kq, "ma_loi", "") or "",
+-        "can_nguoi": bool(getattr(kq, "can_nguoi", False)),
+-        "huong_dan": getattr(kq, "huong_dan", "") or "",
+-    }
++        kq_chuan = kq
++    else:
++        kq_chuan = {
++            "thanh_cong": bool(getattr(kq, "thanh_cong", False)),
++            "ma_loi": getattr(kq, "ma_loi", "") or "",
++            "can_nguoi": bool(getattr(kq, "can_nguoi", False)),
++            "huong_dan": getattr(kq, "huong_dan", "") or "",
++        }
++    # Workspace MỚI tạo chỉ đóng khi lượt kết thúc ở trạng thái cuối;
++    # can_nguoi → giữ lại để người hoàn tất bằng tay.
++    if da_tao and td is not None:
++        can_nguoi = bool(kq_chuan.get("can_nguoi", False)) \
++            or kq_chuan.get("ma_loi", "") == "can_nguoi"
++        if not can_nguoi:
++            await kp.dong_workspace_moi(so.dang_chay, hs_moi)
++    return kq_chuan
+ 
+ 
+ async def _chay_dang_nhap(phien: dict, so: Any, tk_id: str, module_id: str) -> None:
+diff --git a/app/kho_tai_khoan.py b/app/kho_tai_khoan.py
+index 7e2a73c..e1da5a1 100644
+--- a/app/kho_tai_khoan.py
++++ b/app/kho_tai_khoan.py
+@@ -19,6 +19,7 @@ from __future__ import annotations
+ import hashlib
+ import hmac
+ import html
++import inspect
+ import logging
+ import os
+ import re
+@@ -2143,9 +2144,14 @@ def _ghi_trang_thai(du_lieu: dict) -> None:
+     kho.ghi_bi_mat(TEN_TRANG_THAI, du_lieu)
+ 
+ 
+-async def thu_dang_nhap_lai(*, module, module_id: str, dinh_danh: str) -> dict:
++async def thu_dang_nhap_lai(*, module, module_id: str, dinh_danh: str,
++                              dang_chay: dict | None = None) -> dict:
+     """Tự đăng nhập lại bằng tài khoản đã lưu (NV144 §4).
+ 
++    NV309-a: `dang_chay` — lõi cấp controller trước khi gọi (ho_so của bản
++    ghi → workspace mới theo email); None → giữ hành vi cũ (module nhận
++    None → can_nguoi mà chưa từng mở trình duyệt, SAI S1).
++
+     `dinh_danh` là email của phiên cần khôi phục. Trả dict:
+     - `{"thu": False, "ly_do": "da_tat"}` — công tắc đang TẮT.
+     - `{"thu": False, "ly_do": "khong_co_tai_khoan"}` — không có tài khoản
+@@ -2206,19 +2212,51 @@ async def thu_dang_nhap_lai(*, module, module_id: str, dinh_danh: str) -> dict:
+     dong = DongDaTach(dong=0, email=ban_ghi["email"], loai="mat_khau",
+                       mat_khau=mat_khau, totp=totp)
+     gan_cach_dang_nhap(dong, ban_ghi)
++    # NV309-a: lõi cấp controller trước khi gọi (SAI S1). Không có dang_chay
++    # → giữ hành vi cũ. Thứ tự hồ sơ: ho_so của bản ghi → workspace mới
++    # theo email (đường này luôn là mat_khau nên tạo mới được).
++    from app import khoi_phuc_phien as kp  # nhập muộn: tránh vòng nhập
++    td = None
++    hs_moi = ""
++    da_tao = False
++    if dang_chay is not None:
++        td, hs_moi, da_tao = await kp.lay_trinh_duyet_cho_tai_khoan(
++            dang_chay, ho_so=ho_so_cua(ban_ghi), email=ban_ghi["email"])
++    nhan_td = False
++    if td is not None:
++        try:
++            nhan_td = "trinh_duyet" in inspect.signature(dang_nhap).parameters
++        except (TypeError, ValueError):
++            nhan_td = False
++    ma_loi = ""
+     try:
+-        kq = await dang_nhap(dong)
++        if nhan_td:
++            async with kp.phien_dieu_khien_that(td):
++                kq = await dang_nhap(dong, trinh_duyet=td)
++        else:
++            kq = await dang_nhap(dong)
+         thanh_cong = bool(getattr(kq, "thanh_cong", False))
++        ma_loi = getattr(kq, "ma_loi", "") or ""
+         # NV283: tự đăng nhập lại cũng ghi kết quả thật qua hàm bọc chung
+         # (đúng một lần cho lượt này; lỗi ghi chỉ log, không hỏng kết quả).
+         ghi_ket_qua_dang_nhap_tu_ket_qua(id_, kq)
+     except Exception as e:
+         log.warning("tu-dang-nhap-lai: %s lỗi: %s", che_email(email), type(e).__name__)
+         thanh_cong = False
++        ma_loi = "loi_module"
+         ghi_ket_qua_dang_nhap_tu_ket_qua(
+             id_, {"thanh_cong": False, "ma_loi": "loi_module"})
+     finally:
+         dong.xoa_bi_mat()
++        if td is not None:
++            try:
++                await td.dong()
++            except Exception:
++                pass
++        # Workspace MỚI tạo chỉ đóng khi lượt kết thúc ở trạng thái cuối;
++        # can_nguoi → giữ lại để người hoàn tất bằng tay.
++        if da_tao and (thanh_cong or ma_loi != "can_nguoi"):
++            await kp.dong_workspace_moi(dang_chay, hs_moi)
+     # Ghi trạng thái cuối DƯỚI KHOÁ KHO, đọc lại bản ghi trước: trong lúc
+     # lượt thử đang chạy (await ở trên), quản trị có thể đã đổi thông tin
+     # (reset xoá trạng thái) hoặc xoá hẳn tài khoản. Nếu bản ghi đã mất hoặc
+diff --git a/app/khoi_phuc_phien.py b/app/khoi_phuc_phien.py
+index 849da2f..1528b36 100644
+--- a/app/khoi_phuc_phien.py
++++ b/app/khoi_phuc_phien.py
+@@ -479,6 +479,94 @@ def lay_trinh_duyet_that(ho_so: str, dang_chay: dict | None = None,
+     return None
+ 
+ 
++def tim_module_trinh_duyet(dang_chay: dict | None = None):
++    """Module trình duyệt đầu tiên trong `dang_chay` (NV309-a).
++
++    Cùng cách chọn như `lay_trinh_duyet_that` (khả năng ``trinh_duyet`` trong
++    ``manifest["cung_cap"]`` + có ``trinh_duyet_that``), nhưng trả thể hiện
++    module để người gọi còn dùng ``trinh_duyet_tao``/``trinh_duyet_dong``.
++    Không gọi tên module cụ thể nào.
++    """
++    for mod in (dang_chay or {}).values():
++        cung_cap = (getattr(mod, "manifest", None) or {}).get("cung_cap") or []
++        if "trinh_duyet" in cung_cap and callable(
++                getattr(mod, "trinh_duyet_that", None)):
++            return mod
++    return None
++
++
++async def lay_trinh_duyet_cho_tai_khoan(dang_chay: dict | None = None, *,
++                                        ho_so: str = "", email: str = ""):
++    """Cầu nối lõi cho MỘT tài khoản (NV309-a) — lõi cấp controller trước khi
++    gọi module, thay vì module tự lấy từ hook test (SAI S1: hook mặc định
++    None → ``trinh_duyet_none``/``can_nguoi`` mà chưa từng mở trình duyệt).
++
++    Thứ tự: (1) `ho_so` hợp lệ → `lay_trinh_duyet_that` (tái dùng workspace
++    sẵn, KHÔNG tạo mới, KHÔNG đóng sau lượt); (2) không có `ho_so` mà có
++    `email` → tạo workspace mới qua module trình duyệt (``trinh_duyet_tao``)
++    rồi lấy controller cho workspace đó; (3) không có đường nào → (None, "",
++    False).
++
++    Trả (controller, ho_so, da_tao_moi). Người gọi: bọc lượt gọi trong
++    `phien_dieu_khien_that` + `dong()` sau lượt; workspace MỚI tạo chỉ đóng
++    bằng `dong_workspace_moi` khi lượt kết thúc ở trạng thái cuối — KHÔNG
++    đóng khi ``can_nguoi`` (người vẫn có thể hoàn tất bằng tay), KHÔNG BAO
++    GIỜ đóng workspace sẵn có (ví dụ hồ sơ SSO thật — xoá nó là phá hoại).
++    """
++    mod_td = tim_module_trinh_duyet(dang_chay)
++    if mod_td is None:
++        return None, "", False
++    hs = (ho_so or "").strip()
++    if hs:
++        td = lay_trinh_duyet_that(hs, dang_chay)
++        if td is not None:
++            return td, hs, False
++    email = (email or "").strip()
++    if not email:
++        return None, "", False
++    tao = getattr(mod_td, "trinh_duyet_tao", None)
++    if not callable(tao):
++        return None, "", False
++    try:
++        kq = tao(email)
++        if asyncio.iscoroutine(kq):
++            kq = await kq
++    except Exception as e:
++        log.warning("lay-trinh-duyet-cho-tai-khoan: tạo workspace lỗi: %s",
++                    type(e).__name__)
++        return None, "", False
++    hs_moi = kq.get("ho_so", "") if isinstance(kq, dict) else ""
++    if not hs_moi:
++        return None, "", False
++    td = lay_trinh_duyet_that(hs_moi, dang_chay)
++    if td is None:
++        return None, "", False
++    return td, hs_moi, True
++
++
++async def dong_workspace_moi(dang_chay: dict | None = None,
++                             ho_so: str = "") -> None:
++    """Đóng workspace do lượt này TẠO (NV309-a; best-effort, không ném).
++
++    Chỉ gọi cho workspace `da_tao_moi=True` từ `lay_trinh_duyet_cho_tai_khoan`
++    — workspace sẵn có KHÔNG BAO GIỜ được đóng ở đây. `giu_phien=False`:
++    workspace một lượt không cần giữ phiên (module đã tự lưu cookie/phiên
++    vào kho của nó trong lượt).
++    """
++    if not ho_so:
++        return
++    mod_td = tim_module_trinh_duyet(dang_chay)
++    dong = getattr(mod_td, "trinh_duyet_dong", None) if mod_td else None
++    if not callable(dong):
++        return
++    try:
++        kq = dong(ho_so, False)
++        if asyncio.iscoroutine(kq):
++            await kq
++    except Exception as e:
++        log.warning("dong-workspace-moi: %s", type(e).__name__)
++
++
+ @contextlib.asynccontextmanager
+ async def phien_dieu_khien_that(td: BoDieuKhienTrinhDuyet):
+     """Phiên dùng bộ điều khiển trình duyệt thật: giành quyền trước, NHẢ LUÔN sau.
+diff --git a/app/tai_khoan_hang_loat.py b/app/tai_khoan_hang_loat.py
+index 6d1d594..8a7cd81 100644
+--- a/app/tai_khoan_hang_loat.py
++++ b/app/tai_khoan_hang_loat.py
+@@ -503,6 +503,11 @@ class KetQuaDangNhap:
+ 
+         async def dang_nhap(tai_khoan: DongDaTach) -> KetQuaDangNhap: ...
+ 
++    NV309-a: `dang_nhap` có thêm tham số tuỳ chọn `trinh_duyet=None` —
++    controller lõi cấp trước khi gọi cho các đường cần trình duyệt (mật khẩu,
++    SSO, đăng nhập lại); None → module hỏi factory/hook đã đăng ký như cũ.
++    Đường `cookie` không cần trình duyệt nên không nhận controller.
++
+     nhận `DongDaTach` (đọc bí mật qua `BiMatTam.lay()`), trả về:
+       - `thanh_cong=True` + `cookie` (cookie/phiên mới; module tự lưu vào kho
+         mã hoá của nó — lõi không giữ cookie trong kết quả);
+diff --git a/app/tu_lam_moi.py b/app/tu_lam_moi.py
+index ddeaccb..2d59925 100644
+--- a/app/tu_lam_moi.py
++++ b/app/tu_lam_moi.py
+@@ -245,8 +245,11 @@ async def _chay_khoi_phuc(module: Any, module_id: str, khoa: str, ma_loi: str,
+             try:
+                 email_phien = kho_tai_khoan.email_cua_phien(module, khoa)
+                 if email_phien:
++                    # NV309-a: truyền dang_chay để lõi cấp controller trước khi
++                    # gọi (không có → module nhận None → can_nguoi, SAI S1).
+                     kq_dl = await kho_tai_khoan.thu_dang_nhap_lai(
+-                        module=module, module_id=module_id, dinh_danh=email_phien)
++                        module=module, module_id=module_id, dinh_danh=email_phien,
++                        dang_chay=dang_chay)
+                     if kq_dl.get("thu") and kq_dl.get("thanh_cong"):
+                         _danh_dau_khoe(module, khoa)
+                         log.info("tu-lam-moi: %s/%s tự đăng nhập lại bằng tài "
+diff --git a/app/tuyen.py b/app/tuyen.py
+index 740dd91..123e1c2 100644
+--- a/app/tuyen.py
++++ b/app/tuyen.py
+@@ -4625,13 +4625,51 @@ async def dang_nhap_tai_khoan_da_luu_noi_bo(so, id: str, module_id: str, kiem_tr
+     except Exception:
+         dong.xoa_bi_mat()
+         raise
++    # NV309-a: lõi cấp controller trước khi gọi (SAI S1 — trước đây module
++    # nhận None → can_nguoi mà chưa từng mở trình duyệt). Thứ tự hồ sơ:
++    # hồ sơ đã lưu của tài khoản (trường theo kho tài khoản) → tạo workspace
++    # mới theo email (chỉ đường mật khẩu; đường SSO không tạo mới vì hồ sơ
++    # mới không có phiên SSO nên không thể tái dùng). Controller sống suốt
++    # lượt; chỉ dong()/đóng workspace mới tạo ở finally cuối lượt
++    # (can_nguoi → giữ lại cho người hoàn tất bằng tay).
++    td = None
++    hs_moi = ""
++    da_tao = False
++    hs_luu = getattr(dong, kho_tai_khoan_mod.TRUONG_HO_SO, "") or ""
++    if hs_luu:
++        td, _hs, _tao = await khoi_phuc_phien_mod.lay_trinh_duyet_cho_tai_khoan(
++            getattr(so, "dang_chay", None), ho_so=hs_luu)
++    elif dong.loai in ("mat_khau", "dang_nhap_lai"):
++        td, hs_moi, da_tao = await khoi_phuc_phien_mod.lay_trinh_duyet_cho_tai_khoan(
++            getattr(so, "dang_chay", None), email=email)
++    nhan_td = False
++    if td is not None:
++        try:
++            nhan_td = "trinh_duyet" in inspect.signature(ham).parameters
++        except (TypeError, ValueError):
++            nhan_td = False
++    kq = None
+     try:
+-        kq = await ham(dong)
++        if nhan_td:
++            async with khoi_phuc_phien_mod.phien_dieu_khien_that(td):
++                kq = await ham(dong, trinh_duyet=td)
++        else:
++            kq = await ham(dong)
+     finally:
+         dong.xoa_bi_mat()
+         for _bm in bi_mat_dnh:
+             if _bm is not None:
+                 _bm.xoa()
++        if td is not None:
++            try:
++                await td.dong()
++            except Exception:
++                pass
++        if da_tao and (kq is None or (
++                getattr(kq, "thanh_cong", False)
++                or getattr(kq, "ma_loi", "") != "can_nguoi")):
++            await khoi_phuc_phien_mod.dong_workspace_moi(
++                getattr(so, "dang_chay", None), hs_moi)
+     # NV283: ghi kết quả thật qua hàm bọc chung (đúng một lần cho lượt này;
+     # đường MCP dang_nhap_bat_dau đi qua đây nên cũng được ghi — trừ khi nó
+     # dùng đường khoi_phuc_tu_dong riêng, xem app/cong_mcp_cong_cu.py).
+@@ -5345,25 +5383,80 @@ async def bat_dau_dang_nhap_tu_dong(request: Request):
+             # NV122: đọc sau_luc (lúc bắt đầu bước đăng nhập) để chỉ nhận thư tới sau mốc này.
+             sau_luc = (ma_xac_minh_mod.luc_hien_tai_iso()
+                        if (dong.ma_tu_hop_thu and cfg_xac_minh is not None) else None)
+-            kq = await module.dang_nhap(dong)
+-            # NV122: module báo trang đang đòi mã gửi qua email + cờ tích BẬT +
+-            # module khai xac_minh_email → đọc mã từ hộp thư rồi điền; cờ TẮT thì
+-            # giữ hành vi hiện có (không bao giờ tự chuyển sang đọc hộp thư).
+-            if (isinstance(kq, tai_khoan_hang_loat_mod.KetQuaDangNhap) and not kq.thanh_cong
+-                    and kq.ma_loi == "can_ma_email"
+-                    and dong.ma_tu_hop_thu and cfg_xac_minh is not None):
+-                kq = await _xu_ly_can_ma_email(app, so, module, module_id, dong,
+-                                               cfg_xac_minh, sau_luc, da_goi_ma)
+-            # Chỉ khi module KHAI trường bí mật để nhận tài khoản; không khai thì module tự quản tài khoản của nó (hành vi cũ).
+-            if (isinstance(kq, tai_khoan_hang_loat_mod.KetQuaDangNhap) and kq.thanh_cong and kq.cookie
+-                    and _truong_bi_mat_cua_module(module) is not None):
+-                try:
+-                    kq_cai = await _luu_chung_chi_vao_module(so, module, module_id, kq.cookie)
+-                except LoiOpenAI:
+-                    return tai_khoan_hang_loat_mod.KetQuaDangNhap(False, ma_loi="luu_that_bai")
+-                if not kq_cai.get("ok"):
+-                    return tai_khoan_hang_loat_mod.KetQuaDangNhap(False, ma_loi="luu_that_bai")
+-            return kq
++            # NV309-a: lõi cấp controller trước khi gọi cho các đường cần trình
++            # duyệt (SAI S1 — trước đây module nhận None → can_nguoi mà chưa
++            # từng mở trình duyệt). Lõi không nêu tên nhà cung cấp: chỉ phân
++            # biệt bằng loại chung — cookie không cần trình duyệt; mật khẩu/
++            # đăng nhập lại tạo workspace mới theo email; bản ghi CÓ hồ sơ đã
++            # lưu thì tái dùng hồ sơ đó (đường SSO; hồ sơ mới không có phiên
++            # SSO nên không tạo mới — không có hồ sơ thì giữ hành vi cũ).
++            # Lõi CHỈ CẤP khi có (không bao giờ chặn lời gọi khi không có):
++            # module tự quyết có cần trình duyệt không — module *-web thật
++            # fail-closed bằng can_nguoi của chính nó khi thiếu controller,
++            # còn module không cần trình duyệt vẫn chạy như cũ. Chặn sớm ở
++            # lõi đã phá hợp đồng này (hồi quy NV88/NV119/NV122/NV283).
++            # Controller sống suốt ham_chay (bước can_ma_email sau đó có thể
++            # dùng lại controller của lượt này); chỉ dong()/đóng workspace ở
++            # finally cuối lượt.
++            td = None
++            hs_moi = ""
++            da_tao = False
++            hs_luu = getattr(dong, kho_tai_khoan_mod.TRUONG_HO_SO, "") or ""
++            if dong.loai == "cookie":
++                pass  # đường cookie không cần trình duyệt
++            elif dong.loai in ("mat_khau", "dang_nhap_lai"):
++                td, hs_moi, da_tao = await khoi_phuc_phien_mod.lay_trinh_duyet_cho_tai_khoan(
++                    dang_chay, email=dong.email)
++            elif hs_luu:
++                td, _hs, _tao = await khoi_phuc_phien_mod.lay_trinh_duyet_cho_tai_khoan(
++                    dang_chay, ho_so=hs_luu)
++            kq = None
++            try:
++                # Chỉ truyền khi module nhận tham số (mẫu signature cũ ở MCP);
++                # module lạ không nhận → giữ lời gọi cũ, không vỡ lượt.
++                nhan_td = False
++                if td is not None:
++                    try:
++                        nhan_td = "trinh_duyet" in inspect.signature(
++                            module.dang_nhap).parameters
++                    except (TypeError, ValueError):
++                        nhan_td = False
++                if nhan_td:
++                    async with khoi_phuc_phien_mod.phien_dieu_khien_that(td):
++                        kq = await module.dang_nhap(dong, trinh_duyet=td)
++                else:
++                    kq = await module.dang_nhap(dong)
++                # NV122: module báo trang đang đòi mã gửi qua email + cờ tích BẬT +
++                # module khai xac_minh_email → đọc mã từ hộp thư rồi điền; cờ TẮT thì
++                # giữ hành vi hiện có (không bao giờ tự chuyển sang đọc hộp thư).
++                if (isinstance(kq, tai_khoan_hang_loat_mod.KetQuaDangNhap) and not kq.thanh_cong
++                        and kq.ma_loi == "can_ma_email"
++                        and dong.ma_tu_hop_thu and cfg_xac_minh is not None):
++                    kq = await _xu_ly_can_ma_email(app, so, module, module_id, dong,
++                                                   cfg_xac_minh, sau_luc, da_goi_ma)
++                # Chỉ khi module KHAI trường bí mật để nhận tài khoản; không khai thì module tự quản tài khoản của nó (hành vi cũ).
++                if (isinstance(kq, tai_khoan_hang_loat_mod.KetQuaDangNhap) and kq.thanh_cong and kq.cookie
++                        and _truong_bi_mat_cua_module(module) is not None):
++                    try:
++                        kq_cai = await _luu_chung_chi_vao_module(so, module, module_id, kq.cookie)
++                    except LoiOpenAI:
++                        return tai_khoan_hang_loat_mod.KetQuaDangNhap(False, ma_loi="luu_that_bai")
++                    if not kq_cai.get("ok"):
++                        return tai_khoan_hang_loat_mod.KetQuaDangNhap(False, ma_loi="luu_that_bai")
++                return kq
++            finally:
++                if td is not None:
++                    try:
++                        await td.dong()
++                    except Exception:
++                        pass
++                # Workspace MỚI tạo chỉ đóng khi lượt kết thúc ở trạng thái cuối;
++                # can_nguoi → giữ lại để người hoàn tất qua noVNC. Ngoại lệ
++                # (kq None, không có lượt chờ người nào) → đóng luôn.
++                if da_tao and (kq is None or (
++                        isinstance(kq, tai_khoan_hang_loat_mod.KetQuaDangNhap)
++                        and (kq.thanh_cong or kq.ma_loi != "can_nguoi"))):
++                    await khoi_phuc_phien_mod.dong_workspace_moi(dang_chay, hs_moi)
+     else:
+         mod_dn = _module_dang_nhap_danh_tinh(app, bat_buoc=False)
+         mod_td = _tim_module_trinh_duyet(app)
+diff --git a/modules/chatgpt-web/module.py b/modules/chatgpt-web/module.py
+index 8fc6334..b49f1a3 100644
+--- a/modules/chatgpt-web/module.py
++++ b/modules/chatgpt-web/module.py
+@@ -1023,9 +1023,12 @@ class Module:
+         self._luu_mat_khau(khoa, email, mat_khau)
+         return KetQuaDangNhap(True, cookie=token)
+ 
+-    async def dang_nhap(self, tai_khoan: DongDaTach) -> KetQuaDangNhap:
++    async def dang_nhap(self, tai_khoan: DongDaTach,
++                        trinh_duyet=None) -> KetQuaDangNhap:
+         """Hợp đồng NV67: cookie → kiểm; mat_khau → trình duyệt; dang_nhap_lai →
+-        mật khẩu đã lưu. BiMatTam luôn bị xoá sau khi dùng (kể cả lỗi)."""
++        mật khẩu đã lưu. BiMatTam luôn bị xoá sau khi dùng (kể cả lỗi).
++        NV309-a: `trinh_duyet` — controller lõi cấp trước khi gọi (thắng
++        factory/hook đã đăng ký); None → hỏi `_lay_trinh_duyet_module()."""
+         loai = tai_khoan.loai
+         # NV300: lần gọi mang cách tường minh (đường lõi gắn từ bản ghi) thì
+         # đổi đường tương ứng: google → tái dùng hồ sơ, không đòi mật khẩu.
+@@ -1034,7 +1037,8 @@ class Module:
+             loai = "google"
+         try:
+             if loai == "google":
+-                td = await self._lay_trinh_duyet_module()
++                td = (trinh_duyet if trinh_duyet is not None
++                      else await self._lay_trinh_duyet_module())
+                 self._trinh_duyet_da_dung = td
+                 return await self.tai_dung_ho_so(
+                     getattr(tai_khoan, "ho_so_google", "") or "", td)
+@@ -1050,7 +1054,8 @@ class Module:
+             if loai == "mat_khau":
+                 if tai_khoan.mat_khau is None:
+                     return KetQuaDangNhap(False, ma_loi="thieu_mat_khau")
+-                td = await self._lay_trinh_duyet_module()
++                td = (trinh_duyet if trinh_duyet is not None
++                      else await self._lay_trinh_duyet_module())
+                 self._trinh_duyet_da_dung = td
+                 return await self._dang_nhap_bang_trinh_duyet(
+                     tai_khoan.email, tai_khoan.mat_khau, td, totp=tai_khoan.totp)
+@@ -1058,7 +1063,8 @@ class Module:
+                 bm = self.mat_khau_da_luu(tai_khoan.email)
+                 if bm is None:
+                     return KetQuaDangNhap(False, ma_loi="khong_co_mat_khau_luu")
+-                td = await self._lay_trinh_duyet_module()
++                td = (trinh_duyet if trinh_duyet is not None
++                      else await self._lay_trinh_duyet_module())
+                 self._trinh_duyet_da_dung = td
+                 return await self._dang_nhap_bang_trinh_duyet(
+                     tai_khoan.email, bm, td)
+diff --git a/modules/claude-web/module.py b/modules/claude-web/module.py
+index 9cd5997..0228ad5 100644
+--- a/modules/claude-web/module.py
++++ b/modules/claude-web/module.py
+@@ -413,20 +413,24 @@ class Module:
+         self._luu_mat_khau(khoa, email, mat_khau)
+         return KetQuaDangNhap(True, cookie=acc.cookie)
+ 
+-    async def dang_nhap(self, tai_khoan: DongDaTach) -> KetQuaDangNhap:
++    async def dang_nhap(self, tai_khoan: DongDaTach,
++                        trinh_duyet=None) -> KetQuaDangNhap:
+         """Hợp đồng NV67: cookie → kiểm; mat_khau → trình duyệt; dang_nhap_lai →
+         mật khẩu đã lưu. BiMatTam luôn bị xoá sau khi dùng (kể cả lỗi).
+         NV300 (bổ sung 03/11): lần gọi từ đường lõi mang cach_dang_nhap
+         (tài khoản đã lưu) thì luôn đi đường Google — Claude tạm thời chỉ
+-        Google; gọi trực tiếp không kèm cách giữ hành vi cũ."""
++        Google; gọi trực tiếp không kèm cách giữ hành vi cũ.
++        NV309-a: `trinh_duyet` — controller lõi cấp trước khi gọi (thắng
++        factory/hook đã đăng ký); None → hỏi `_lay_trinh_duyet_module()` như
++        cũ (không còn đọc hook `_tao_trinh_duyet` trực tiếp — SAI S1)."""
+         loai = tai_khoan.loai
+         if loai in ("mat_khau", "dang_nhap_lai") \
+                 and getattr(tai_khoan, "cach_dang_nhap", "") != "":
+             loai = "google"
+         try:
+             if loai == "google":
+-                tao = self._tao_trinh_duyet
+-                td = tao() if callable(tao) else None
++                td = (trinh_duyet if trinh_duyet is not None
++                      else await self._lay_trinh_duyet_module())
+                 self._trinh_duyet_da_dung = td
+                 return await self.tai_dung_ho_so(
+                     getattr(tai_khoan, "ho_so_google", "") or "", td)
+@@ -443,8 +447,8 @@ class Module:
+             if loai == "mat_khau":
+                 if tai_khoan.mat_khau is None:
+                     return KetQuaDangNhap(False, ma_loi="thieu_mat_khau")
+-                tao = self._tao_trinh_duyet
+-                td = tao() if callable(tao) else None
++                td = (trinh_duyet if trinh_duyet is not None
++                      else await self._lay_trinh_duyet_module())
+                 self._trinh_duyet_da_dung = td
+                 return await self._dang_nhap_bang_trinh_duyet(
+                     tai_khoan.email, tai_khoan.mat_khau, td)
+@@ -452,8 +456,8 @@ class Module:
+                 bm = self.mat_khau_da_luu(tai_khoan.email)
+                 if bm is None:
+                     return KetQuaDangNhap(False, ma_loi="khong_co_mat_khau_luu")
+-                tao = self._tao_trinh_duyet
+-                td = tao() if callable(tao) else None
++                td = (trinh_duyet if trinh_duyet is not None
++                      else await self._lay_trinh_duyet_module())
+                 self._trinh_duyet_da_dung = td
+                 return await self._dang_nhap_bang_trinh_duyet(
+                     tai_khoan.email, bm, td)
+diff --git a/modules/gemini-web/module.py b/modules/gemini-web/module.py
+index 66cf10a..5906973 100644
+--- a/modules/gemini-web/module.py
++++ b/modules/gemini-web/module.py
+@@ -630,9 +630,12 @@ class Module:
+         self._luu_mat_khau(khoa_moi, email, mat_khau)
+         return KetQuaDangNhap(True, cookie=chuoi)
+ 
+-    async def dang_nhap(self, tai_khoan: DongDaTach) -> KetQuaDangNhap:
++    async def dang_nhap(self, tai_khoan: DongDaTach,
++                        trinh_duyet=None) -> KetQuaDangNhap:
+         """Hợp đồng NV67: cookie → kiểm; mat_khau → trình duyệt; dang_nhap_lai →
+-        mật khẩu đã lưu. BiMatTam luôn bị xoá sau khi dùng (kể cả lỗi)."""
++        mật khẩu đã lưu. BiMatTam luôn bị xoá sau khi dùng (kể cả lỗi).
++        NV309-a: `trinh_duyet` — controller lõi cấp trước khi gọi (thắng
++        factory/hook đã đăng ký); None → hỏi `_lay_trinh_duyet_module()."""
+         loai = tai_khoan.loai
+         # NV300: lần gọi mang cách tường minh (đường lõi gắn từ bản ghi) thì
+         # đổi đường tương ứng: google → tái dùng hồ sơ, không đòi mật khẩu.
+@@ -641,7 +644,8 @@ class Module:
+             loai = "google"
+         try:
+             if loai == "google":
+-                td = await self._lay_trinh_duyet_module()
++                td = (trinh_duyet if trinh_duyet is not None
++                      else await self._lay_trinh_duyet_module())
+                 self._trinh_duyet_da_dung = td
+                 return await self.tai_dung_ho_so(
+                     getattr(tai_khoan, "ho_so_google", "") or "", td)
+@@ -658,7 +662,8 @@ class Module:
+             if loai == "mat_khau":
+                 if tai_khoan.mat_khau is None:
+                     return KetQuaDangNhap(False, ma_loi="thieu_mat_khau")
+-                td = await self._lay_trinh_duyet_module()
++                td = (trinh_duyet if trinh_duyet is not None
++                      else await self._lay_trinh_duyet_module())
+                 self._trinh_duyet_da_dung = td
+                 return await self._dang_nhap_bang_trinh_duyet(
+                     tai_khoan.email, tai_khoan.mat_khau, td, totp=tai_khoan.totp)
+@@ -666,7 +671,8 @@ class Module:
+                 bm = self.mat_khau_da_luu(tai_khoan.email)
+                 if bm is None:
+                     return KetQuaDangNhap(False, ma_loi="khong_co_mat_khau_luu")
+-                td = await self._lay_trinh_duyet_module()
++                td = (trinh_duyet if trinh_duyet is not None
++                      else await self._lay_trinh_duyet_module())
+                 self._trinh_duyet_da_dung = td
+                 return await self._dang_nhap_bang_trinh_duyet(
+                     tai_khoan.email, bm, td)
+diff --git a/modules/grok-web/module.py b/modules/grok-web/module.py
+index 430f228..a8acaea 100644
+--- a/modules/grok-web/module.py
++++ b/modules/grok-web/module.py
+@@ -923,10 +923,15 @@ class Module:
+         self._luu_mat_khau(khoa, email, mat_khau)
+         return KetQuaDangNhap(True, cookie=chuoi_cookie)
+ 
+-    async def dang_nhap(self, tai_khoan: DongDaTach) -> KetQuaDangNhap:
++    async def dang_nhap(self, tai_khoan: DongDaTach,
++                        trinh_duyet=None) -> KetQuaDangNhap:
+         """Hợp đồng NV67: cookie → kiểm; mat_khau → trình duyệt; dang_nhap_lai →
+         mật khẩu đã lưu; google → hồ sơ Google đã đăng nhập (NV300).
+-        BiMatTam luôn bị xoá sau khi dùng (kể cả lỗi)."""
++        BiMatTam luôn bị xoá sau khi dùng (kể cả lỗi).
++        NV309-a: `trinh_duyet` — controller lõi cấp trước khi gọi (thắng
++        factory/hook đã đăng ký); None → hỏi `_lay_trinh_duyet_module()` như
++        cũ (không còn đọc hook `_tao_trinh_duyet` trực tiếp — đó là SAI S1:
++        hook mặc định None nên production chưa từng mở trình duyệt)."""
+         loai = tai_khoan.loai
+         # NV300: lần gọi mang cách tường minh (đường lõi gắn từ bản ghi) thì
+         # ghi nhớ theo tài khoản cho lần gọi sau không kèm cách.
+@@ -961,16 +966,16 @@ class Module:
+             if loai == "google":
+                 # NV300: đăng nhập qua hồ sơ Google đã đăng nhập — không cần
+                 # mật khẩu, không điền gì (tai_dung_ho_so không bao giờ dien()).
+-                tao = self._tao_trinh_duyet
+-                td = tao() if callable(tao) else None
++                td = (trinh_duyet if trinh_duyet is not None
++                      else await self._lay_trinh_duyet_module())
+                 self._trinh_duyet_da_dung = td
+                 ho_so = getattr(tai_khoan, "ho_so_google", "") or ""
+                 return await self.tai_dung_ho_so(ho_so, td)
+             if loai == "mat_khau":
+                 if tai_khoan.mat_khau is None:
+                     return KetQuaDangNhap(False, ma_loi="thieu_mat_khau")
+-                tao = self._tao_trinh_duyet
+-                td = tao() if callable(tao) else None
++                td = (trinh_duyet if trinh_duyet is not None
++                      else await self._lay_trinh_duyet_module())
+                 self._trinh_duyet_da_dung = td
+                 cach = self.cach_dang_nhap_cua(
+                     "", tai_khoan.email,
+@@ -984,15 +989,15 @@ class Module:
+                     "", tai_khoan.email,
+                     goi_y=getattr(tai_khoan, "cach_dang_nhap", None))
+                 if cach == "google":
+-                    tao = self._tao_trinh_duyet
+-                    td = tao() if callable(tao) else None
++                    td = (trinh_duyet if trinh_duyet is not None
++                          else await self._lay_trinh_duyet_module())
+                     self._trinh_duyet_da_dung = td
+                     ho_so = getattr(tai_khoan, "ho_so_google", "") or ""
+                     return await self.tai_dung_ho_so(ho_so, td)
+                 if bm is None:
+                     return KetQuaDangNhap(False, ma_loi="khong_co_mat_khau_luu")
+-                tao = self._tao_trinh_duyet
+-                td = tao() if callable(tao) else None
++                td = (trinh_duyet if trinh_duyet is not None
++                      else await self._lay_trinh_duyet_module())
+                 self._trinh_duyet_da_dung = td
+                 return await self._dang_nhap_bang_trinh_duyet(
+                     tai_khoan.email, bm, td, cach_dang_nhap=cach)
+diff --git a/test/test_nv309_a.py b/test/test_nv309_a.py
+new file mode 100644
+index 0000000..fca621a
+--- /dev/null
++++ b/test/test_nv309_a.py
+@@ -0,0 +1,282 @@
++"""NV309-a — nối cầu nối trình duyệt thật vào MCP + đường module.dang_nhap.
++
++SAI S1: đường module.dang_nhap lấy controller từ hook test
++``_tao_trinh_duyet`` (mặc định None) mà production không có lời gọi
++``dang_ky_trinh_duyet`` nào → ``trinh_duyet_none``/``can_nguoi`` mà chưa
++từng mở trình duyệt. Mảnh này: lõi cấp controller trước khi gọi (một cách
++duy nhất — truyền tham số ``trinh_duyet``, đúng mẫu tầng (b) của engine);
++module giữ nguyên tiers/quyết định, chỉ nhận controller từ lõi.
++
++Đỏ-trước-xanh: trước mảnh này, dang_nhap không nhận tham số trinh_duyet
++(TypeError), bỏ qua factory đã đăng ký (can_nguoi), lõi không có helper
++lấy controller cho tài khoản, và MCP không truyền controller vào
++khoi_phuc_tu_dong.
++"""
++
++from __future__ import annotations
++
++import asyncio
++import importlib.util
++import json
++import sys
++from pathlib import Path
++from types import SimpleNamespace
++
++import pytest
++
++from app import kho_tai_khoan
++from app.khoi_phuc_phien import TrinhDuyetGia
++from app.tai_khoan_hang_loat import BiMatTam, DongDaTach
++
++THU_MUC_MODULE = Path("modules/grok-web")
++HO_SO = "abcdef0123456789"
++EMAIL = "ban-gia@example.com"
++
++
++def chay(coro):
++    return asyncio.run(coro)
++
++
++def tai_grok_web():
++    """Nạp modules/grok-web như lõi nạp (gói riêng, import tương đối chạy được)."""
++    ten = "web2api_module_grok_web_nv309a"
++    sys.modules.pop(ten, None)
++    tep = THU_MUC_MODULE / "module.py"
++    manifest = json.loads((THU_MUC_MODULE / "manifest.json").read_text(encoding="utf-8"))
++    spec = importlib.util.spec_from_file_location(
++        ten, tep, submodule_search_locations=[str(THU_MUC_MODULE)]
++    )
++    mod = importlib.util.module_from_spec(spec)
++    sys.modules[ten] = mod
++    spec.loader.exec_module(mod)
++    return mod, manifest
++
++
++def mod_moi(monkeypatch):
++    mod, manifest = tai_grok_web()
++    m = mod.Module(manifest)
++
++    async def uid_gia(jar, goc):
++        return "uid_1"
++
++    monkeypatch.setattr(mod, "lay_uid_tu_phien", uid_gia)
++    return m
++
++
++def td_thanh_cong(url_dang_nhap):
++    """Controller giả: mở form, không thử thách, cookie sso sẵn."""
++    return TrinhDuyetGia(
++        trang={url_dang_nhap: {"tin_hieu": [], "cookie": {"sso": "sso-gia"}}}
++    )
++
++
++class ModTrinhDuyetGia:
++    """Module trình duyệt giả cho cầu nối lõi."""
++
++    def __init__(self, td):
++        self.manifest = {"cung_cap": ["trinh_duyet"]}
++        self._td = td
++        self.da_tao: list[str] = []
++        self.da_dong: list[str] = []
++
++    def trinh_duyet_that(self, ho_so):
++        return self._td
++
++    async def trinh_duyet_tao(self, ten):
++        self.da_tao.append(ten)
++        return {"ho_so": HO_SO, "ten": ten}
++
++    async def trinh_duyet_dong(self, ho_so, giu_phien):
++        self.da_dong.append((ho_so, giu_phien))
++        return {}
++
++
++def dong_mat_khau():
++    return DongDaTach(dong=1, email=EMAIL, loai="mat_khau",
++                      mat_khau=BiMatTam("mat-khau-gia"))
++
++
++# ── Module: dang_nhap nhận controller từ lõi ──────────────────────────────
++
++def test_dang_nhap_mat_khau_dung_trinh_duyet_truyen_vao(monkeypatch):
++    m = mod_moi(monkeypatch)
++    td = td_thanh_cong(m._URL_DANG_NHAP)
++    kq = chay(m.dang_nhap(dong_mat_khau(), trinh_duyet=td))
++    assert kq.thanh_cong, kq.ma_loi
++    assert ("mo_trang", m._URL_DANG_NHAP) in td.hanh_dong
++
++
++def test_dang_nhap_google_tai_dung_ho_so_tra_cookie(monkeypatch):
++    """Luật 17:52 — Grok xong email-direct rồi tới Google: đường Google tái
++    dùng hồ sơ phải trả cookie phiên (chứng minh session ở mức test).
++    Probe thử thách là HTTP ra ngoài nên stub False ở đây (không phải phần
++    chứng minh của test này); selector nút Google thật vẫn chờ chủ máy chọn
++    bằng tay qua noVNC ở vòng kiểm thật (xem báo cáo)."""
++    m = mod_moi(monkeypatch)
++    td = TrinhDuyetGia(
++        trang={m._URL_TAI_DUNG: {"tin_hieu": ["da_dang_nhap"],
++                                 "cookie": {"sso": "sso-gia"}}})
++
++    async def khong_co_thu_thach(*a):
++        return False
++
++    monkeypatch.setattr(m, "_co_thu_thach", khong_co_thu_thach)
++    dong = DongDaTach(dong=1, email=EMAIL, loai="google")
++    dong.ho_so_google = HO_SO
++    kq = chay(m.dang_nhap(dong, trinh_duyet=td))
++    assert kq.thanh_cong, kq.ma_loi
++    assert "sso=sso-gia" in (kq.cookie or "")
++    assert ("mo_trang", m._URL_TAI_DUNG) in td.hanh_dong
++
++
++def test_dang_nhap_mat_khau_khong_co_trinh_duyet_thi_can_nguoi(monkeypatch):
++    """Fail-closed giữ nguyên: không controller nào → can_nguoi, không vỡ."""
++    m = mod_moi(monkeypatch)
++    kq = chay(m.dang_nhap(dong_mat_khau()))
++    assert not kq.thanh_cong and kq.ma_loi == "can_nguoi"
++
++
++def test_dang_nhap_mat_khau_dung_factory_da_dang_ky(monkeypatch):
++    """dang_nhap phải hỏi factory đã đăng ký, không chỉ hook test."""
++    m = mod_moi(monkeypatch)
++    td = td_thanh_cong(m._URL_DANG_NHAP)
++    m.dang_ky_trinh_duyet(lambda: td)
++    kq = chay(m.dang_nhap(dong_mat_khau()))
++    assert kq.thanh_cong, kq.ma_loi
++    assert ("mo_trang", m._URL_DANG_NHAP) in td.hanh_dong
++
++
++def test_dang_nhap_mat_khau_uu_tien_trinh_duyet_truyen_vao(monkeypatch):
++    """Tham số tường minh thắng factory (lõi cấp cho đúng lượt này)."""
++    m = mod_moi(monkeypatch)
++    td_loi = td_thanh_cong(m._URL_DANG_NHAP)
++    td_factory = td_thanh_cong(m._URL_DANG_NHAP)
++    m.dang_ky_trinh_duyet(lambda: td_factory)
++    kq = chay(m.dang_nhap(dong_mat_khau(), trinh_duyet=td_loi))
++    assert kq.thanh_cong
++    assert ("mo_trang", m._URL_DANG_NHAP) in td_loi.hanh_dong
++    assert td_factory.hanh_dong == []
++
++
++# ── Lõi: helper lấy controller cho một tài khoản ───────────────────────────
++
++def test_lay_trinh_duyet_cho_tai_khoan_co_ho_so():
++    from app import khoi_phuc_phien as kp
++
++    td = TrinhDuyetGia()
++    dang_chay = {"vnc-xa": ModTrinhDuyetGia(td)}
++    got_td, got_hs, da_tao = chay(
++        kp.lay_trinh_duyet_cho_tai_khoan(dang_chay, ho_so=HO_SO))
++    assert got_td is td and got_hs == HO_SO and da_tao is False
++
++
++def test_lay_trinh_duyet_cho_tai_khoan_tao_workspace_moi():
++    from app import khoi_phuc_phien as kp
++
++    td = TrinhDuyetGia()
++    mod_td = ModTrinhDuyetGia(td)
++    dang_chay = {"vnc-xa": mod_td}
++    got_td, got_hs, da_tao = chay(
++        kp.lay_trinh_duyet_cho_tai_khoan(dang_chay, email=EMAIL))
++    assert got_td is td and got_hs == HO_SO and da_tao is True
++    assert mod_td.da_tao == [EMAIL]
++
++
++def test_lay_trinh_duyet_cho_tai_khoan_khong_co_duong():
++    from app import khoi_phuc_phien as kp
++
++    got_td, got_hs, da_tao = chay(
++        kp.lay_trinh_duyet_cho_tai_khoan({}, email=EMAIL))
++    assert got_td is None and got_hs == "" and da_tao is False
++
++
++# ── NV144: truyền dang_chay → controller vào module.dang_nhap ──────────────
++
++def _stub_kho_nv144(monkeypatch):
++    import contextlib
++
++    from app import kho_tai_khoan as ktk
++
++    monkeypatch.setattr(ktk, "tu_dang_nhap_lai_bat", lambda: True)
++    monkeypatch.setattr(ktk, "_con_het_han_muc", lambda _id: False)
++    monkeypatch.setattr(ktk, "_doc_trang_thai", lambda: {})
++    monkeypatch.setattr(ktk, "_ghi_trang_thai", lambda _tt: None)
++    monkeypatch.setattr(ktk, "_doc", lambda: {})
++    monkeypatch.setattr(ktk.kho, "giu_khoa_kho",
++                        lambda: contextlib.nullcontext())
++    monkeypatch.setattr(ktk, "ghi_ket_qua_dang_nhap_tu_ket_qua",
++                        lambda _id, _kq: None)
++    monkeypatch.setattr(ktk, "tim_theo_email",
++                        lambda _email, _mid, _nhom: {
++                            "id": "tk-1", "email": EMAIL, "mat_khau": "x",
++                            "cap_nhat": 0,
++                            kho_tai_khoan.TRUONG_HO_SO: HO_SO})
++    monkeypatch.setattr(ktk, "lay_bi_mat_dang_nhap",
++                        lambda _id: (BiMatTam("mat-khau-gia"), None))
++
++
++def test_nv144_truyen_trinh_duyet_khi_co_dang_chay(monkeypatch):
++    from app import kho_tai_khoan as ktk
++    from app.tai_khoan_hang_loat import KetQuaDangNhap
++
++    _stub_kho_nv144(monkeypatch)
++    td = TrinhDuyetGia()
++    ghi = {}
++
++    class ModGia:
++        manifest = {}
++
++        async def dang_nhap(self, dong, trinh_duyet=None):
++            ghi["trinh_duyet"] = trinh_duyet
++            return KetQuaDangNhap(True, cookie="ck-gia")
++
++    kq = chay(ktk.thu_dang_nhap_lai(
++        module=ModGia(), module_id="grok-web", dinh_danh=EMAIL,
++        dang_chay={"vnc-xa": ModTrinhDuyetGia(td)}))
++    assert kq == {"thu": True, "thanh_cong": True}
++    assert ghi["trinh_duyet"] is td
++
++
++def test_nv144_khong_co_dang_chay_giu_loi_goi_cu(monkeypatch):
++    """Không có dang_chay → hành vi cũ, module kiểu cũ vẫn chạy được."""
++    from app import kho_tai_khoan as ktk
++    from app.tai_khoan_hang_loat import KetQuaDangNhap
++
++    _stub_kho_nv144(monkeypatch)
++
++    class ModCu:
++        manifest = {}
++
++        async def dang_nhap(self, dong):
++            return KetQuaDangNhap(True, cookie="ck-gia")
++
++    kq = chay(ktk.thu_dang_nhap_lai(
++        module=ModCu(), module_id="grok-web", dinh_danh=EMAIL))
++    assert kq == {"thu": True, "thanh_cong": True}
++
++
++# ── MCP: truyền controller vào khoi_phuc_tu_dong ───────────────────────────
++
++def test_mcp_truyen_trinh_duyet_vao_khoi_phuc(monkeypatch):
++    from app import cong_mcp_cong_cu as mcp
++
++    td = TrinhDuyetGia()
++    mod_td = ModTrinhDuyetGia(td)
++    ghi = {}
++
++    class ModGia:
++        async def khoi_phuc_tu_dong(self, khoa, email="", nghi_t1_giay=0.0,
++                                    trinh_duyet=None, **kw):
++            ghi["trinh_duyet"] = trinh_duyet
++            ghi["khoa"] = khoa
++            return {"thanh_cong": True, "ma_loi": "", "can_nguoi": False,
++                    "huong_dan": ""}
++
++    truong_hs = kho_tai_khoan.TRUONG_HO_SO
++    monkeypatch.setattr(
++        kho_tai_khoan, "tim_theo_id",
++        lambda tk_id: {"email": EMAIL, truong_hs: HO_SO})
++    so = SimpleNamespace(dang_chay={"vnc-xa": mod_td, "grok-web": ModGia()})
++    kq = chay(mcp._thu_khoi_phuc_module(so, "tk-1", "grok-web"))
++    assert kq is not None and kq["thanh_cong"] is True
++    assert ghi["trinh_duyet"] is td
+diff --git a/test/test_web2api_nv45_a_nuot_loi.py b/test/test_web2api_nv45_a_nuot_loi.py
+index 90126de..6537501 100644
+--- a/test/test_web2api_nv45_a_nuot_loi.py
++++ b/test/test_web2api_nv45_a_nuot_loi.py
+@@ -192,6 +192,15 @@ DA_KIEM_TOAN = {
+     # hạn mức → coi như chưa hết (cùng mẫu đã duyệt app/kho_tai_khoan._con_het_han_muc: hạn mức là QoS,
+     # không phải ranh bảo mật — tài khoản vẫn phải qua đăng nhập thật ở lượt dùng).
+     ("app/kho_tai_khoan.py", "gom_theo_nhom_loai"),
++    # Đã duyệt NV309-a: đóng controller trình duyệt best-effort ở finally cuối lượt đăng nhập
++    # (td.dong() sau khi kết quả đã có) — lỗi đóng không được làm hỏng kết quả đăng nhập
++    # (thành công vẫn thành công, can_nguoi vẫn can_nguoi); controller hỏng thì workspace
++    # đóng riêng qua dong_workspace_moi (cũng best-effort trong khoi_phuc_phien). Không có
++    # bí mật nào đi qua đây (chỉ đóng, không đọc cookie/phiên).
++    ("app/cong_mcp_cong_cu.py", "_thu_khoi_phuc_module"),
++    ("app/kho_tai_khoan.py", "thu_dang_nhap_lai"),
++    ("app/tuyen.py", "dang_nhap_tai_khoan_da_luu_noi_bo"),
++    ("app/tuyen.py", "ham_chay"),
+ }
+ 
+ 
+-- 
+2.43.0
+
