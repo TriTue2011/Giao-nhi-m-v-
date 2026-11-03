@@ -1,0 +1,1918 @@
+diff --git a/README.md b/README.md
+index 2430f1c..d792a11 100644
+--- a/README.md
++++ b/README.md
+@@ -49,7 +49,7 @@ flowchart LR
+ - **Sao lưu & Khôi phục mã hoá**: Xuất bản sao lưu cấu hình mã hoá AES-256-GCM với mật khẩu (`POST /api/sao-luu`). Khôi phục kiểm chứng toàn vẹn, bảo vệ quyền chủ sở hữu khoá, tự động hoàn tác nếu lỗi ghi (`POST /api/khoi-phuc`).
+ - **Nhật ký chống sửa lén (Tamper-evident)**: Từng dòng nhật ký được liên kết bằng chuỗi băm SHA-256 (`truoc` và `bam`), tự động phát hiện can thiệp hoặc đứt chuỗi (`GET /api/nhat-ky/chuoi`). Tự động che giấu khoá và bí mật trong mọi thông báo lỗi và nhật ký.
+ - **Đo tài nguyên theo yêu cầu (NV261)**: Chỉ đo khi có người gọi API — không đo nền, mở trang không tự đo. (Nút «Đo ngay»/«Đo lại» trên trang Hệ thống → Module chưa nối: đang nền lại lên trang Module mới của NV259.) `POST /api/he-thong/do-tai-nguyen` (chỉ quản trị, `Cache-Control: no-store`, tối đa 1 lần/giây/người dùng) trả một ảnh chụp dùng chung: RAM từng module (quét tham chiếu từ biến toàn cục — nhãn «ước lượng»; dịch vụ phụ khai `dich_vu_phu` trong manifest thì đọc cgroup của chính container đó — nhãn «đo», không đọc được thì «chưa đo»), CPU từng module (lấy mẫu ngăn xếp mọi luồng, cửa sổ ≥ 2 giây), GPU, và phần RAM «chưa quy cho module». Mỗi lần cài module thành công cũng ghi lại hiệu RAM của lõi «lúc nạp +N MB (đo)».
+-- **Trình duyệt từ xa noVNC (`vnc-xa`)**: Mở workspace trình duyệt trên máy chủ qua noVNC (cần dịch vụ trình duyệt riêng `dich-vu/trinh-duyet`, cấu hình `dich_vu_url` và `khoa_dich_vu`) để đăng nhập thủ công các dịch vụ có CAPTCHA/OTP, duy trì phiên và tự động đưa cookie sang module khác mà không lộ ra ngoài. Module khai khả năng `trinh_duyet_xem` (vd `may-dang-nhap`) còn cho xem trực tiếp màn hình đang đăng nhập tự động qua `POST /api/trinh-duyet/{module}/xem` (cần xác nhận lại, vé một lần 60 giây).
++- **Trình duyệt từ xa noVNC (`vnc-xa`)**: Mở workspace trình duyệt trên máy chủ qua noVNC (cần dịch vụ trình duyệt riêng `dich-vu/trinh-duyet`, cấu hình `dich_vu_url` và `khoa_dich_vu`) để đăng nhập thủ công các dịch vụ có CAPTCHA/OTP, duy trì phiên và tự động đưa cookie sang module khác mà không lộ ra ngoài. Module khai khả năng `trinh_duyet_xem` (vd `may-dang-nhap`) còn cho xem trực tiếp màn hình đang đăng nhập tự động qua `POST /api/trinh-duyet/{module}/xem` (cần xác nhận lại, vé một lần 60 giây). Mật khẩu xem trình duyệt (NV305): `PUT /api/trinh-duyet/mat-khau-vnc` (đặt, chỉ quản trị, cần xác nhận lại), `GET /api/trinh-duyet/mat-khau-vnc/trang-thai` (chỉ trả đã đặt hay chưa), `POST /api/trinh-duyet/mat-khau-vnc/hien` (hiển thị lại sau xác nhận lại bằng mật khẩu admin hoặc mã 2FA — NV305-bao-mat). Công tắc màn hình xem (NV305-bao-mat): `POST /api/trinh-duyet/man-hinh/bat-tat` (chỉ quản trị, cần xác nhận lại), `GET /api/trinh-duyet/man-hinh/trang-thai` (chỉ trả cờ bật, đang chạy, đã đặt mật khẩu). Ảnh màn hình đang đăng nhập: `GET /api/trinh-duyet/{module}/man-hinh` (chỉ quản trị, ảnh JPEG chuyển tiếp, không lưu).
+ - **Hồ sơ Google & tái dùng (`/api/danh-tinh`, `/api/tai-khoan/tai-dung`)**: Đăng nhập Google MỘT lần trong một hồ sơ trình duyệt bền (`POST /api/danh-tinh/dang-nhap` tạo + tự đăng nhập; xem `GET /api/danh-tinh` và `GET /api/danh-tinh/{id}/trang-thai`; kiểm lại tín hiệu đăng nhập `POST /api/danh-tinh/{id}/kiem-lai`; gửi mã 2FA `POST /api/danh-tinh/{id}/ma-2fa`; xoá `DELETE /api/danh-tinh/{id}`). Mỗi provider «tái dùng» hồ sơ qua `POST /api/tai-khoan/tai-dung` để tự «Đăng nhập bằng Google» trong hồ sơ đó và thêm tài khoản của chính nó. Gặp CAPTCHA/Cloudflare/xác minh → «cần người» + noVNC, không tự giải. Giao diện quản lý danh tính: mục «Danh tính» ở Hệ thống → AI. Lượng dùng và hạn mức từng tài khoản (chỉ đọc thụ động từ phản hồi nhà cung cấp, thiếu tiêu đề thì ghi «không biết», không bịa số): `GET /api/tai-khoan/luong-dung`, `GET /api/tai-khoan/han-muc` (chỉ quản trị). Đăng nhập chạy nền theo mô-đun hỗ trợ: hỏi tiến độ `GET /api/tai-khoan/da-luu/{id}/dang-nhap-trang-thai`, gửi mã 2FA `POST /api/tai-khoan/da-luu/{id}/ma-2fa` (mã đi qua bộ nhớ tạm rồi bị xoá, không ghi log). Đăng nhập tất cả tài khoản chưa có hồ sơ của một nhóm: `POST /api/tai-khoan/da-luu/dang-nhap-theo-module` (chạy tuần tự, giãn cách, dừng sớm khi gặp N lỗi liên tiếp). Lấy bí mật (mật khẩu/khoá/token) hoặc mã OTP của một tài khoản đã lưu chỉ qua `POST /api/tai-khoan/bi-mat` (không có GET; thân `{"id", "hanh_dong"}`), cần xác nhận lại mật khẩu (step-up), phản hồi `no-store`, nhật ký chỉ ghi ai/bản ghi nào/hành động và không bao giờ ghi giá trị bí mật, khoá TOTP gốc không bao giờ trả.
+ - **Tìm kiếm tri thức (`/api/tim-kiem`)**: Lõi cung cấp đường chuẩn kết hợp 5 sơ đồ (công tắc nguồn/sơ đồ, lọc nhiều mặt, cây phân cấp, mục lục tài liệu, phễu nối tầng) và đánh dấu dữ liệu nguồn ngoài không tin cậy (cần module có khả năng tương ứng, hiện chưa có module đi kèm).
+ - **Công cụ AI từ thiết bị (`/api/cong-cu`)**: Lõi cung cấp đường chuẩn tự động chuyển đổi thiết bị và hành động thành công cụ function-calling chuẩn OpenAI; hàng chờ phê duyệt cho các tác vụ nguy hiểm (`/api/phe-duyet`) (cần module có khả năng tương ứng, hiện chưa có module đi kèm).
+diff --git a/app/nguoi_dung.py b/app/nguoi_dung.py
+index 7d5f6c0..98101f7 100644
+--- a/app/nguoi_dung.py
++++ b/app/nguoi_dung.py
+@@ -789,7 +789,8 @@ async def dat_lai_mat_khau_nguoi_dung(id_: str) -> tuple[dict[str, Any], str]:
+     return sach, mat_khau_moi
+ 
+ 
+-async def doi_mat_khau_chinh_minh(id_: str, mat_khau_cu: str, mat_khau_moi: str, ip: str | None = None) -> None:
++async def doi_mat_khau_chinh_minh(id_: str, mat_khau_cu: str, mat_khau_moi: str, ip: str | None = None,
++                                  da_xac_thuc_2fa: bool = False) -> None:
+     with _KHOA_LUONG:
+         u = tim_theo_id(id_)
+         if not u:
+@@ -797,18 +798,22 @@ async def doi_mat_khau_chinh_minh(id_: str, mat_khau_cu: str, mat_khau_moi: str,
+         ten = str(u.get("ten_dang_nhap", ""))
+         bam_cu = str(u.get("bam_mat_khau", ""))
+ 
+-    # Thử mật khẩu cũ đếm chung bộ khoá theo tên với đăng nhập: phiên bị trộm không dò được mật khẩu không giới hạn.
+-    try:
+-        kiem_tra_khoa_ten(ten, ip=ip)
+-    except LoiOpenAI:
+-        await chay_bam_gia()
+-        raise LoiOpenAI(401, "Mật khẩu cũ không chính xác.", code="incorrect_password") from None
+-    dung = await kiem_tra_mat_khau(mat_khau_cu, bam_cu)
+-    if not dung:
+-        ghi_nhan_dang_nhap_sai(ten, ip=ip)
+-        raise LoiOpenAI(401, "Mật khẩu cũ không chính xác.", code="incorrect_password")
+-
+-    ghi_nhan_dang_nhap_dung(ten, ip=ip)
++    # NV305-bao-mat: đổi bằng mã 2FA thì bỏ qua xác minh mật khẩu cũ (mã đã được
++    # xác minh ở tầng endpoint trước khi gọi tới đây); chốt đổi đồng thời dưới đây
++    # vẫn giữ (bam_cu đọc ở trên so với lúc ghi).
++    if not da_xac_thuc_2fa:
++        # Thử mật khẩu cũ đếm chung bộ khoá theo tên với đăng nhập: phiên bị trộm không dò được mật khẩu không giới hạn.
++        try:
++            kiem_tra_khoa_ten(ten, ip=ip)
++        except LoiOpenAI:
++            await chay_bam_gia()
++            raise LoiOpenAI(401, "Mật khẩu cũ không chính xác.", code="incorrect_password") from None
++        dung = await kiem_tra_mat_khau(mat_khau_cu, bam_cu)
++        if not dung:
++            ghi_nhan_dang_nhap_sai(ten, ip=ip)
++            raise LoiOpenAI(401, "Mật khẩu cũ không chính xác.", code="incorrect_password")
++
++        ghi_nhan_dang_nhap_dung(ten, ip=ip)
+ 
+     kiem_tra_chinh_sach_mat_khau(mat_khau_moi, ten)
+     bam_moi = await bam_mat_khau(mat_khau_moi)
+diff --git a/app/novnc.py b/app/novnc.py
+index 5293a31..31073f9 100644
+--- a/app/novnc.py
++++ b/app/novnc.py
+@@ -729,6 +729,144 @@ async def api_trang_thai_mat_khau_vnc(request: Request):
+     return {"da_dat": bool(kq.get("da_dat"))}
+ 
+ 
++async def _xac_thuc_bang_chung_hien(request: Request, than: dict) -> None:
++    """NV305-bao-mat (b, chốt 19:26): bằng chứng TƯƠI cho một lần hiển thị bí mật.
++
++    Khác step-up ở hai điểm, có chủ đích:
++    - Không dùng cửa sổ step-up (cửa sổ có thể đã mở từ trước): bằng chứng phải nằm
++      trong CHÍNH lời gọi hiển thị này và được xác minh ngay lúc đó.
++    - Không miễn Bearer quản trị: mọi lời gọi hiển thị đều phải kèm bằng chứng trong
++      body — không có đường hiển thị nào khác («chỉ hiện khi dùng mk admin hoặc 2fa»).
++    Quy tắc: chưa bật 2FA → mật khẩu admin; đã bật 2FA → CHỈ mã 2FA (mật khẩu bị từ
++    chối, không xác minh, không đếm sai đăng nhập). Kho 2FA hỏng → LoiKho2FA (503,
++    fail-closed, như đăng nhập).
++    """
++    from app import nguoi_dung as nguoi_dung_mod
++    from app import xac_thuc_2fa as xac_thuc_2fa_mod
++    phien = getattr(request.state, "phien_web", None)
++    nd = getattr(request.state, "nguoi_dung", None)
++    if not isinstance(phien, dict) or not phien.get("bam") or not isinstance(nd, dict) or not nd.get("id"):
++        raise LoiOpenAI(401, "Hiển thị bí mật cần phiên web và bằng chứng xác thực lại trong lời gọi.",
++                        code="unauthorized")
++    nd_id = str(nd["id"])
++    if xac_thuc_2fa_mod.da_bat_2fa(nd_id):
++        ma_2fa = than.get("ma_2fa")
++        if not isinstance(ma_2fa, str) or not ma_2fa:
++            raise LoiOpenAI(401, "Tài khoản đã bật 2FA: hiển thị bí mật cần mã 2FA.", code="can_ma_2fa")
++        if not xac_thuc_2fa_mod.xac_thuc_ma(nd_id, ma_2fa):
++            gioi_han.ghi_loi_xac_thuc(request)
++            raise LoiOpenAI(401, "Mã xác thực hai bước không chính xác.", code="invalid_totp")
++        return
++    mat_khau = than.get("mat_khau")
++    if not isinstance(mat_khau, str) or not mat_khau:
++        raise LoiOpenAI(401, "Hiển thị bí mật cần nhập lại mật khẩu admin.", code="invalid_credentials")
++    ip_khach = gioi_han.lay_ip_an_toan(request)
++    ten = str(nd.get("ten_dang_nhap", ""))
++    try:
++        nguoi_dung_mod.kiem_tra_khoa_ten(ten, ip=ip_khach)
++    except LoiOpenAI:
++        await nguoi_dung_mod.chay_bam_gia()
++        raise LoiOpenAI(401, "Mật khẩu không chính xác.", code="invalid_credentials") from None
++    u = nguoi_dung_mod.tim_theo_id(nd_id)
++    hop_le = False
++    if u:
++        hop_le = await nguoi_dung_mod.kiem_tra_mat_khau(mat_khau, str(u.get("bam_mat_khau", "")))
++    if not hop_le:
++        nguoi_dung_mod.ghi_nhan_dang_nhap_sai(ten, ip=ip_khach)
++        gioi_han.ghi_loi_xac_thuc(request)
++        raise LoiOpenAI(401, "Mật khẩu không chính xác.", code="invalid_credentials")
++    nguoi_dung_mod.ghi_nhan_dang_nhap_dung(ten, ip=ip_khach)
++
++
++@api_router.post("/mat-khau-vnc/hien")
++async def api_hien_mat_khau_vnc(request: Request):
++    """NV305-bao-mat (b): hiển thị lại mật khẩu VNC — THAY thiết kế never-return của NV305
++    (chốt 19:26, không ngoại lệ cho mật khẩu noVNC). Chỉ quản trị; bằng chứng tươi trong
++    body theo _xac_thuc_bang_chung_hien; giới hạn tần suất như đường đặt. Đây là phản hồi
++    DUY NHẤT trong lõi chứa mật khẩu VNC; nhật ký chỉ ghi sự kiện, không ghi giá trị."""
++    nguoi_goi = lay_nguoi_dung_id(request) or "quan_tri"
++    _kiem_gioi_han_mk_vnc(nguoi_goi)
++    try:
++        than = json.loads(await doc_het(request, THAN_JSON))
++    except (ValueError, RecursionError):
++        raise LoiOpenAI(400, "Thân yêu cầu phải là JSON hợp lệ") from None
++    if not isinstance(than, dict):
++        raise LoiOpenAI(400, "Thân yêu cầu phải là đối tượng JSON")
++    await _xac_thuc_bang_chung_hien(request, than)
++    mod = _module_may_dang_nhap(request)
++    lay = getattr(mod, "hien_mat_khau_vnc", None)
++    if not callable(lay):
++        raise LoiOpenAI(501, "Module máy đăng nhập tự động chưa hỗ trợ hiển thị mật khẩu xem trình duyệt")
++    try:
++        kq = await lay()
++    except Exception as e:
++        log.warning("Module may-dang-nhap lỗi khi hiển thị mật khẩu VNC: %s", _ten_loi(e))
++        raise LoiOpenAI(502, "Module lỗi khi hiển thị mật khẩu xem trình duyệt") from None
++    if not isinstance(kq, dict) or not kq.get("ok"):
++        _loi_dich_vu_thanh_502(kq, "Dịch vụ không trả được mật khẩu xem trình duyệt")
++    mat_khau = kq.get("mat_khau")
++    if not isinstance(mat_khau, str) or not mat_khau:
++        raise LoiOpenAI(502, "Dịch vụ không trả được mật khẩu xem trình duyệt")
++    nhat_ky.ghi("trinh_duyet", "thong_tin", "Hiển thị lại mật khẩu xem trình duyệt sau xác thực lại",
++                hanh_dong="hien_mat_khau_vnc", ket_qua="thanh_cong")
++    return {"ok": True, "mat_khau": mat_khau}
++
++
++@api_router.post("/man-hinh/bat-tat")
++async def api_bat_tat_novnc(request: Request):
++    """NV305-bao-mat (c): công tắc noVNC runtime. Chỉ quản trị, bắt buộc step-up (phiên web
++    phải xác nhận lại; Bearer quản trị được miễn như mọi đường chạm bí mật khác), giới hạn
++    tần suất như đường đặt mật khẩu. Chỉ bật/tắt khả năng xem: không đổi mật khẩu, không
++    đặt gì thêm vào container (mật khẩu vẫn chỉ tạo qua giao diện). «bat» phải là bool thật."""
++    kiem_tra_step_up(request)
++    nguoi_goi = lay_nguoi_dung_id(request) or "quan_tri"
++    _kiem_gioi_han_mk_vnc(nguoi_goi)
++    try:
++        than = json.loads(await doc_het(request, THAN_JSON))
++    except (ValueError, RecursionError):
++        raise LoiOpenAI(400, "Thân yêu cầu phải là JSON hợp lệ") from None
++    if not isinstance(than, dict):
++        raise LoiOpenAI(400, "Thân yêu cầu phải là đối tượng JSON")
++    bat = than.get("bat")
++    if not isinstance(bat, bool):
++        raise LoiOpenAI(400, "Trường «bat» phải là true hoặc false (không nhận chuỗi hay số).")
++    mod = _module_may_dang_nhap(request)
++    goi = getattr(mod, "bat_tat_novnc", None)
++    if not callable(goi):
++        raise LoiOpenAI(501, "Module máy đăng nhập tự động chưa hỗ trợ bật/tắt màn hình xem")
++    try:
++        kq = await goi(bat)
++    except Exception as e:
++        log.warning("Module may-dang-nhap lỗi khi bật/tắt noVNC: %s", _ten_loi(e))
++        raise LoiOpenAI(502, "Module lỗi khi bật/tắt màn hình xem") from None
++    if not isinstance(kq, dict) or not kq.get("ok"):
++        _loi_dich_vu_thanh_502(kq, "Dịch vụ không bật/tắt được màn hình xem")
++    nhat_ky.ghi("trinh_duyet", "thong_tin", f"{'Bật' if bat else 'Tắt'} màn hình xem noVNC",
++                hanh_dong="bat_tat_novnc", ket_qua="thanh_cong", bat=bool(bat))
++    return {"ok": True, "bat": bool(kq.get("bat", bat)), "dang_chay": bool(kq.get("dang_chay", False)),
++            "da_ap_dung": bool(kq.get("da_ap_dung", False))}
++
++
++@api_router.get("/man-hinh/trang-thai")
++async def api_trang_thai_novnc(request: Request):
++    """NV305-bao-mat (c): trạng thái công tắc + chương trình xem. Chỉ quản trị, KHÔNG cần
++    step-up vì chỉ trả bool (cờ bật, đang chạy, đã đặt mật khẩu), không có bí mật nào đi ra."""
++    mod = _module_may_dang_nhap(request)
++    lay = getattr(mod, "trang_thai_novnc", None)
++    if not callable(lay):
++        raise LoiOpenAI(501, "Module máy đăng nhập tự động chưa hỗ trợ trạng thái màn hình xem")
++    try:
++        kq = await lay()
++    except Exception as e:
++        log.warning("Module may-dang-nhap lỗi khi hỏi trạng thái noVNC: %s", _ten_loi(e))
++        raise LoiOpenAI(502, "Module lỗi khi hỏi trạng thái màn hình xem") from None
++    if not isinstance(kq, dict) or not kq.get("ok"):
++        _loi_dich_vu_thanh_502(kq, "Dịch vụ không trả được trạng thái màn hình xem")
++    return {"ok": True, "bat": bool(kq.get("bat", False)), "dang_chay": bool(kq.get("dang_chay", False)),
++            "x11vnc": bool(kq.get("x11vnc", False)), "websockify": bool(kq.get("websockify", False)),
++            "da_dat": bool(kq.get("da_dat", False))}
++
++
+ @api_router.post("/{module}/{ho_so}/ve")
+ async def api_xin_ve(module: str, ho_so: str, request: Request):
+     kiem_tra_ho_so_id(ho_so)
+diff --git a/app/tuyen.py b/app/tuyen.py
+index 740dd91..df7b3d6 100644
+--- a/app/tuyen.py
++++ b/app/tuyen.py
+@@ -1935,6 +1935,8 @@ def ds_khoa_khach():
+ 
+ @khoa_khach.post("", dependencies=KHONG_LUU)
+ async def tao_khoa_khach(request: Request):
++    # NV305-bao-mat (a): tạo khoá khách trong tab Bảo mật phải xác thực lại.
++    kiem_tra_step_up(request)
+     than = await _than_json(request)
+     so = _so(request)
+     ban_ghi, khoa_tho = khoa_khach_mod.tao_khoa(
+@@ -2010,6 +2012,8 @@ async def sua_khoa_khach_khong_path(request: Request):
+ 
+ @khoa_khach.delete("/{id_}")
+ def xoa_khoa_khach(id_: str, request: Request):
++    # NV305-bao-mat (a): xoá khoá khách trong tab Bảo mật phải xác thực lại.
++    kiem_tra_step_up(request)
+     da_xoa = khoa_khach_mod.xoa_khoa(id_khoa=id_, nguoi_thuc_hien=dinh_danh_nguoi_thuc_hien(request))
+     return {"ok": True, "da_xoa": da_xoa}
+ 
+@@ -2867,11 +2871,16 @@ def dang_xuat_web(request: Request, response: Response):
+ def lay_thong_tin_toi(request: Request):
+     nd = getattr(request.state, "nguoi_dung", {})
+     phien = getattr(request.state, "phien_web", {})
++    try:
++        bat_2fa = xac_thuc_2fa_mod.da_bat_2fa(str(nd.get("id", "")))
++    except xac_thuc_2fa_mod.LoiKho2FA:
++        bat_2fa = True  # tệp 2FA hỏng: coi là ĐANG bật (fail-closed, như danh sách người dùng)
+     return {
+         "id": nd.get("id"),
+         "ten_dang_nhap": nd.get("ten_dang_nhap"),
+         "vai": nd.get("vai"),
+         "csrf": phien.get("csrf"),
++        "bat_2fa": bat_2fa,
+         "pham_vi_toi_da": list(nd.get("pham_vi_toi_da", ["*"] if nd.get("vai") == "admin" else [])),
+     }
+ 
+@@ -2883,12 +2892,26 @@ async def doi_mat_khau_toi(request: Request):
+     than = await _than_json(request)
+     mat_khau_cu = _chuoi_tuy_chon(than, "mat_khau_cu")
+     mat_khau_moi = _chuoi_tuy_chon(than, "mat_khau_moi")
+-    if not mat_khau_cu or not mat_khau_moi:
++    # NV305-bao-mat (19:19): đã bật 2FA thì đổi mật khẩu CHỈ cần mã 2FA, không cần
++    # mật khẩu cũ nữa (mật khẩu cũ có gửi kèm cũng bị bỏ qua); chưa bật 2FA giữ nguyên.
++    da_xac_thuc_2fa = False
++    if nd.get("id") and xac_thuc_2fa_mod.da_bat_2fa(nd["id"]):
++        ma_2fa = _chuoi_tuy_chon(than, "ma_2fa")
++        if not ma_2fa:
++            raise LoiOpenAI(400, "Tài khoản đã bật 2FA: đổi mật khẩu cần cung cấp «ma_2fa», không cần mật khẩu cũ.", code="invalid_input")
++        if not xac_thuc_2fa_mod.xac_thuc_ma(nd["id"], ma_2fa):
++            gioi_han_mod.ghi_loi_xac_thuc(request)
++            raise LoiOpenAI(401, "Mã xác thực hai bước không chính xác.", code="invalid_totp")
++        da_xac_thuc_2fa = True
++    if not da_xac_thuc_2fa and (not mat_khau_cu or not mat_khau_moi):
+         raise LoiOpenAI(400, "Cần cung cấp mật khẩu cũ và mật khẩu mới.", code="invalid_input")
++    if not mat_khau_moi:
++        raise LoiOpenAI(400, "Cần cung cấp mật khẩu mới.", code="invalid_input")
+     phien_web_mod.kiem_tra_kho()  # bước thu hồi phiên sau đó phải chạy được, kiểm trước khi đổi
+     ip_khach = gioi_han_mod.lay_ip_an_toan(request)
+ 
+-    await nguoi_dung_mod.doi_mat_khau_chinh_minh(nd["id"], mat_khau_cu, mat_khau_moi, ip=ip_khach)
++    await nguoi_dung_mod.doi_mat_khau_chinh_minh(nd["id"], mat_khau_cu or "", mat_khau_moi,
++                                                 ip=ip_khach, da_xac_thuc_2fa=da_xac_thuc_2fa)
+     phien_web_mod.thu_hoi_phien_nguoi_dung(nd["id"], tru_bam=phien.get("bam"))
+     nhat_ky_mod.ghi(
+         "quan_tri",
+@@ -2966,13 +2989,20 @@ async def xac_nhan_lai_toi(request: Request):
+ 
+     than = await _than_json(request)
+     mat_khau = _chuoi_tuy_chon(than, "mat_khau")
++    ma_2fa = _chuoi_tuy_chon(than, "ma_2fa")
+     khoa_qt = _chuoi_tuy_chon(than, "khoa_quan_tri")
+-    if not mat_khau and not khoa_qt:
+-        raise LoiOpenAI(400, "Cần cung cấp «mat_khau» hoặc «khoa_quan_tri» để xác nhận lại.", loai="invalid_request_error")
++    if not mat_khau and not ma_2fa and not khoa_qt:
++        raise LoiOpenAI(400, "Cần cung cấp «mat_khau», «ma_2fa» hoặc «khoa_quan_tri» để xác nhận lại.", loai="invalid_request_error")
+ 
+     ip_khach = gioi_han_mod.lay_ip_an_toan(request)
+     hop_le = False
+     if mat_khau:
++        # NV305-bao-mat (19:19 + chốt 19:26): người thao tác đã bật 2FA thì mật khẩu
++        # KHÔNG còn là bằng chứng xác nhận lại — từ chối ngay, không xác minh mật
++        # khẩu, không đếm sai đăng nhập; chỉ mã 2FA (nhánh dưới) mới mở.
++        if nd.get("id") and xac_thuc_2fa_mod.da_bat_2fa(nd["id"]):
++            gioi_han_mod.ghi_loi_xac_thuc(request)
++            raise LoiOpenAI(401, "Tài khoản đã bật 2FA: xác nhận lại bằng mã 2FA, không dùng mật khẩu.", loai="invalid_request_error", code="can_ma_2fa")
+         ten = str(nd.get("ten_dang_nhap", ""))
+         try:
+             nguoi_dung_mod.kiem_tra_khoa_ten(ten, ip=ip_khach)
+@@ -2987,6 +3017,11 @@ async def xac_nhan_lai_toi(request: Request):
+             nguoi_dung_mod.ghi_nhan_dang_nhap_sai(ten, ip=ip_khach)
+         else:
+             nguoi_dung_mod.ghi_nhan_dang_nhap_dung(ten, ip=ip_khach)
++    elif ma_2fa:
++        # Chỉ xác minh được khi người thao tác đã bật 2FA (có bí mật để đối chiếu);
++        # chưa bật 2FA mà gửi mã thì coi như bằng chứng không hợp lệ (khối chung dưới).
++        if nd.get("id") and xac_thuc_2fa_mod.da_bat_2fa(nd["id"]):
++            hop_le = xac_thuc_2fa_mod.xac_thuc_ma(nd["id"], ma_2fa)
+     elif khoa_qt:
+         from app import xac_thuc
+         hop_le = hmac.compare_digest(khoa_qt.encode("utf-8"), xac_thuc.khoa_quan_tri().encode("utf-8"))
+@@ -3112,7 +3147,13 @@ def lay_danh_sach_nguoi_dung():
+ 
+ @nguoi_dung.post("/{id}/tat-2fa", dependencies=KHONG_LUU)
+ def quan_tri_tat_2fa_nguoi_dung(id: str):
+-    """Quản trị tắt 2FA hộ người dùng mất điện thoại (kèm thu hồi mọi phiên của họ). Chỉ admin (router QT)."""
++    """Quản trị tắt 2FA hộ người dùng mất điện thoại (kèm thu hồi mọi phiên của họ). Chỉ admin (router QT).
++
++    KHÔNG gắn step-up ở đây (NV305-bao-mat giữ phạm vi tạo/xoá): tắt 2FA hộ là đường
++    khôi phục khi kho 2FA hỏng — gắn step-up sẽ khoá chết đường này đúng lúc cần nó nhất
++    (xác nhận lại cũng đọc kho 2FA và sẽ 503 khi kho hỏng). Bảo vệ còn lại: chỉ admin +
++    CSRF (phiên web) hoặc khoá quản trị.
++    """
+     nd = nguoi_dung_mod.tim_theo_id(id)
+     if not nd:
+         raise LoiOpenAI(404, "Không tìm thấy người dùng.", code="not_found")
+@@ -3127,8 +3168,9 @@ def quan_tri_tat_2fa_nguoi_dung(id: str):
+ async def tao_nguoi_dung_moi(request: Request):
+     than = await _than_json(request)
+     vai = than.get("vai", "user")  # kiểu kiểm trong tao_nguoi_dung (kiem_vai), trần trong chuan_hoa_pham_vi
+-    if vai == "admin":
+-        kiem_tra_step_up(request)
++    # NV305-bao-mat (a): MỌI tạo người dùng trong tab Bảo mật đều phải xác thực lại
++    # (trước đây chỉ tạo admin mới cần — tạo user thường cũng là tạo trong tab).
++    kiem_tra_step_up(request)
+     ten_dang_nhap = _chuoi_tuy_chon(than, "ten_dang_nhap")
+     mat_khau = _chuoi_tuy_chon(than, "mat_khau")
+     pham_vi_toi_da = than.get("pham_vi_toi_da")
+@@ -3206,6 +3248,8 @@ async def dat_lai_mat_khau(id: str, request: Request):
+ 
+ @nguoi_dung.delete("/{id}")
+ def xoa_tai_khoan(id: str, request: Request):
++    # NV305-bao-mat (a): xoá tài khoản trong tab Bảo mật phải xác thực lại.
++    kiem_tra_step_up(request)
+     phien_web_mod.kiem_tra_kho()  # kiểm trước khi xoá: không để xoá xong người dùng rồi 503 bỏ dở khoá/phiên
+     khoa_khach_mod.kiem_tra_kho()  # cùng lý do: kho khoá hỏng → 503 TRƯỚC khi xoá người dùng
+     nguoi_dung_mod.xoa_nguoi_dung(id)
+diff --git a/dich-vu/may-dang-nhap/README.md b/dich-vu/may-dang-nhap/README.md
+index 9773052..a7d1bc0 100644
+--- a/dich-vu/may-dang-nhap/README.md
++++ b/dich-vu/may-dang-nhap/README.md
+@@ -141,6 +141,8 @@ Mọi yêu cầu gọi tới API (ngoại trừ `GET /health`) đều bắt bu
+ - Tệp mật khẩu lưu tại `/khoa/mat-khau-vnc` với quyền `0600` và không bao giờ được in ra stdout/log.
+ - Ghi chú vận hành: noVNC mặc định TẮT. Khi bật qua `CAPTCHA_SOLVER_BAT_NOVNC=1` (đặt ở tệp ghi đè cục bộ ngoài repo, không sửa trong repo), websockify nghe `0.0.0.0:6080` trên mạng Docker nội bộ để web2api tới được qua proxy `/novnc`; x11vnc vẫn chỉ nghe loopback `127.0.0.1:5900` trong container và vẫn bắt mật khẩu — người xem nhập một lần ở hộp nhập của noVNC mật khẩu mà chủ máy đã đặt qua giao diện. Không còn đường đọc mật khẩu bằng docker exec.
+ - NV305 — chủ máy tự đặt: lõi có ô «Mật khẩu xem trình duyệt đăng nhập» trong «Bảo mật & người dùng» gọi `PUT /api/trinh-duyet/mat-khau-vnc` (quản trị, step-up, giới hạn tần suất), lõi chuyển qua module may-dang-nhap tới `PUT /v1/novnc/mat-khau` của dịch vụ (khoá dịch vụ, nhóm `dang_nhap`): ghi `/khoa/mat-khau-vnc` (0600) + tệp đánh dấu `/khoa/mat-khau-vnc-chu-dat`, rồi `supervisorctl restart x11vnc` để mật khẩu mới có hiệu lực ngay mà không dựng lại container. `GET /v1/novnc/mat-khau/trang-thai` chỉ trả bool «đã từng đặt qua giao diện hay chưa», không trả mật khẩu. Nếu nạp lại x11vnc không được (noVNC đang tắt), mật khẩu vẫn đã ghi và sẽ có hiệu lực khi x11vnc khởi động lại.
++- NV305-bao-mat — hiển thị lại sau xác thực lại (THAY thiết kế never-return của NV305): mật khẩu sau khi đặt thì ẩn; muốn xem lại phải xác thực lại trong chính lời gọi — mật khẩu admin khi chưa bật 2FA, CHỈ mã 2FA khi đã bật 2FA (`POST /api/trinh-duyet/mat-khau-vnc/hien` ở lõi, bằng chứng tươi trong body, không dùng cửa sổ step-up, không miễn Bearer). Lõi chuyển qua module tới `GET /v1/novnc/mat-khau` của dịch vụ (khoá dịch vụ, nhóm `dang_nhap`); không có tệp đánh dấu thì dịch vụ trả 400 (chưa đặt qua giao diện). Đây là đường duy nhất trả mật khẩu; không đường GET nào khác trả bí mật, không giá trị điền sẵn, không mật khẩu trong log/phản hồi khác.
++- NV305-bao-mat — công tắc noVNC trong web UI: ô bật/tắt trong «Bảo mật & người dùng» (lõi `POST /api/trinh-duyet/novnc/bat-tat`, quản trị, step-up) qua module tới `PUT /v1/novnc/bat-tat` của dịch vụ. Dịch vụ ghi cờ bền `/khoa/novnc-bat` («bat»/«tat», 0600 — cờ này không phải bí mật, chỉ nói «muốn xem hay không») rồi khởi động/dừng x11vnc + websockify: do supervisor quản thì `supervisorctl start/stop`, nếu không thì spawn/kill trực tiếp (PID file trong `/khoa`, chỉ giết PID khớp lệnh để khỏi giết nhầm PID tái sử dụng). Bật khi chưa đặt mật khẩu → 400 (không chạy xem không mật khẩu). Tắt không đổi/xoá mật khẩu. `GET /v1/novnc/trang-thai` (dịch vụ) và `GET /api/trinh-duyet/novnc/trang-thai` (lõi) chỉ trả bool. Khi dịch vụ khởi động lại, lifespan tự khởi động lại chương trình xem nếu cờ bền nói «bật»; entrypoint khi khởi động container cũng ưu tiên cờ bền trước biến môi trường `CAPTCHA_SOLVER_BAT_NOVNC` (chưa có cờ thì dùng biến môi trường như cũ).
+ - Chưa từng đặt qua giao diện thì màn hình xem báo chưa đặt: lõi từ chối cấp vé xem (`POST /api/trinh-duyet/{module}/xem` trả 400 «Chưa đặt mật khẩu xem trình duyệt») cho tới khi chủ máy đặt qua giao diện — không tự sinh mật khẩu trong container, không chạy x11vnc `-nopw` ngầm. Tệp mật khẩu cũ nếu còn trên đĩa vẫn được giữ nguyên cho tới khi bị ghi đè qua giao diện, nhưng màn hình xem vẫn đòi mật khẩu đã đặt qua giao diện (mật khẩu cũ không ai biết thì không mở được — cứ đặt mới qua giao diện là xong).
+ 
+ ### 3.3. Két mật khẩu tài khoản (`vault.key`)
+diff --git a/dich-vu/may-dang-nhap/entrypoint.sh b/dich-vu/may-dang-nhap/entrypoint.sh
+index 84f7541..dc22686 100644
+--- a/dich-vu/may-dang-nhap/entrypoint.sh
++++ b/dich-vu/may-dang-nhap/entrypoint.sh
+@@ -17,7 +17,9 @@ mkdir -p /tmp/.X11-unix && chmod 1777 /tmp/.X11-unix
+ chmod 0700 /khoa /data 2>/dev/null || true
+ 
+ # noVNC/websockify/x11vnc mặc định KHÔNG chạy.
+-# Chỉ khi CAPTCHA_SOLVER_BAT_NOVNC=1 mới chạy supervisord-novnc.conf.
++# NV305-bao-mat (c): cờ bền /khoa/novnc-bat do công tắc web UI ghi («bat»/«tat») thắng
++# biến môi trường — chủ máy đã bấm công tắc thì lần khởi động sau giữ đúng trạng thái đó.
++# Chưa có cờ thì dùng biến môi trường như cũ (CAPTCHA_SOLVER_BAT_NOVNC=1/true → chạy).
+ # NV305-bo-sung: entrypoint KHÔNG BAO GIỜ tạo /khoa/mat-khau-vnc — không biến môi
+ # trường, không sinh ngẫu nhiên. Mật khẩu CHỈ được tạo trong web UI (chủ máy đặt qua
+ # «Bảo mật & người dùng» → đường PUT /v1/novnc/mat-khau của dịch vụ, dịch vụ ghi tệp
+@@ -25,7 +27,15 @@ chmod 0700 /khoa /data 2>/dev/null || true
+ # giữ nguyên — entrypoint không đụng vào nó. Chưa có tệp nào thì x11vnc (đọc tệp này
+ # bằng -passwdfile, không -nopw) không khởi động được và nằm FATAL cho tới khi chủ máy
+ # đặt mật khẩu qua giao diện; đường PUT khi đó nạp lại x11vnc (supervisorctl restart).
+-if [ "$CAPTCHA_SOLVER_BAT_NOVNC" = "1" ] || [ "$CAPTCHA_SOLVER_BAT_NOVNC" = "true" ]; then
++CO_NOVNC=""
++if [ -f /khoa/novnc-bat ]; then
++    CO_NOVNC=$(tr -d '[:space:]' < /khoa/novnc-bat 2>/dev/null || true)
++fi
++if [ "$CO_NOVNC" = "bat" ]; then
++    exec /usr/bin/supervisord -c /etc/supervisor/supervisord-novnc.conf
++elif [ "$CO_NOVNC" = "tat" ]; then
++    exec /usr/bin/supervisord -c /etc/supervisor/supervisord.conf
++elif [ "$CAPTCHA_SOLVER_BAT_NOVNC" = "1" ] || [ "$CAPTCHA_SOLVER_BAT_NOVNC" = "true" ]; then
+     exec /usr/bin/supervisord -c /etc/supervisor/supervisord-novnc.conf
+ else
+     exec /usr/bin/supervisord -c /etc/supervisor/supervisord.conf
+diff --git a/dich-vu/may-dang-nhap/src/main.py b/dich-vu/may-dang-nhap/src/main.py
+index 06aa590..0955394 100644
+--- a/dich-vu/may-dang-nhap/src/main.py
++++ b/dich-vu/may-dang-nhap/src/main.py
+@@ -42,6 +42,7 @@ from .accounts_db import (
+ )
+ from . import vault
+ from . import mat_khau_vnc  # W2A NV305: mật khẩu xem trình duyệt do chủ máy tự đặt
++from . import novnc_bat_tat  # W2A NV305-bao-mat: công tắc noVNC runtime + hiển thị lại mật khẩu
+ from .auto_login import (
+     get_session as get_login_session,
+     list_sessions as list_login_sessions,
+@@ -158,6 +159,15 @@ async def lifespan(_: FastAPI):
+     # W2A: Kiểm tra hoặc tự sinh khoá dịch vụ ngay lúc khởi động (fail-fast: khoá sai sẽ ném ngoại lệ dừng dịch vụ).
+     lay_khoa_dich_vu()
+     await pool.start()
++    # NV305-bao-mat (c): cờ bền nói «bật» thì tự khởi động lại chương trình xem khi dịch vụ
++    # khởi động lại trong container đang chạy (entrypoint không chạy lại lúc này); hỏng thì
++    # chỉ ghi log, không dừng dịch vụ; chưa đặt mật khẩu thì bat() từ chối, cũng chỉ ghi log.
++    try:
++        if novnc_bat_tat.doc_co(settings.key_dir) is True:
++            kq = novnc_bat_tat.bat(settings.key_dir)
++            logger.info("noVNC tự khởi động theo cờ bền: dang_chay=%s", kq.get("dang_chay"))
++    except Exception as exc:  # noqa: BLE001 — khởi động dịch vụ không được chết vì noVNC
++        logger.warning("noVNC không tự khởi động được theo cờ bền: %s", type(exc).__name__)
+     yield
+     await pool.stop()
+ 
+@@ -270,6 +280,54 @@ async def api_trang_thai_mat_khau_vnc() -> dict[str, Any]:
+     return {"ok": True, "da_dat": mat_khau_vnc.trang_thai_da_dat(settings.key_dir)}
+ 
+ 
++@app.get("/v1/novnc/mat-khau", dependencies=[Depends(can_tinh_nang("dang_nhap"))])
++async def api_hien_mat_khau_vnc() -> dict[str, Any]:
++    """NV305-bao-mat (b): trả mật khẩu VNC — CHỈ lõi gọi sau khi lõi đã xác thực lại bằng chứng
++    tươi (mật khẩu admin khi chưa bật 2FA, mã 2FA khi đã bật 2FA); dịch vụ tự nó chỉ kiểm khoá
++    dịch vụ + nhóm dang_nhap, không tự xác thực lại người dùng. Không có tệp đánh dấu (chưa đặt
++    qua giao diện) → 400. Mật khẩu KHÔNG BAO GIỜ vào log."""
++    try:
++        mat_khau = novnc_bat_tat.doc_mat_khau(settings.key_dir)
++    except ValueError as exc:
++        raise HTTPException(status_code=400, detail=str(exc)) from exc
++    except OSError as exc:
++        logger.warning("doc mat khau VNC hong: %s", type(exc).__name__)
++        raise HTTPException(status_code=502, detail="Không đọc được mật khẩu xem trình duyệt.") from exc
++    return {"ok": True, "mat_khau": mat_khau}
++
++
++class BatTatNovncReq(BaseModel):
++    bat: Any  # kiểm bool thật trong handler (pydantic lax sẽ ép "true"/1 thành True)
++
++
++@app.put("/v1/novnc/bat-tat", dependencies=[Depends(can_tinh_nang("dang_nhap"))])
++async def api_bat_tat_novnc(req: BatTatNovncReq) -> dict[str, Any]:
++    """NV305-bao-mat (c): công tắc noVNC runtime. Chỉ bật/tắt khả năng xem; không đổi mật khẩu,
++    không đặt gì thêm vào container. Bật khi chưa đặt mật khẩu → 400 (không chạy xem không
++    mật khẩu). Cờ bền ghi vào /khoa để lần khởi động sau vẫn giữ trạng thái."""
++    if not isinstance(req.bat, bool):
++        raise HTTPException(status_code=400, detail="Trường «bat» phải là true hoặc false.")
++    try:
++        kq = novnc_bat_tat.bat(settings.key_dir) if req.bat else novnc_bat_tat.tat(settings.key_dir)
++    except ValueError as exc:
++        raise HTTPException(status_code=400, detail=str(exc)) from exc
++    except RuntimeError as exc:
++        logger.warning("bat/tat noVNC chua du: %s", type(exc).__name__)
++        raise HTTPException(status_code=502, detail=str(exc)) from exc
++    except OSError as exc:
++        logger.warning("bat/tat noVNC hong: %s", type(exc).__name__)
++        raise HTTPException(status_code=502, detail="Không bật/tắt được màn hình xem.") from exc
++    return {"ok": True, **kq}
++
++
++@app.get("/v1/novnc/trang-thai", dependencies=[Depends(can_tinh_nang("dang_nhap"))])
++async def api_trang_thai_novnc() -> dict[str, Any]:
++    """NV305-bao-mat (c): trạng thái công tắc + chương trình xem. Chỉ bool, không mật khẩu.
++    Cờ bền thắng biến môi trường; chưa có cờ thì dùng biến môi trường/cài đặt như cũ."""
++    bat_mac_dinh = os.environ.get("CAPTCHA_SOLVER_BAT_NOVNC", "").strip().lower() in ("1", "true", "yes") or settings.bat_novnc
++    return {"ok": True, **novnc_bat_tat.trang_thai(settings.key_dir, bat_mac_dinh=bat_mac_dinh)}
++
++
+ 
+ class TurnstileReq(BaseModel):
+     url: str
+diff --git a/dich-vu/may-dang-nhap/src/novnc_bat_tat.py b/dich-vu/may-dang-nhap/src/novnc_bat_tat.py
+new file mode 100644
+index 0000000..2d788cb
+--- /dev/null
++++ b/dich-vu/may-dang-nhap/src/novnc_bat_tat.py
+@@ -0,0 +1,280 @@
++"""Công tắc noVNC runtime cho dịch vụ may-dang-nhap (NV305-bao-mat).
++
++Chỉ dùng stdlib để test được mà không cần FastAPI/patchright (máy làm việc không
++import được src.main — cùng giới hạn như NV305).
++
++Thiết kế:
++- Cờ bền ``novnc-bat`` trong volume /khoa («bat»/«tat», ghi nguyên tử 0600):
++  cờ có thì cờ thắng biến môi trường lúc khởi động (entrypoint đọc cờ trước).
++  Cờ này KHÔNG phải bí mật — nó chỉ nói «muốn xem hay không», mật khẩu vẫn
++  nằm riêng ở tệp mat-khau-vnc và không bao giờ bị công tắc này thay đổi/xoá.
++- Bật khi chưa đặt mật khẩu qua giao diện → TỪ CHỐI (không bao giờ chạy xem
++  không mật khẩu, nhất quán bo-sung: không -nopw). Tắt thì không động vào mật khẩu.
++- Chương trình do supervisor quản (conf novnc) thì dùng supervisorctl start/stop;
++  nếu không thì spawn/kill trực tiếp và ghi PID file vào /khoa (để tắt được cả
++  sau khi dịch vụ khởi động lại). Khi tắt, chỉ giết PID khớp lệnh (đọc
++  /proc/<pid>/cmdline) để không giết nhầm PID đã tái sử dụng sau khởi động lại.
++- Lệnh spawn đúng như supervisord-novnc.conf: x11vnc -passwdfile (không -nopw),
++  websockify 0.0.0.0:6080 → 127.0.0.1:5900.
++"""
++
++from __future__ import annotations
++
++import logging
++import os
++import signal
++import socket
++import subprocess
++import time
++from pathlib import Path
++from typing import Any, Callable
++
++log = logging.getLogger(__name__)
++
++TEN_TEP_CO = "novnc-bat"
++TEN_TEP_MAT_KHAU = "mat-khau-vnc"
++TEN_TEP_DANH_DAU = "mat-khau-vnc-chu-dat"
++PID_X11 = "novnc-x11vnc.pid"
++PID_WS = "novnc-websockify.pid"
++CONF_SUPERVISOR_NOVNC = "/etc/supervisor/supervisord-novnc.conf"
++CONG_X11 = 5900
++CONG_WS = 6080
++LENH_X11 = ["/usr/bin/x11vnc", "-display", ":99", "-passwdfile", "/khoa/mat-khau-vnc",
++            "-forever", "-shared", "-rfbport", "5900", "-listen", "127.0.0.1", "-quiet"]
++LENH_WS = ["/usr/bin/websockify", "--web=/usr/share/novnc/", "0.0.0.0:6080", "127.0.0.1:5900"]
++LOI_CHUA_DAT = ("Chưa đặt mật khẩu xem trình duyệt qua giao diện — "
++                "hãy đặt mật khẩu trước khi bật màn hình xem.")
++
++
++def _ghi_tep_0600(duong_dan: Path, noi_dung: str) -> None:
++    """Ghi nguyên tử (tệp tạm cùng thư mục + os.replace), quyền 0600."""
++    import tempfile
++    fd, tam = tempfile.mkstemp(dir=str(duong_dan.parent), prefix=duong_dan.name + ".tmp")
++    try:
++        with os.fdopen(fd, "w", encoding="utf-8") as f:
++            f.write(noi_dung)
++        os.chmod(tam, 0o600)
++        os.replace(tam, duong_dan)
++    except BaseException:
++        try:
++            os.unlink(tam)
++        except OSError:
++            pass
++        raise
++
++
++# ── Cờ bền ──────────────────────────────────────────────────────────────────
++
++
++def doc_co(khoa_dir: Path) -> bool | None:
++    """Đọc cờ: True = bật, False = tắt, None = chưa có cờ (dùng biến môi trường)."""
++    try:
++        nd = (Path(khoa_dir) / TEN_TEP_CO).read_text(encoding="utf-8").strip()
++    except OSError:
++        return None
++    if nd == "bat":
++        return True
++    if nd == "tat":
++        return False
++    log.warning("Cờ noVNC có nội dung lạ (%r) — bỏ qua, dùng biến môi trường.", nd[:20])
++    return None
++
++
++def ghi_co(khoa_dir: Path, bat: bool) -> None:
++    _ghi_tep_0600(Path(khoa_dir) / TEN_TEP_CO, "bat" if bat else "tat")
++
++
++def xoa_co(khoa_dir: Path) -> None:
++    try:
++        os.unlink(Path(khoa_dir) / TEN_TEP_CO)
++    except OSError:
++        pass
++
++
++# ── Mật khẩu ────────────────────────────────────────────────────────────────
++
++
++def da_dat_mat_khau(khoa_dir: Path) -> bool:
++    """Đã đặt qua giao diện iff có tệp đánh dấu (tệp cũ sót lại không tính)."""
++    return (Path(khoa_dir) / TEN_TEP_DANH_DAU).exists()
++
++
++def doc_mat_khau(khoa_dir: Path) -> str:
++    """Đọc mật khẩu VNC — chỉ khi có tệp đánh dấu; không có thì ValueError.
++
++    Chỉ lõi gọi qua endpoint đã xác thực lại mới được nhận giá trị này; hàm này
++    không bao giờ ghi giá trị vào log.
++    """
++    if not da_dat_mat_khau(khoa_dir):
++        raise ValueError(LOI_CHUA_DAT)
++    return (Path(khoa_dir) / TEN_TEP_MAT_KHAU).read_text(encoding="utf-8").rstrip("\n")
++
++
++# ── Cổng / tiến trình / supervisor (mặc định thật, test chích giả) ──────────
++
++
++def cong_nghe(cong: int, timeout: float = 0.2) -> bool:
++    try:
++        with socket.create_connection(("127.0.0.1", cong), timeout=timeout):
++            return True
++    except OSError:
++        return False
++
++
++def _spawn_thuc(lenh: list[str]) -> int:
++    p = subprocess.Popen(lenh, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
++                         start_new_session=True)
++    return p.pid
++
++
++def _kill_thuc(pid: int) -> None:
++    try:
++        os.kill(pid, signal.SIGTERM)
++    except OSError:
++        return
++    for _ in range(10):
++        time.sleep(0.1)
++        try:
++            os.kill(pid, 0)
++        except OSError:
++            return
++    try:
++        os.kill(pid, signal.SIGKILL)
++    except OSError:
++        pass
++
++
++def _pid_khop(pid: int, tu_khoa: str) -> bool:
++    """PID có đang chạy lệnh chứa từ khoá không (chống giết nhầm PID tái sử dụng)."""
++    try:
++        cmd = Path(f"/proc/{pid}/cmdline").read_bytes().decode("utf-8", "replace")
++    except OSError:
++        return False
++    return tu_khoa in cmd
++
++
++def _supervisor_thuc(*doi_so: str) -> Any:
++    """Giao thức: status → chuỗi trạng thái hoặc None (không do supervisor quản);
++    start/stop → True/False theo mã thoát."""
++    try:
++        kq = subprocess.run(
++            ["supervisorctl", "-c", CONF_SUPERVISOR_NOVNC, *doi_so],
++            capture_output=True, text=True, timeout=10,
++        )
++    except (OSError, subprocess.TimeoutExpired):
++        return None if doi_so and doi_so[0] == "status" else False
++    if doi_so and doi_so[0] == "status":
++        if kq.returncode != 0:
++            return None
++        dong = (kq.stdout or "").strip().splitlines()
++        if not dong:
++            return None
++        phan = dong[0].split()
++        if len(phan) < 2 or "ERROR" in dong[0] or "no such process" in dong[0].lower():
++            return None
++        return phan[1]
++    return kq.returncode == 0
++
++
++def _khoi_dong(ten: str, lenh: list[str], pid_file: Path,
++               spawn: Callable[[list[str]], int],
++               supervisor: Callable[..., Any]) -> None:
++    tt = supervisor("status", ten)
++    if tt is not None:  # Do supervisor quản
++        if tt == "RUNNING":
++            return
++        if not supervisor("start", ten):
++            raise RuntimeError(f"supervisorctl start {ten} thất bại.")
++        return
++    pid = spawn(lenh)
++    _ghi_tep_0600(pid_file, str(pid))
++
++
++def _dung(ten: str, pid_file: Path, tu_khoa: str,
++          kill: Callable[[int], None],
++          supervisor: Callable[..., Any],
++          kiem_pid: Callable[[int, str], bool]) -> bool:
++    """Dừng một chương trình; trả True nếu đã tác động (giết hoặc stop)."""
++    tac_dong = False
++    if pid_file.exists():
++        try:
++            pid = int(pid_file.read_text(encoding="utf-8").strip())
++        except (OSError, ValueError):
++            pid = None
++        try:
++            pid_file.unlink()
++        except OSError:
++            pass
++        if pid is not None and kiem_pid(pid, tu_khoa):
++            kill(pid)
++            tac_dong = True
++        elif pid is not None:
++            log.warning("PID %s cho %s không khớp lệnh — bỏ tệp PID cũ, không giết.", pid, ten)
++        return tac_dong
++    tt = supervisor("status", ten)
++    if tt == "RUNNING":
++        return bool(supervisor("stop", ten))
++    return False
++
++
++def _cho_cong(kiem_cong: Callable[[int], bool], ngu: Callable[[float], None]) -> tuple[bool, bool]:
++    for _ in range(20):
++        x11 = kiem_cong(CONG_X11)
++        ws = kiem_cong(CONG_WS)
++        if x11 and ws:
++            return True, True
++        ngu(0.1)
++    return kiem_cong(CONG_X11), kiem_cong(CONG_WS)
++
++
++# ── API chính ───────────────────────────────────────────────────────────────
++
++
++def trang_thai(khoa_dir: Path, kiem_cong: Callable[[int], bool] = cong_nghe,
++               bat_mac_dinh: bool = False) -> dict:
++    co = doc_co(khoa_dir)
++    bat = co if co is not None else bat_mac_dinh
++    x11 = kiem_cong(CONG_X11)
++    ws = kiem_cong(CONG_WS)
++    return {"bat": bat, "x11vnc": x11, "websockify": ws,
++            "dang_chay": bool(x11 and ws), "da_dat": da_dat_mat_khau(khoa_dir)}
++
++
++def bat(khoa_dir: Path, kiem_cong: Callable[[int], bool] = cong_nghe,
++        spawn: Callable[[list[str]], int] = _spawn_thuc,
++        supervisor: Callable[..., Any] = _supervisor_thuc,
++        ngu: Callable[[float], None] = time.sleep) -> dict:
++    """Bật màn hình xem. Từ chối khi chưa đặt mật khẩu. Chỉ ghi cờ khi chạy đủ cả hai."""
++    khoa_dir = Path(khoa_dir)
++    if not da_dat_mat_khau(khoa_dir):
++        raise ValueError(LOI_CHUA_DAT)
++    if kiem_cong(CONG_X11) and kiem_cong(CONG_WS):
++        ghi_co(khoa_dir, True)
++        return {"bat": True, "da_ap_dung": False, "dang_chay": True,
++                "x11vnc": True, "websockify": True}
++    _khoi_dong("x11vnc", LENH_X11, khoa_dir / PID_X11, spawn, supervisor)
++    _khoi_dong("novnc", LENH_WS, khoa_dir / PID_WS, spawn, supervisor)
++    x11, ws = _cho_cong(kiem_cong, ngu)
++    if x11 and ws:
++        ghi_co(khoa_dir, True)
++        return {"bat": True, "da_ap_dung": True, "dang_chay": True,
++                "x11vnc": True, "websockify": True}
++    log.warning("Bật noVNC chưa đủ: x11vnc=%s websockify=%s (cờ chưa ghi).", x11, ws)
++    raise RuntimeError("Bật màn hình xem chưa đủ: một trong hai chương trình chưa nghe cổng.")
++
++
++def tat(khoa_dir: Path, kiem_cong: Callable[[int], bool] = cong_nghe,
++        kill: Callable[[int], None] = _kill_thuc,
++        supervisor: Callable[..., Any] = _supervisor_thuc,
++        kiem_pid: Callable[[int, str], bool] = _pid_khop) -> dict:
++    """Tắt màn hình xem. Xoá cờ, dừng chương trình; KHÔNG động vào mật khẩu."""
++    khoa_dir = Path(khoa_dir)
++    co_truoc = doc_co(khoa_dir)
++    xoa_co(khoa_dir)
++    tac_dong = co_truoc is not None
++    tac_dong = _dung("x11vnc", khoa_dir / PID_X11, "x11vnc", kill, supervisor, kiem_pid) or tac_dong
++    tac_dong = _dung("novnc", khoa_dir / PID_WS, "websockify", kill, supervisor, kiem_pid) or tac_dong
++    x11 = kiem_cong(CONG_X11)
++    ws = kiem_cong(CONG_WS)
++    return {"bat": False, "da_ap_dung": bool(tac_dong), "dang_chay": bool(x11 and ws),
++            "x11vnc": x11, "websockify": ws}
+diff --git a/dich-vu/may-dang-nhap/test_c2a_dockerfile.py b/dich-vu/may-dang-nhap/test_c2a_dockerfile.py
+index 1b6146b..5e62c1f 100644
+--- a/dich-vu/may-dang-nhap/test_c2a_dockerfile.py
++++ b/dich-vu/may-dang-nhap/test_c2a_dockerfile.py
+@@ -174,6 +174,17 @@ def kiem_entrypoint(ep: str) -> list[str]:
+         strip = line.strip()
+         if (strip.startswith("echo ") or strip.startswith("cat ")) and "mat-khau-vnc" in strip:
+             loi.append("entrypoint.sh không được in mật khẩu VNC ra stdout")
++    # NV305-bao-mat (c): cờ bền /khoa/novnc-bat do công tắc web UI ghi phải thắng biến
++    # môi trường; chưa có cờ thì dùng biến môi trường như cũ. Cờ chỉ là «bat»/«tat»,
++    # không phải bí mật, nên đọc cờ không vi phạm quy tắc NV305-bo-sung ở trên.
++    dong = ep.splitlines()
++    co_bat = next((i for i, l in enumerate(dong) if 'CO_NOVNC" = "bat"' in l), None)
++    co_tat = next((i for i, l in enumerate(dong) if 'CO_NOVNC" = "tat"' in l), None)
++    env = next((i for i, l in enumerate(dong) if 'CAPTCHA_SOLVER_BAT_NOVNC" = "1"' in l), None)
++    if co_bat is None or co_tat is None:
++        loi.append("entrypoint.sh phải xét cờ bền /khoa/novnc-bat cả hai nhánh «bat»/«tat»")
++    elif env is None or co_bat > env:
++        loi.append("entrypoint.sh phải xét cờ bền trước biến môi trường CAPTCHA_SOLVER_BAT_NOVNC")
+     return loi
+ 
+ 
+diff --git a/dich-vu/may-dang-nhap/test_novnc_bat_tat.py b/dich-vu/may-dang-nhap/test_novnc_bat_tat.py
+new file mode 100644
+index 0000000..c128f9c
+--- /dev/null
++++ b/dich-vu/may-dang-nhap/test_novnc_bat_tat.py
+@@ -0,0 +1,221 @@
++"""NV305-bao-mat — Công tắc noVNC runtime phía dịch vụ may-dang-nhap.
++
++Module thuần novnc_bat_tat (chỉ stdlib, không FastAPI) để test được trên máy này
++(máy này không import được src.main vì thiếu patchright — như giới hạn của NV305):
++- Cờ bền /khoa/novnc-bat («bat»/«tat», ghi nguyên tử 0600): cờ có thì cờ thắng
++  biến môi trường lúc khởi động (entrypoint đọc cờ trước).
++- Bật khi chưa đặt mật khẩu qua giao diện → từ chối (không bao giờ chạy xem
++  không mật khẩu, nhất quán bo-sung: không -nopw).
++- Bật/tắt dùng supervisorctl khi chương trình do supervisor quản; nếu không thì
++  spawn/kill trực tiếp bằng PID file (chỉ giết đúng PID mình tạo, không pkill mò).
++- Lệnh spawn đúng như supervisord-novnc.conf: x11vnc -passwdfile, không -nopw;
++  websockify 0.0.0.0:6080 → 127.0.0.1:5900.
++
++Test dùng thư mục tạm + hàm giả cho cổng/tiến trình/supervisorctl, không docker thật.
++"""
++
++from __future__ import annotations
++
++import sys
++from pathlib import Path
++
++import pytest
++
++sys.path.insert(0, str(Path(__file__).resolve().parent / "src"))
++
++import novnc_bat_tat as nbt
++
++
++class CongGia:
++    """Bộ kiểm cổng giả: trạng thái nghe do test tự lật."""
++
++    def __init__(self, x11=False, ws=False):
++        self.trang_thai = {5900: x11, 6080: ws}
++
++    def __call__(self, cong):
++        return self.trang_thai[cong]
++
++
++class TienTrinhGia:
++    """Bộ chạy tiến trình giả: ghi lại lệnh spawn/kill, không chạy thật."""
++
++    def __init__(self):
++        self.lenhs = []
++        self.kills = []
++        self.pid_tiep = [1000]
++
++    def spawn(self, lenh):
++        self.pid_tiep[0] += 1
++        self.lenhs.append(list(lenh))
++        return self.pid_tiep[0]
++
++    def kill(self, pid):
++        self.kills.append(pid)
++
++
++class SupervisorGia:
++    """supervisorctl giả: chương trình nào được khai là 'do supervisor quản'."""
++
++    def __init__(self, quan=None, trang_thai=None):
++        self.quan = set(quan or [])
++        self.trang_thai = trang_thai or {}
++        self.lenh = []
++
++    def __call__(self, *doi_so):
++        self.lenh.append(list(doi_so))
++        if doi_so[0] == "status":
++            ten = doi_so[1]
++            if ten not in self.quan:
++                return None
++            return self.trang_thai.get(ten, "STOPPED")
++        return True  # start/stop luôn thành công
++
++
++def _khoa(tmp_path):
++    khoa = tmp_path / "khoa"
++    khoa.mkdir(parents=True, exist_ok=True)
++    return khoa
++
++
++def test_co_bat_tat_vong_tron(tmp_path):
++    khoa = _khoa(tmp_path)
++    assert nbt.doc_co(khoa) is None
++    nbt.ghi_co(khoa, True)
++    assert nbt.doc_co(khoa) is True
++    nbt.ghi_co(khoa, False)
++    assert nbt.doc_co(khoa) is False
++    tep = khoa / nbt.TEN_TEP_CO
++    assert (tep.stat().st_mode & 0o777) == 0o600
++    nbt.xoa_co(khoa)
++    assert nbt.doc_co(khoa) is None
++
++
++def test_co_noi_dung_la_bi_bo_qua(tmp_path):
++    khoa = _khoa(tmp_path)
++    (khoa / nbt.TEN_TEP_CO).write_text("linh-tinh", encoding="utf-8")
++    assert nbt.doc_co(khoa) is None
++
++
++def test_bat_tu_choi_khi_chua_dat_mat_khau(tmp_path):
++    khoa = _khoa(tmp_path)
++    cong = CongGia()
++    tt = TienTrinhGia()
++    sup = SupervisorGia()
++    with pytest.raises(ValueError, match="Chưa đặt mật khẩu"):
++        nbt.bat(khoa, kiem_cong=cong, spawn=tt.spawn, supervisor=sup)
++    assert tt.lenhs == []
++    assert nbt.doc_co(khoa) is None, "bật hỏng thì cờ không được ghi là bật"
++
++
++def _dat_mat_khau(khoa):
++    (khoa / "mat-khau-vnc").write_text("VncBm01", encoding="utf-8")
++    (khoa / "mat-khau-vnc-chu-dat").write_text("", encoding="utf-8")
++
++
++def test_bat_spawn_dung_lenh_va_khong_nopw(tmp_path):
++    khoa = _khoa(tmp_path)
++    _dat_mat_khau(khoa)
++    cong = CongGia()
++    tt = TienTrinhGia()
++    sup = SupervisorGia()
++
++    def kiem_cong_mo_dan(cong_so):
++        # Sau khi spawn, cổng coi như đã nghe
++        if tt.lenhs:
++            cong.trang_thai[5900] = True
++            cong.trang_thai[6080] = True
++        return cong.trang_thai[cong_so]
++
++    kq = nbt.bat(khoa, kiem_cong=kiem_cong_mo_dan, spawn=tt.spawn, supervisor=sup)
++    assert kq["bat"] is True and kq["da_ap_dung"] is True and kq["dang_chay"] is True
++    assert nbt.doc_co(khoa) is True
++    assert len(tt.lenhs) == 2
++    lenh_x11, lenh_ws = tt.lenhs
++    assert lenh_x11[0].endswith("x11vnc")
++    assert "-passwdfile" in lenh_x11 and "-nopw" not in lenh_x11
++    assert "127.0.0.1" in lenh_x11 and "5900" in lenh_x11
++    assert lenh_ws[0].endswith("websockify")
++    assert "0.0.0.0:6080" in lenh_ws and "127.0.0.1:5900" in lenh_ws
++    assert (khoa / "novnc-x11vnc.pid").exists()
++    assert (khoa / "novnc-websockify.pid").exists()
++
++
++def test_bat_khi_dang_chay_thi_khong_spawn_lai(tmp_path):
++    khoa = _khoa(tmp_path)
++    _dat_mat_khau(khoa)
++    cong = CongGia(x11=True, ws=True)
++    tt = TienTrinhGia()
++    sup = SupervisorGia()
++    kq = nbt.bat(khoa, kiem_cong=cong, spawn=tt.spawn, supervisor=sup)
++    assert kq["bat"] is True and kq["da_ap_dung"] is False
++    assert tt.lenhs == []
++    assert nbt.doc_co(khoa) is True
++
++
++def test_bat_dung_supervisorctl_khi_do_supervisor_quan(tmp_path):
++    khoa = _khoa(tmp_path)
++    _dat_mat_khau(khoa)
++    cong = CongGia()
++    tt = TienTrinhGia()
++    sup = SupervisorGia(quan={"x11vnc", "novnc"}, trang_thai={"x11vnc": "STOPPED", "novnc": "STOPPED"})
++
++    def kiem_cong(cong_so):
++        # Sau khi supervisorctl start, cổng coi như đã nghe
++        if any(x[:2] == ["start", "x11vnc"] or x[:2] == ["start", "novnc"] for x in sup.lenh):
++            return True
++        return cong.trang_thai[cong_so]
++
++    kq = nbt.bat(khoa, kiem_cong=kiem_cong, spawn=tt.spawn, supervisor=sup)
++    assert tt.lenhs == [], "do supervisor quản thì không spawn trực tiếp"
++    assert ["start", "x11vnc"] in sup.lenh
++    assert ["start", "novnc"] in sup.lenh
++    assert kq["bat"] is True and nbt.doc_co(khoa) is True
++
++
++def test_tat_giet_dung_pid_va_xoa_co(tmp_path):
++    khoa = _khoa(tmp_path)
++    _dat_mat_khau(khoa)
++    nbt.ghi_co(khoa, True)
++    (khoa / "novnc-x11vnc.pid").write_text("1001", encoding="utf-8")
++    (khoa / "novnc-websockify.pid").write_text("1002", encoding="utf-8")
++    tt = TienTrinhGia()
++    sup = SupervisorGia()
++    kq = nbt.tat(khoa, kiem_cong=CongGia(), kill=tt.kill, supervisor=sup,
++                kiem_pid=lambda pid, tk: True)
++    assert kq["bat"] is False
++    assert sorted(tt.kills) == [1001, 1002]
++    assert nbt.doc_co(khoa) is None
++    assert not (khoa / "novnc-x11vnc.pid").exists()
++
++
++def test_tat_dung_supervisorctl_khi_do_supervisor_quan(tmp_path):
++    khoa = _khoa(tmp_path)
++    nbt.ghi_co(khoa, True)
++    tt = TienTrinhGia()
++    sup = SupervisorGia(quan={"x11vnc", "novnc"}, trang_thai={"x11vnc": "RUNNING", "novnc": "RUNNING"})
++    kq = nbt.tat(khoa, kiem_cong=CongGia(), kill=tt.kill, supervisor=sup,
++                kiem_pid=lambda pid, tk: True)
++    assert ["stop", "x11vnc"] in sup.lenh
++    assert ["stop", "novnc"] in sup.lenh
++    assert tt.kills == []
++    assert kq["bat"] is False
++
++
++def test_trang_thai_bao_du_bool_khong_mat_khau(tmp_path):
++    khoa = _khoa(tmp_path)
++    _dat_mat_khau(khoa)
++    nbt.ghi_co(khoa, True)
++    tt = nbt.trang_thai(khoa, kiem_cong=CongGia(x11=True, ws=False))
++    assert tt["bat"] is True and tt["x11vnc"] is True and tt["websockify"] is False
++    assert tt["dang_chay"] is False and tt["da_dat"] is True
++    assert "mat_khau" not in tt
++
++
++def test_hien_mat_khau_doi_danh_dau(tmp_path):
++    """Đọc mật khẩu chỉ khi có tệp đánh dấu (đặt qua giao diện); tệp cũ sót lại thì từ chối."""
++    khoa = _khoa(tmp_path)
++    (khoa / "mat-khau-vnc").write_text("MatKhauCuSot", encoding="utf-8")
++    with pytest.raises(ValueError, match="Chưa đặt mật khẩu"):
++        nbt.doc_mat_khau(khoa)
++    _dat_mat_khau(khoa)
++    assert nbt.doc_mat_khau(khoa) == "VncBm01"
+diff --git a/modules/may-dang-nhap/module.py b/modules/may-dang-nhap/module.py
+index 63be88d..ec1e6bb 100644
+--- a/modules/may-dang-nhap/module.py
++++ b/modules/may-dang-nhap/module.py
+@@ -2198,6 +2198,39 @@ class Module:
+                                                     "loi": "Dịch vụ báo lỗi không rõ"}
+         return {"ok": True, "da_dat": bool(kq.get("da_dat"))}
+ 
++    async def hien_mat_khau_vnc(self) -> dict:
++        """NV305-bao-mat (b): lấy mật khẩu VNC từ dịch vụ (GET /v1/novnc/mat-khau, khoá dịch vụ
++        đã cấu hình) để lõi trả cho giao diện SAU KHI lõi đã xác thực lại bằng chứng tươi.
++        Module chỉ chuyển tiếp giá trị dịch vụ trả; lõi mới là cửa kiểm tra bằng chứng."""
++        kq = await self._goi("GET", "/v1/novnc/mat-khau")
++        if not isinstance(kq, dict) or not kq.get("ok"):
++            return kq if isinstance(kq, dict) else {"ok": False, "ma_loi": "loi_dich_vu",
++                                                    "loi": "Dịch vụ báo lỗi không rõ"}
++        mat_khau = kq.get("mat_khau")
++        if not isinstance(mat_khau, str) or not mat_khau:
++            return {"ok": False, "ma_loi": "loi_dich_vu", "loi": "Dịch vụ không trả mật khẩu"}
++        return {"ok": True, "mat_khau": mat_khau}
++
++    async def bat_tat_novnc(self, bat: bool) -> dict:
++        """NV305-bao-mat (c): bật/tắt màn hình xem qua dịch vụ (PUT /v1/novnc/bat-tat).
++        Chỉ chuyển tiếp cờ; dịch vụ tự từ chối bật khi chưa đặt mật khẩu. Không đổi mật khẩu."""
++        kq = await self._goi("PUT", "/v1/novnc/bat-tat", json_body={"bat": bool(bat)})
++        if not isinstance(kq, dict) or not kq.get("ok"):
++            return kq if isinstance(kq, dict) else {"ok": False, "ma_loi": "loi_dich_vu",
++                                                    "loi": "Dịch vụ báo lỗi không rõ"}
++        return {"ok": True, "bat": bool(kq.get("bat", bat)), "dang_chay": bool(kq.get("dang_chay", False)),
++                "da_ap_dung": bool(kq.get("da_ap_dung", False))}
++
++    async def trang_thai_novnc(self) -> dict:
++        """NV305-bao-mat (c): hỏi dịch vụ trạng thái công tắc + chương trình xem. Chỉ bool, không mật khẩu."""
++        kq = await self._goi("GET", "/v1/novnc/trang-thai")
++        if not isinstance(kq, dict) or not kq.get("ok"):
++            return kq if isinstance(kq, dict) else {"ok": False, "ma_loi": "loi_dich_vu",
++                                                    "loi": "Dịch vụ báo lỗi không rõ"}
++        return {"ok": True, "bat": bool(kq.get("bat", False)), "dang_chay": bool(kq.get("dang_chay", False)),
++                "x11vnc": bool(kq.get("x11vnc", False)), "websockify": bool(kq.get("websockify", False)),
++                "da_dat": bool(kq.get("da_dat", False))}
++
+     async def tien_do(self, ho_so: str, module_cua_tai_khoan: str = "") -> dict:
+         """Trạng thái lượt đăng nhập nền cho giao diện hỏi (NV145b + NV210).
+ 
+diff --git a/test/test_nv305_bao_mat.py b/test/test_nv305_bao_mat.py
+new file mode 100644
+index 0000000..7737dca
+--- /dev/null
++++ b/test/test_nv305_bao_mat.py
+@@ -0,0 +1,565 @@
++"""NV305-bao-mat — Quy tắc xác thực lại + hiển thị sau xác thực + công tắc noVNC
++cho tab «Bảo mật & người dùng» (phương án mới 19:19 ngày 03/11 + chốt 19:26).
++
++Quy tắc thi hành (test khóa):
++(a) Xác thực lại cho thao tác tạo/xoá trong tab: chưa bật 2FA → nhập lại mật khẩu
++    admin; đã bật 2FA → mã 2FA THAY mật khẩu (mật khẩu bị từ chối khi đã bật 2FA,
++    kể cả đổi mật khẩu). Khoá quản trị Bearer vẫn được miễn như mọi đường chạm bí
++    mật khác (đó là bí mật gốc, không phải mật khẩu) — ghi rõ, không giấu.
++(b) Hiển thị sau xác thực lại: mật khẩu noVNC sau khi đặt thì ẩn; chỉ hiển thị lại
++    qua endpoint hiển thị với bằng chứng TƯƠI trong body (mật khẩu khi chưa bật 2FA,
++    CHỈ mã 2FA khi đã bật 2FA — không miễn Bearer, không dùng cửa sổ step-up).
++    Thay đổi này thay thiết kế never-return của NV305 (đã chốt 19:26, không ngoại lệ).
++    Khoá khách + mã khôi phục 2FA vẫn hash-only / hiện một lần nên KHÔNG hiển thị
++    lại được theo thiết kế — test khẳng định danh sách không lộ chúng.
++(c) Công tắc noVNC trong web UI (tab Bảo mật) chịu cùng quy tắc xác thực lại ở (a).
++(d) Cách ly: endpoint chỉ quản trị, kiểm tra phía server, không tin client.
++
++Test dùng mật khẩu/mã 2FA tự tạo, module giả, không gọi dịch vụ thật.
++"""
++
++from __future__ import annotations
++
++import asyncio
++import time
++from pathlib import Path
++
++import pytest
++from fastapi.testclient import TestClient
++
++from app import gioi_han, nguoi_dung, novnc, xac_thuc_2fa
++from app.main import app
++from app.so_module import SoModule
++
++GOC = Path(__file__).resolve().parents[1]
++HTML_BAO_MAT = (GOC / "web" / "He-thong-Bao-mat.dc.html").read_text(encoding="utf-8")
++KHUNG_JS = (GOC / "web" / "khung.js").read_text(encoding="utf-8")
++SUPPORT_JS = (GOC / "web" / "support.js").read_text(encoding="utf-8")
++KHOA_QT = "khoa-quan-tri-nv305-bao-mat-123456"
++MODULE = "may-dang-nhap"
++MK_ADMIN = "MatKhauAdminBm000000000000"
++MK_MOI = "MatKhauMoiBm000000000000"
++MK_VNC_TEST = "VncBm01"  # 7 ký tự, chỉ để test, không phải mật khẩu thật
++
++
++class ModBaoMatGia:
++    """Module may-dang-nhap giả: ghi lại lời gọi, không gọi mạng, không lưu gì."""
++
++    def __init__(self, mat_khau_vnc=MK_VNC_TEST, da_dat=True):
++        self.mat_khau_vnc = mat_khau_vnc
++        self.da_dat = da_dat
++        self.hien_goi = 0
++        self.bat_tat_goi = []
++
++    async def dat_mat_khau_vnc(self, mat_khau: str) -> dict:
++        return {"ok": True, "da_nap_lai": True}
++
++    async def trang_thai_mat_khau_vnc(self) -> dict:
++        return {"ok": True, "da_dat": self.da_dat}
++
++    async def hien_mat_khau_vnc(self) -> dict:
++        self.hien_goi += 1
++        return {"ok": True, "mat_khau": self.mat_khau_vnc}
++
++    async def bat_tat_novnc(self, bat: bool) -> dict:
++        self.bat_tat_goi.append(bat)
++        return {"ok": True, "bat": bat, "dang_chay": bat, "da_ap_dung": True}
++
++    async def trang_thai_novnc(self) -> dict:
++        return {"ok": True, "bat": False, "dang_chay": False,
++                "x11vnc": False, "websockify": False, "da_dat": self.da_dat}
++
++
++@pytest.fixture
++def moi_truong(tmp_path, monkeypatch):
++    data_dir = tmp_path / "data"
++    data_dir.mkdir(parents=True, exist_ok=True)
++    monkeypatch.setenv("WEB2API_DATA", str(data_dir))
++    monkeypatch.setenv("WEB2API_ADMIN_KEY", KHOA_QT)
++    monkeypatch.setenv("WEB2API_RL_LOI_XAC_THUC", "1000")
++    monkeypatch.setenv("WEB2API_RL_KHOA_GIAY", "60")
++    monkeypatch.setenv("WEB2API_DANG_NHAP_SAI_TOI_DA", "100")
++    monkeypatch.setenv("WEB2API_DANG_NHAP_KHOA_PHUT", "15")
++    gioi_han.khoi_dong()
++    novnc._GIOI_HAN_MK_VNC.clear()
++    with TestClient(app) as client:
++        client.app.state.so = SoModule()
++        mod = ModBaoMatGia()
++        client.app.state.so.dang_chay[MODULE] = mod
++        yield client, mod
++    novnc._GIOI_HAN_MK_VNC.clear()
++
++
++@pytest.fixture
++def dong_ho(monkeypatch):
++    """Đồng hồ giả cho TOTP: ma() sinh mã ở bước hiện tại, ma_moi() nhảy +31 giây
++    rồi sinh mã mới (mỗi lần xác minh 2FA thành công đều cần bước mới vì chống phát lại)."""
++    t = [1700000000.0]
++    monkeypatch.setattr(time, "time", lambda: t[0])
++
++    class DongHo:
++        def ma(self, bi_mat):
++            return xac_thuc_2fa.sinh_totp(bi_mat, moc_thoi_gian=t[0])
++
++        def ma_moi(self, bi_mat):
++            t[0] += 31.0
++            return xac_thuc_2fa.sinh_totp(bi_mat, moc_thoi_gian=t[0])
++
++    return DongHo()
++
++
++def _tao_admin(client, ten="admin-bm", mk=MK_ADMIN):
++    ban_ghi, _, _ = asyncio.run(
++        nguoi_dung.tao_nguoi_dung(vai="admin", ten_dang_nhap=ten, mat_khau=mk)
++    )
++    return ban_ghi
++
++
++def _dang_nhap(client, ten, mk):
++    """Đăng nhập web (chưa bật 2FA) → (cookies, csrf headers)."""
++    r = client.post("/api/dang-nhap", json={"ten_dang_nhap": ten, "mat_khau": mk})
++    assert r.status_code == 200, f"đăng nhập phải 200, nhận {r.status_code}: {r.text}"
++    return {"w2a_phien": r.cookies.get("w2a_phien")}, {"X-CSRF-Token": r.json()["csrf"]}
++
++
++def _bat_2fa_admin(admin, dh):
++    """Bật 2FA cho admin qua API nội bộ, trả về bí mật TOTP.
++
++    Đồng hồ giả: mã đăng ký sinh ở bước hiện tại; mọi mã dùng sau đó phải qua
++    dh.ma_moi (nhảy +31 giây trước khi sinh) vì xác minh chống phát lại theo bước.
++    """
++    bi_mat, _uri = xac_thuc_2fa.bat_dau_dang_ky(admin["id"], admin["ten_dang_nhap"])
++    ma = dh.ma(bi_mat)
++    ok, _codes = xac_thuc_2fa.xac_nhan_dang_ky(admin["id"], ma)
++    assert ok, "xác nhận đăng ký 2FA phải thành công"
++    assert xac_thuc_2fa.da_bat_2fa(admin["id"]) is True
++    return bi_mat
++
++
++def _dang_nhap_2fa(client, ten, mk, dh, bi_mat):
++    """Đăng nhập web khi đã bật 2FA (2 bước) → (cookies, csrf headers)."""
++    r = client.post("/api/dang-nhap", json={"ten_dang_nhap": ten, "mat_khau": mk})
++    assert r.status_code == 401, f"bước 1 phải 401 can_ma_2fa, nhận {r.status_code}: {r.text}"
++    err = r.json().get("error", {})
++    ve = err.get("ve") or r.json().get("ve")
++    assert ve, f"phải có vé tạm 2FA: {r.text}"
++    r2 = client.post("/api/dang-nhap/2fa", json={"ve": ve, "ma": dh.ma_moi(bi_mat)})
++    assert r2.status_code == 200, f"bước 2 phải 200, nhận {r2.status_code}: {r2.text}"
++    return {"w2a_phien": r2.cookies.get("w2a_phien")}, {"X-CSRF-Token": r2.json()["csrf"]}
++
++
++def _stepup(client, cookies, csrf, than):
++    return client.post("/api/toi/xac-nhan-lai", json=than,
++                       cookies=cookies, headers=csrf)
++
++
++def _qt():
++    return {"Authorization": f"Bearer {KHOA_QT}"}
++
++
++# ─────────────────────────────────────────────────────────────────────────────
++# (a) Quy tắc xác thực lại: mật khẩu vs mã 2FA
++# ─────────────────────────────────────────────────────────────────────────────
++
++
++def test_stepup_mat_khau_duoc_khi_chua_bat_2fa(moi_truong):
++    client, _ = moi_truong
++    admin = _tao_admin(client)
++    cookies, csrf = _dang_nhap(client, admin["ten_dang_nhap"], MK_ADMIN)
++    r = _stepup(client, cookies, csrf, {"mat_khau": MK_ADMIN})
++    assert r.status_code == 200, r.text
++
++
++def test_stepup_mat_khau_bi_tu_choi_khi_da_bat_2fa(moi_truong, dong_ho):
++    client, _ = moi_truong
++    admin = _tao_admin(client)
++    bi_mat = _bat_2fa_admin(admin, dong_ho)
++    cookies, csrf = _dang_nhap_2fa(client, admin["ten_dang_nhap"], MK_ADMIN, dong_ho, bi_mat)
++    r = _stepup(client, cookies, csrf, {"mat_khau": MK_ADMIN})
++    assert r.status_code == 401, f"mật khẩu khi đã bật 2FA phải 401, nhận {r.status_code}: {r.text}"
++    assert "2FA" in r.text, "thông báo phải hướng sang mã 2FA"
++    # Chưa được xác nhận lại: thao tác tạo khoá vẫn bị chặn step-up
++    r2 = client.post("/api/khoa-khach", json={"nhan": "thu-sau-stepup-hong"},
++                     cookies=cookies, headers=csrf)
++    assert r2.status_code == 403, r2.text
++    assert r2.json()["error"]["code"] == "step_up_required"
++
++
++def test_stepup_ma_2fa_duoc_khi_da_bat_2fa(moi_truong, dong_ho):
++    client, _ = moi_truong
++    admin = _tao_admin(client)
++    bi_mat = _bat_2fa_admin(admin, dong_ho)
++    cookies, csrf = _dang_nhap_2fa(client, admin["ten_dang_nhap"], MK_ADMIN, dong_ho, bi_mat)
++    r = _stepup(client, cookies, csrf, {"ma_2fa": dong_ho.ma_moi(bi_mat)})
++    assert r.status_code == 200, r.text
++    r2 = client.post("/api/khoa-khach", json={"nhan": "thu-sau-stepup-2fa"},
++                     cookies=cookies, headers=csrf)
++    assert r2.status_code == 200, r2.text
++
++
++def test_stepup_ma_2fa_sai_bi_401(moi_truong, dong_ho):
++    client, _ = moi_truong
++    admin = _tao_admin(client)
++    bi_mat = _bat_2fa_admin(admin, dong_ho)
++    cookies, csrf = _dang_nhap_2fa(client, admin["ten_dang_nhap"], MK_ADMIN, dong_ho, bi_mat)
++    r = _stepup(client, cookies, csrf, {"ma_2fa": "000000"})
++    assert r.status_code == 401, r.text
++
++
++def test_stepup_khoa_quan_tri_van_duoc_khi_da_bat_2fa(moi_truong, dong_ho):
++    """Khoá quản trị là bí mật gốc (không phải mật khẩu) nên vẫn miễn như cũ — ghi rõ."""
++    client, _ = moi_truong
++    admin = _tao_admin(client)
++    bi_mat = _bat_2fa_admin(admin, dong_ho)
++    cookies, csrf = _dang_nhap_2fa(client, admin["ten_dang_nhap"], MK_ADMIN, dong_ho, bi_mat)
++    r = _stepup(client, cookies, csrf, {"khoa_quan_tri": KHOA_QT})
++    assert r.status_code == 200, r.text
++
++
++# ─────────────────────────────────────────────────────────────────────────────
++# (a) Gating: tạo/xoá trong tab phải có step-up
++# ─────────────────────────────────────────────────────────────────────────────
++
++
++def test_tao_khoa_khach_doi_stepup(moi_truong):
++    client, _ = moi_truong
++    admin = _tao_admin(client)
++    cookies, csrf = _dang_nhap(client, admin["ten_dang_nhap"], MK_ADMIN)
++    r = client.post("/api/khoa-khach", json={"nhan": "khoa-moi"},
++                    cookies=cookies, headers=csrf)
++    assert r.status_code == 403, r.text
++    assert r.json()["error"]["code"] == "step_up_required"
++    assert _stepup(client, cookies, csrf, {"mat_khau": MK_ADMIN}).status_code == 200
++    r2 = client.post("/api/khoa-khach", json={"nhan": "khoa-moi"},
++                     cookies=cookies, headers=csrf)
++    assert r2.status_code == 200, r2.text
++    # Hiện một lần lúc tạo (trong lời gọi đã xác thực lại), sau đó danh sách không lộ
++    assert "khoa" in r2.json() and r2.json()["khoa"]["khoa"].startswith("w2a_")
++    r3 = client.get("/api/khoa-khach", cookies=cookies, headers=csrf)
++    assert "w2a_" not in r3.text, "danh sách khoá không được lộ khoá thô"
++
++
++def test_xoa_khoa_khach_doi_stepup(moi_truong):
++    client, _ = moi_truong
++    admin = _tao_admin(client)
++    cookies, csrf = _dang_nhap(client, admin["ten_dang_nhap"], MK_ADMIN)
++    assert _stepup(client, cookies, csrf, {"mat_khau": MK_ADMIN}).status_code == 200
++    kid = client.post("/api/khoa-khach", json={"nhan": "khoa-xoa"},
++                      cookies=cookies, headers=csrf).json()["khoa"]["id"]
++    # Phiên mới (chưa xác nhận lại) thì xoá phải bị chặn
++    cookies2, csrf2 = _dang_nhap(client, admin["ten_dang_nhap"], MK_ADMIN)
++    r = client.delete(f"/api/khoa-khach/{kid}", cookies=cookies2, headers=csrf2)
++    assert r.status_code == 403, r.text
++    assert _stepup(client, cookies2, csrf2, {"mat_khau": MK_ADMIN}).status_code == 200
++    r2 = client.delete(f"/api/khoa-khach/{kid}", cookies=cookies2, headers=csrf2)
++    assert r2.status_code == 200, r2.text
++
++
++def test_tao_nguoi_dung_thuong_doi_stepup(moi_truong):
++    """Trước đây chỉ tạo admin mới cần step-up; phương án mới: MỌI tạo trong tab đều cần."""
++    client, _ = moi_truong
++    admin = _tao_admin(client)
++    cookies, csrf = _dang_nhap(client, admin["ten_dang_nhap"], MK_ADMIN)
++    r = client.post("/api/nguoi-dung",
++                    json={"ten_dang_nhap": "user-moi-bm", "mat_khau": "MatKhauUserBm0000000000", "vai": "user"},
++                    cookies=cookies, headers=csrf)
++    assert r.status_code == 403, r.text
++    assert _stepup(client, cookies, csrf, {"mat_khau": MK_ADMIN}).status_code == 200
++    r2 = client.post("/api/nguoi-dung",
++                     json={"ten_dang_nhap": "user-moi-bm", "mat_khau": "MatKhauUserBm0000000000", "vai": "user"},
++                     cookies=cookies, headers=csrf)
++    assert r2.status_code == 200, r2.text
++
++
++def test_xoa_nguoi_dung_doi_stepup(moi_truong):
++    client, _ = moi_truong
++    admin = _tao_admin(client)
++    cookies, csrf = _dang_nhap(client, admin["ten_dang_nhap"], MK_ADMIN)
++    assert _stepup(client, cookies, csrf, {"mat_khau": MK_ADMIN}).status_code == 200
++    uid = client.post("/api/nguoi-dung",
++                      json={"ten_dang_nhap": "user-xoa-bm", "mat_khau": "MatKhauUserBm0000000000", "vai": "user"},
++                      cookies=cookies, headers=csrf).json()["nguoi_dung"]["id"]
++    cookies2, csrf2 = _dang_nhap(client, admin["ten_dang_nhap"], MK_ADMIN)
++    r = client.delete(f"/api/nguoi-dung/{uid}", cookies=cookies2, headers=csrf2)
++    assert r.status_code == 403, r.text
++    assert _stepup(client, cookies2, csrf2, {"mat_khau": MK_ADMIN}).status_code == 200
++    assert client.delete(f"/api/nguoi-dung/{uid}", cookies=cookies2, headers=csrf2).status_code == 200
++
++
++def test_quan_tri_tat_2fa_ho_khong_doi_stepup(moi_truong):
++    """Tắt 2FA hộ KHÔNG nằm trong «tạo/xoá» của phương án mới và là đường khôi phục khi
++    kho 2FA hỏng — gắn step-up sẽ khoá chết đường này (xác nhận lại cũng đọc kho 2FA).
++    Giữ nguyên: chỉ cần admin + CSRF là tắt được, không cần step-up."""
++    client, _ = moi_truong
++    admin = _tao_admin(client)
++    cookies, csrf = _dang_nhap(client, admin["ten_dang_nhap"], MK_ADMIN)
++    assert _stepup(client, cookies, csrf, {"mat_khau": MK_ADMIN}).status_code == 200
++    uid = client.post("/api/nguoi-dung",
++                      json={"ten_dang_nhap": "user-2fa-bm", "mat_khau": "MatKhauUserBm0000000000", "vai": "user"},
++                      cookies=cookies, headers=csrf).json()["nguoi_dung"]["id"]
++    cookies2, csrf2 = _dang_nhap(client, admin["ten_dang_nhap"], MK_ADMIN)
++    r = client.post(f"/api/nguoi-dung/{uid}/tat-2fa", cookies=cookies2, headers=csrf2)
++    assert r.status_code == 200, r.text
++
++
++def test_bearer_admin_van_mien_stepup(moi_truong):
++    """Bearer quản trị trực tiếp vẫn được miễn step-up như mọi đường chạm bí mật khác."""
++    client, _ = moi_truong
++    r = client.post("/api/khoa-khach", json={"nhan": "khoa-bearer"}, headers=_qt())
++    assert r.status_code == 200, r.text
++
++
++# ─────────────────────────────────────────────────────────────────────────────
++# (a) Đổi mật khẩu: 2FA bật thì chỉ cần mã 2FA, không cần mật khẩu cũ
++# ─────────────────────────────────────────────────────────────────────────────
++
++
++def test_doi_mat_khau_2fa_on_chi_can_ma(moi_truong, dong_ho):
++    client, _ = moi_truong
++    admin = _tao_admin(client)
++    bi_mat = _bat_2fa_admin(admin, dong_ho)
++    cookies, csrf = _dang_nhap_2fa(client, admin["ten_dang_nhap"], MK_ADMIN, dong_ho, bi_mat)
++    r = client.post("/api/toi/mat-khau",
++                    json={"mat_khau_moi": MK_MOI, "ma_2fa": dong_ho.ma_moi(bi_mat)},
++                    cookies=cookies, headers=csrf)
++    assert r.status_code == 200, r.text
++    # Mật khẩu mới có hiệu lực (đăng nhập lại + 2FA)
++    cookies2, csrf2 = _dang_nhap_2fa(client, admin["ten_dang_nhap"], MK_MOI, dong_ho, bi_mat)
++    assert cookies2.get("w2a_phien"), "đăng nhập bằng mật khẩu mới phải có phiên"
++
++
++def test_doi_mat_khau_2fa_on_thieu_ma_bi_400(moi_truong, dong_ho):
++    client, _ = moi_truong
++    admin = _tao_admin(client)
++    bi_mat = _bat_2fa_admin(admin, dong_ho)
++    cookies, csrf = _dang_nhap_2fa(client, admin["ten_dang_nhap"], MK_ADMIN, dong_ho, bi_mat)
++    r = client.post("/api/toi/mat-khau", json={"mat_khau_moi": MK_MOI},
++                    cookies=cookies, headers=csrf)
++    assert r.status_code == 400, r.text
++
++
++def test_doi_mat_khau_2fa_on_mat_khau_cu_khong_du(moi_truong, dong_ho):
++    """Khi đã bật 2FA, chỉ mật khẩu cũ (không mã) KHÔNG được đổi mật khẩu."""
++    client, _ = moi_truong
++    admin = _tao_admin(client)
++    bi_mat = _bat_2fa_admin(admin, dong_ho)
++    cookies, csrf = _dang_nhap_2fa(client, admin["ten_dang_nhap"], MK_ADMIN, dong_ho, bi_mat)
++    r = client.post("/api/toi/mat-khau",
++                    json={"mat_khau_cu": MK_ADMIN, "mat_khau_moi": MK_MOI},
++                    cookies=cookies, headers=csrf)
++    assert r.status_code in (400, 401), r.text
++    # Mật khẩu cũ vẫn còn hiệu lực
++    _dang_nhap_2fa(client, admin["ten_dang_nhap"], MK_ADMIN, dong_ho, bi_mat)
++
++
++def test_doi_mat_khau_2fa_off_van_can_mat_khau_cu(moi_truong):
++    client, _ = moi_truong
++    admin = _tao_admin(client)
++    cookies, csrf = _dang_nhap(client, admin["ten_dang_nhap"], MK_ADMIN)
++    r = client.post("/api/toi/mat-khau", json={"mat_khau_moi": MK_MOI},
++                    cookies=cookies, headers=csrf)
++    assert r.status_code == 400, r.text
++    r2 = client.post("/api/toi/mat-khau",
++                     json={"mat_khau_cu": MK_ADMIN, "mat_khau_moi": MK_MOI},
++                     cookies=cookies, headers=csrf)
++    assert r2.status_code == 200, r2.text
++
++
++# ─────────────────────────────────────────────────────────────────────────────
++# (b) Hiển thị sau xác thực lại: mật khẩu noVNC (thay never-return của NV305)
++# ─────────────────────────────────────────────────────────────────────────────
++
++
++def _hien(client, cookies, csrf, than, headers=None):
++    return client.post("/api/trinh-duyet/mat-khau-vnc/hien", json=than,
++                       cookies=cookies, headers=headers if headers is not None else csrf)
++
++
++def test_hien_mat_khau_vnc_khong_bang_chung_bi_401(moi_truong):
++    client, mod = moi_truong
++    # Chỉ Bearer quản trị, không bằng chứng tươi trong body → vẫn 401 (không miễn)
++    r = client.post("/api/trinh-duyet/mat-khau-vnc/hien", json={}, headers=_qt())
++    assert r.status_code == 401, r.text
++    assert mod.hien_goi == 0, "không được gọi module khi chưa có bằng chứng"
++
++
++def test_hien_mat_khau_vnc_mat_khau_dung_khi_chua_bat_2fa(moi_truong):
++    client, mod = moi_truong
++    admin = _tao_admin(client)
++    cookies, csrf = _dang_nhap(client, admin["ten_dang_nhap"], MK_ADMIN)
++    r = _hien(client, cookies, csrf, {"mat_khau": MK_ADMIN})
++    assert r.status_code == 200, r.text
++    assert r.json()["mat_khau"] == MK_VNC_TEST
++    assert mod.hien_goi == 1
++
++
++def test_hien_mat_khau_vnc_mat_khau_sai_bi_401(moi_truong):
++    client, mod = moi_truong
++    admin = _tao_admin(client)
++    cookies, csrf = _dang_nhap(client, admin["ten_dang_nhap"], MK_ADMIN)
++    r = _hien(client, cookies, csrf, {"mat_khau": "SaiMatKhau000000000000"})
++    assert r.status_code == 401, r.text
++    assert mod.hien_goi == 0
++
++
++def test_hien_mat_khau_vnc_mat_khau_bi_tu_choi_khi_da_bat_2fa(moi_truong, dong_ho):
++    """Chốt 19:26: khi đã bật 2FA thì CHỈ mã 2FA mở hiển thị, không nhận mật khẩu thay thế."""
++    client, mod = moi_truong
++    admin = _tao_admin(client)
++    bi_mat = _bat_2fa_admin(admin, dong_ho)
++    cookies, csrf = _dang_nhap_2fa(client, admin["ten_dang_nhap"], MK_ADMIN, dong_ho, bi_mat)
++    r = _hien(client, cookies, csrf, {"mat_khau": MK_ADMIN})
++    assert r.status_code == 401, r.text
++    assert "2FA" in r.text
++    assert mod.hien_goi == 0
++
++
++def test_hien_mat_khau_vnc_ma_2fa_dung(moi_truong, dong_ho):
++    client, mod = moi_truong
++    admin = _tao_admin(client)
++    bi_mat = _bat_2fa_admin(admin, dong_ho)
++    cookies, csrf = _dang_nhap_2fa(client, admin["ten_dang_nhap"], MK_ADMIN, dong_ho, bi_mat)
++    r = _hien(client, cookies, csrf, {"ma_2fa": dong_ho.ma_moi(bi_mat)})
++    assert r.status_code == 200, r.text
++    assert r.json()["mat_khau"] == MK_VNC_TEST
++    assert mod.hien_goi == 1
++
++
++def test_hien_mat_khau_vnc_ma_2fa_sai_bi_401(moi_truong, dong_ho):
++    client, mod = moi_truong
++    admin = _tao_admin(client)
++    bi_mat = _bat_2fa_admin(admin, dong_ho)
++    cookies, csrf = _dang_nhap_2fa(client, admin["ten_dang_nhap"], MK_ADMIN, dong_ho, bi_mat)
++    r = _hien(client, cookies, csrf, {"ma_2fa": "000000"})
++    assert r.status_code == 401, r.text
++    assert mod.hien_goi == 0
++
++
++def test_hien_mat_khau_vnc_gioi_han_tan_suat(moi_truong):
++    """Cùng một người gọi hiển thị quá 10 lần/60 giây → 429 (chống dò mật khẩu)."""
++    client, mod = moi_truong
++    admin = _tao_admin(client)
++    cookies, csrf = _dang_nhap(client, admin["ten_dang_nhap"], MK_ADMIN)
++    for _ in range(10):
++        r = _hien(client, cookies, csrf, {"mat_khau": MK_ADMIN})
++        assert r.status_code == 200, r.text
++    r = _hien(client, cookies, csrf, {"mat_khau": MK_ADMIN})
++    assert r.status_code == 429, r.text
++
++
++def test_hien_mat_khau_vnc_khong_phai_admin_bi_403(moi_truong):
++    client, mod = moi_truong
++    admin = _tao_admin(client)
++    cookies, csrf = _dang_nhap(client, admin["ten_dang_nhap"], MK_ADMIN)
++    assert _stepup(client, cookies, csrf, {"mat_khau": MK_ADMIN}).status_code == 200
++    client.post("/api/nguoi-dung",
++                json={"ten_dang_nhap": "user-thuong-bm", "mat_khau": "MatKhauUserBm0000000000", "vai": "user"},
++                cookies=cookies, headers=csrf)
++    cookies_u, csrf_u = _dang_nhap(client, "user-thuong-bm", "MatKhauUserBm0000000000")
++    r = _hien(client, cookies_u, csrf_u, {"mat_khau": "MatKhauUserBm0000000000"})
++    assert r.status_code == 403, r.text
++    assert mod.hien_goi == 0
++
++
++# ─────────────────────────────────────────────────────────────────────────────
++# (c) Công tắc noVNC trong web UI
++# ─────────────────────────────────────────────────────────────────────────────
++
++
++def test_bat_tat_novnc_khong_bool_bi_400(moi_truong):
++    """Không tin client: bat phải là bool thật, chuỗi 'true' hay số 1 đều bị từ chối."""
++    client, mod = moi_truong
++    for bat_xau in ["true", 1, 0, None]:
++        r = client.post("/api/trinh-duyet/man-hinh/bat-tat", json={"bat": bat_xau}, headers=_qt())
++        assert r.status_code == 400, f"bat={bat_xau!r} phải 400, nhận {r.status_code}: {r.text}"
++    assert mod.bat_tat_goi == []
++
++
++def test_bat_tat_novnc_doi_stepup(moi_truong):
++    client, mod = moi_truong
++    admin = _tao_admin(client)
++    cookies, csrf = _dang_nhap(client, admin["ten_dang_nhap"], MK_ADMIN)
++    r = client.post("/api/trinh-duyet/man-hinh/bat-tat", json={"bat": True},
++                    cookies=cookies, headers=csrf)
++    assert r.status_code == 403, r.text
++    assert r.json()["error"]["code"] == "step_up_required"
++    assert mod.bat_tat_goi == []
++    assert _stepup(client, cookies, csrf, {"mat_khau": MK_ADMIN}).status_code == 200
++    r2 = client.post("/api/trinh-duyet/man-hinh/bat-tat", json={"bat": True},
++                     cookies=cookies, headers=csrf)
++    assert r2.status_code == 200, r2.text
++    assert r2.json()["bat"] is True and r2.json()["dang_chay"] is True
++    assert mod.bat_tat_goi == [True]
++
++
++def test_trang_thai_novnc_chi_bool_khong_bi_mat(moi_truong):
++    client, _ = moi_truong
++    r = client.get("/api/trinh-duyet/man-hinh/trang-thai", headers=_qt())
++    assert r.status_code == 200, r.text
++    j = r.json()
++    assert set(j) <= {"ok", "bat", "dang_chay", "x11vnc", "websockify", "da_dat"}
++    assert "mat_khau" not in r.text
++
++
++# ─────────────────────────────────────────────────────────────────────────────
++# (d) Kiểm tra rò rỉ: không GET nào trả bí mật, không giá trị điền sẵn
++# ─────────────────────────────────────────────────────────────────────────────
++
++
++def test_get_khong_tra_bi_mat(moi_truong):
++    client, _ = moi_truong
++    admin = _tao_admin(client)
++    cookies, csrf = _dang_nhap(client, admin["ten_dang_nhap"], MK_ADMIN)
++    assert _stepup(client, cookies, csrf, {"mat_khau": MK_ADMIN}).status_code == 200
++    client.post("/api/khoa-khach", json={"nhan": "khoa-kiem-ro-ri"},
++                cookies=cookies, headers=csrf)
++    r_khoa = client.get("/api/khoa-khach", cookies=cookies, headers=csrf)
++    assert r_khoa.status_code == 200
++    assert "w2a_" not in r_khoa.text and "bam" not in r_khoa.text
++    r_nd = client.get("/api/nguoi-dung", cookies=cookies, headers=csrf)
++    assert r_nd.status_code == 200
++    assert "bam_mat_khau" not in r_nd.text
++    r_tt = client.get("/api/trinh-duyet/mat-khau-vnc/trang-thai", headers=_qt())
++    assert r_tt.status_code == 200
++    assert set(r_tt.json()) <= {"ok", "da_dat"}
++    r_toi = client.get("/api/toi", cookies=cookies, headers=csrf)
++    assert r_toi.status_code == 200
++    assert "bam_mat_khau" not in r_toi.text
++
++
++def test_trang_khong_dien_san_bi_mat():
++    """Ô mật khẩu VNC chỉ nhận từ tay người gõ; bí mật hiện lại nằm ở khoá riêng vncHien."""
++    assert "vncMk: ''" in HTML_BAO_MAT or 'vncMk: ""' in HTML_BAO_MAT
++    import re
++    for m in re.finditer(r"vncMk\s*:\s*([^,}\n]+)", HTML_BAO_MAT):
++        gia_tri = m.group(1).strip()
++        # s.vncMk ở renderVals chỉ là chuyển tiếp state ra khuôn mẫu (state này chỉ nhận
++        # '' hoặc tay người gõ, xem hai trường hợp dưới) — không phải điền sẵn từ máy chủ.
++        assert gia_tri in ("''", '""', "e.target.value", "s.vncMk"), (
++            f"vncMk chỉ được gán '' hoặc từ tay gõ, thấy: {gia_tri}")
++    assert "mat-khau-vnc/hien" in HTML_BAO_MAT, "trang phải có đường hiển thị lại"
++    assert "man-hinh/bat-tat" in HTML_BAO_MAT, "trang phải có công tắc màn hình xem"
++    # Hai câu cũ ở MỤC VNC đã lỗi thời phải hết (cụm «không xem lại được» vẫn đúng cho
++    # mã khôi phục 2FA ở mục khác nên không cấm toàn trang, chỉ cấm đúng câu của mục VNC):
++    assert "Mật khẩu chỉ ghi đè, không xem lại được." not in HTML_BAO_MAT
++    assert "màn hình xem đang dùng mật khẩu do máy tự sinh" not in HTML_BAO_MAT
++    # Mục VNC mới phải nói rõ quy tắc hiển thị lại sau xác thực
++    assert "xác thực lại bằng mật khẩu admin" in HTML_BAO_MAT
++
++
++def test_khung_js_stepup_hoi_ma_2fa_khi_da_bat():
++    """Hộp thoại xác nhận lại của khung.js phải hỏi mã 2FA (không phải mật khẩu)
++    khi người dùng hiện tại đã bật 2FA, để gửi đúng ma_2fa lên /xac-nhan-lai."""
++    assert "ma_2fa" in KHUNG_JS
++    assert "bat_2fa" in KHUNG_JS
++
++
++def test_template_thoat_xss():
++    """Mọi giá trị chèn qua {{ }} trong support.js đều qua thoat/thoatTT (chống XSS
++    từ chuỗi do module/thiết bị cung cấp, vd nhãn khoá khách chứa thẻ script)."""
++    import re
++    for m in re.finditer(r"chu\(lay\(x, p\)\)", SUPPORT_JS):
++        truoc = SUPPORT_JS[max(0, m.start() - 40):m.start()]
++        assert "thoat" in truoc, f"chèn giá trị không qua thoat: ...{truoc[-30:]}"
++    assert "thoat(chu(lay(x, p)))" in SUPPORT_JS
++    assert "thoatTT(val.replace" in SUPPORT_JS
+diff --git a/test/test_web2api_nguoi_dung.py b/test/test_web2api_nguoi_dung.py
+index 6a9e04f..620427c 100644
+--- a/test/test_web2api_nguoi_dung.py
++++ b/test/test_web2api_nguoi_dung.py
+@@ -409,7 +409,11 @@ def test_14_csrf_bat_buoc_cho_cookie_va_mien_cho_bearer(moi_truong):
+     r_sai = client.post("/api/nguoi-dung", cookies={"w2a_phien": tok}, headers={"X-CSRF-Token": "TokenSaiCsrf123"}, json={"vai": "user"})
+     assert r_sai.status_code == 403
+ 
+-    # 3. Cookie + POST đúng header X-CSRF-Token -> 200
++    # 3. Cookie + POST đúng header X-CSRF-Token -> 200 (sau khi xác nhận lại: NV305-bao-mat
++    #    bắt mọi tạo người dùng trong tab Bảo mật đều cần step-up, không chỉ tạo admin)
++    r_step = client.post("/api/toi/xac-nhan-lai", cookies={"w2a_phien": tok},
++                         headers={"X-CSRF-Token": p["csrf"]}, json={"mat_khau": "MatKhauChuan123456"})
++    assert r_step.status_code == 200, r_step.text
+     r_dung = client.post("/api/nguoi-dung", cookies={"w2a_phien": tok}, headers={"X-CSRF-Token": p["csrf"]}, json={"vai": "user"})
+     assert r_dung.status_code == 200
+ 
+diff --git a/test/test_web2api_nv182_step_up_hanh_dong.py b/test/test_web2api_nv182_step_up_hanh_dong.py
+index 313d11e..dd134b3 100644
+--- a/test/test_web2api_nv182_step_up_hanh_dong.py
++++ b/test/test_web2api_nv182_step_up_hanh_dong.py
+@@ -115,5 +115,8 @@ def test_giao_dien_co_duong_xac_nhan_lai_khong_dung_innerhtml():
+     from pathlib import Path
+     ma = (Path(__file__).resolve().parents[1] / "web" / "khung.js").read_text(encoding="utf-8")
+     assert "step_up_required" in ma and "api/toi/xac-nhan-lai" in ma
+-    ham = ma[ma.index("function hoiMatKhauXacNhanLai"):ma.index("async function goi(")]
++    ham = ma[ma.index("function hoiBangChungXacNhanLai"):ma.index("async function goi(")]
+     assert "innerHTML" not in ham and "type = 'password'" in ham
++    # NV305-bao-mat: khi người hiện tại đã bật 2FA thì hỏi mã 2FA thay cho mật khẩu
++    # (máy chủ từ chối mật khẩu khi đã bật 2FA).
++    assert "ma_2fa" in ham and "bat_2fa" in ham
+diff --git a/web/He-thong-Bao-mat.dc.html b/web/He-thong-Bao-mat.dc.html
+index 40397ca..6a85391 100644
+--- a/web/He-thong-Bao-mat.dc.html
++++ b/web/He-thong-Bao-mat.dc.html
+@@ -424,9 +424,9 @@ main.pg{padding:12px 24px 24px 16px}
+      trong chip «Cài đặt» của module) ═══ -->
+ <section class="the" aria-labelledby="h-mat-khau-xem" id="mat-khau-xem-trinh-duyet">
+ <h2 id="h-mat-khau-xem" class="nhan-muc">Mật khẩu xem trình duyệt đăng nhập</h2>
+-<p class="phu">Mật khẩu nhập một lần ở hộp nhập của màn hình xem khi xem màn hình trình duyệt đang đăng nhập tự động — đây là mật khẩu để MỞ MÀN HÌNH XEM, không phải mật khẩu tài khoản AI. Chỉ có 1–8 ký tự hiệu lực: giao thức xem màn hình (VNC) chỉ dùng 8 ký tự đầu, gõ dài hơn cũng không có tác dụng. Mật khẩu chỉ ghi đè, không xem lại được.</p>
+-<sc-if value="{{vncDaDat}}"><p class="phu" id="vnc-da-dat">••••• đã đặt — người đang xem phải nhập mật khẩu này ở hộp nhập của màn hình xem. Muốn đổi thì gõ mật khẩu mới rồi bấm «Đổi».</p></sc-if>
+-<sc-if value="{{vncChuaDat}}"><p class="phu" id="vnc-chua-dat">Chưa đặt qua giao diện này — màn hình xem đang dùng mật khẩu do máy tự sinh (đọc trong máy đăng nhập mới thấy). Đặt một mật khẩu mới ở dưới để khỏi phải đọc trong máy nữa.</p></sc-if>
++<p class="phu">Mật khẩu nhập một lần ở hộp nhập của màn hình xem khi xem màn hình trình duyệt đang đăng nhập tự động — đây là mật khẩu để MỞ MÀN HÌNH XEM, không phải mật khẩu tài khoản AI. Chỉ có 1–8 ký tự hiệu lực: giao thức xem màn hình (VNC) chỉ dùng 8 ký tự đầu, gõ dài hơn cũng không có tác dụng. Mật khẩu sau khi đặt thì ẩn đi; muốn xem lại thì bấm «Hiện» rồi xác thực lại bằng mật khẩu admin (hoặc mã 2FA nếu đã bật 2FA).</p>
++<sc-if value="{{vncDaDat}}"><p class="phu" id="vnc-da-dat">••••• đã đặt — người đang xem phải nhập mật khẩu này ở hộp nhập của màn hình xem. Muốn xem lại thì bấm «Hiện» rồi xác thực lại. Muốn đổi thì gõ mật khẩu mới rồi bấm «Đổi».</p></sc-if>
++<sc-if value="{{vncChuaDat}}"><p class="phu" id="vnc-chua-dat">Chưa đặt qua giao diện này — màn hình xem chưa mở được cho tới khi đặt mật khẩu ở dưới.</p></sc-if>
+ <form class="form-mat-khau-vnc" novalidate onSubmit="{{vncDatSubmit}}" style="display:flex;flex-direction:column;gap:12px">
+ <div class="truong">
+ <label for="o-mat-khau-vnc">Mật khẩu xem trình duyệt (1–8 ký tự)</label>
+@@ -436,6 +436,27 @@ main.pg{padding:12px 24px 24px 16px}
+ <sc-if value="{{vncTin}}"><p class="bao bao-tot" id="tin-mat-khau-vnc">{{vncTin}}</p></sc-if>
+ <div class="dong-nut"><button type="submit" class="nut nut-chinh" id="nut-dat-mat-khau-vnc" disabled="{{vncDangDat}}">{{vncNhanNut}}</button></div>
+ </form>
++<sc-if value="{{vncDaDat}}">
++<div class="dong-nut"><button type="button" class="nut" id="nut-hien-mat-khau-vnc" onClick="{{vncHienBam}}" disabled="{{vncDangHien}}">{{vncNhanHien}}</button></div>
++</sc-if>
++<sc-if value="{{vncHien}}">
++<div class="the the-ket-noi-moi" role="status">
++<p class="phu">Mật khẩu xem trình duyệt (chỉ hiện sau khi bạn xác thực lại ở trên):</p>
++<div class="ma" id="mat-khau-vnc-da-hien" style="word-break:break-all;user-select:all;padding:8px 10px;background:var(--nen-nhat,#FBFAF8);border:1px solid var(--line);border-radius:8px">{{vncHien}}</div>
++<div class="dong-nut"><button type="button" class="nut" id="nut-an-mat-khau-vnc" onClick="{{vncAnBam}}">Ẩn</button></div>
++</div>
++</sc-if>
++<sc-if value="{{vncHienLoi}}"><p role="alert" class="bao bao-loi" id="loi-hien-mat-khau-vnc">{{vncHienLoi}}</p></sc-if>
++<div class="truong">
++<label for="o-bat-tat-man-hinh">Màn hình xem</label>
++<p class="phu">Bật thì mới mở được màn hình xem trình duyệt đang đăng nhập; tắt thì không mở được, mật khẩu đã đặt vẫn giữ nguyên. Bật khi chưa đặt mật khẩu sẽ bị từ chối — đặt mật khẩu trước rồi bật.</p>
++<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
++<input type="checkbox" id="o-bat-tat-man-hinh" checked="{{manHinhBat}}" onChange="{{manHinhDoiBam}}" disabled="{{manHinhDangDoi}}">
++<span id="trang-thai-man-hinh">{{manHinhTrangThai}}</span>
++</div>
++<sc-if value="{{manHinhLoi}}"><p role="alert" class="bao bao-loi" id="loi-bat-tat-man-hinh">{{manHinhLoi}}</p></sc-if>
++<sc-if value="{{manHinhTin}}"><p class="bao bao-tot" id="tin-bat-tat-man-hinh">{{manHinhTin}}</p></sc-if>
++</div>
+ </section>
+ </sc-if>
+ 
+@@ -750,6 +771,16 @@ class Component extends DCLogic {
+       vncDangDat: false,
+       vncLoi: '',
+       vncTin: '',
++      // NV305-bao-mat: hiển thị lại mật khẩu sau xác thực lại (khoá riêng, không dùng vncMk
++      // để ô nhập không bao giờ nhận giá trị từ máy chủ) + công tắc màn hình xem runtime
++      vncHien: '',
++      vncHienLoi: '',
++      vncDangHien: false,
++      manHinhBat: false,
++      manHinhDangChay: null,
++      manHinhDangDoi: false,
++      manHinhLoi: '',
++      manHinhTin: '',
+ 
+       // Khoá API của tôi (mọi người dùng)
+       dsKhoaToi: [],
+@@ -856,7 +887,7 @@ class Component extends DCLogic {
+     await this.taiKhoaToi();
+     await this.tai2fa();
+     if (laAdmin) {
+-      await Promise.allSettled([this.taiDsNguoiDung(), this.taiDsKhoa(), this.taiKhoaDn(), this.taiVncTrangThai()]);
++      await Promise.allSettled([this.taiDsNguoiDung(), this.taiDsKhoa(), this.taiKhoaDn(), this.taiVncTrangThai(), this.taiManHinhTrangThai()]);
+       setTimeout(() => this.cuonToiNeoDvn(), 0);
+     }
+   }
+@@ -1280,9 +1311,13 @@ class Component extends DCLogic {
+ 
+   // ═══════════════════════════════════════════════════════════════
+   // NV305: MẬT KHẨU XEM TRÌNH DUYỆT (VNC) DO CHỦ MÁY TỰ ĐẶT (ADMIN)
+-  // Ghi đè, không đọc lại: giao diện chỉ biết «đã đặt hay chưa» qua GET trạng thái,
+-  // không bao giờ nhận mật khẩu về. PUT có step-up: K.goi tự hỏi mật khẩu xác nhận lại
+-  // khi máy chủ trả 403 step_up_required rồi thử lại một lần.
++  // Đặt: giao diện chỉ biết «đã đặt hay chưa» qua GET trạng thái, không bao giờ nhận
++  // mật khẩu về. PUT có step-up: K.goi tự hỏi bằng chứng xác nhận lại khi máy chủ trả
++  // 403 step_up_required rồi thử lại một lần.
++  // NV305-bao-mat: hiển thị lại + công tắc màn hình xem. Hiển thị KHÔNG qua cửa sổ step-up:
++  // bằng chứng tươi (mật khẩu admin khi chưa bật 2FA, mã 2FA khi đã bật 2FA) nằm trong
++  // chính lời gọi POST tới đường hiển thị, xác minh ngay lúc đó; mật khẩu hiện lại nằm
++  // ở khoá riêng vncHien (ô nhập vncMk không bao giờ nhận giá trị từ máy chủ).
+   // ═══════════════════════════════════════════════════════════════
+ 
+   async taiVncTrangThai() {
+@@ -1296,6 +1331,85 @@ class Component extends DCLogic {
+     }
+   }
+ 
++  async taiManHinhTrangThai() {
++    try {
++      const { j } = await K.goi('api/trinh-duyet/man-hinh/trang-thai');
++      this.setState({ manHinhBat: !!(j && j.bat), manHinhDangChay: !!(j && j.dang_chay) });
++    } catch (e) {
++      this.setState({ manHinhBat: false, manHinhDangChay: null });
++    }
++  }
++
++  async manHinhDoiBam(e) {
++    const bat = !!(e && e.target && e.target.checked);
++    if (this.state.manHinhDangDoi) return;
++    this.setState({ manHinhDangDoi: true, manHinhLoi: '', manHinhTin: '' });
++    try {
++      const { j } = await K.goi('api/trinh-duyet/man-hinh/bat-tat', { method: 'POST', json: { bat } });
++      this.setState({
++        manHinhDangDoi: false,
++        manHinhBat: !!(j && j.bat),
++        manHinhDangChay: !!(j && j.dang_chay),
++        manHinhTin: bat ? 'Đã bật màn hình xem.' : 'Đã tắt màn hình xem (mật khẩu đã đặt vẫn giữ nguyên).',
++      });
++    } catch (err) {
++      this.setState({ manHinhDangDoi: false, manHinhLoi: err.message || 'Lỗi khi bật/tắt màn hình xem.' });
++    }
++  }
++
++  // Hộp thoại hỏi bằng chứng tươi cho một lần hiển thị (riêng của trang này, giống hộp
++  // thoại step-up của khung.js nhưng không đi qua cửa sổ step-up): mật khẩu che ký tự
++  // khi chưa bật 2FA, mã 2FA khi đã bật 2FA. Chỉ dùng textContent, không innerHTML.
++  hoiBangChungHien() {
++    const dung2fa = !!(this.state.toi && this.state.toi.bat_2fa);
++    return new Promise((xong) => {
++      const hop = document.createElement('dialog');
++      hop.style.cssText = 'max-width:min(92vw,360px);padding:16px;border-radius:12px;border:1px solid #8884';
++      const td = document.createElement('p');
++      td.textContent = dung2fa
++        ? 'Nhập mã 2FA (6 số, hoặc một mã khôi phục) để hiển thị mật khẩu xem trình duyệt:'
++        : 'Nhập lại mật khẩu admin để hiển thị mật khẩu xem trình duyệt:';
++      const o = document.createElement('input');
++      if (dung2fa) {
++        o.type = 'text'; o.autocomplete = 'one-time-code'; o.setAttribute('aria-label', 'Mã 2FA');
++      } else {
++        o.type = 'password'; o.autocomplete = 'current-password'; o.setAttribute('aria-label', 'Mật khẩu admin');
++      }
++      o.style.cssText = 'width:100%;box-sizing:border-box;min-height:44px;margin:8px 0';
++      const hang = document.createElement('div');
++      hang.style.cssText = 'display:flex;gap:8px;justify-content:flex-end';
++      const huy = document.createElement('button'); huy.type = 'button'; huy.textContent = 'Huỷ'; huy.style.minHeight = '44px';
++      const dong = document.createElement('button'); dong.type = 'button'; dong.textContent = 'Hiển thị'; dong.style.minHeight = '44px';
++      let kq = null;
++      huy.onclick = () => hop.close();
++      dong.onclick = () => {
++        const v = (o.value || '').trim();
++        kq = v ? (dung2fa ? { ma_2fa: v } : { mat_khau: v }) : null;
++        hop.close();
++      };
++      o.onkeydown = (ev) => { if (ev.key === 'Enter') dong.onclick(); };
++      hop.onclose = () => { hop.remove(); xong(kq); };
++      hang.append(huy, dong); hop.append(td, o, hang);
++      document.body.appendChild(hop);
++      hop.showModal(); o.focus();
++    });
++  }
++
++  async vncHienBam() {
++    if (this.state.vncDangHien) return;
++    const chung = await this.hoiBangChungHien();
++    if (!chung) return;
++    this.setState({ vncDangHien: true, vncHienLoi: '', vncHien: '' });
++    try {
++      const { j } = await K.goi('api/trinh-duyet/mat-khau-vnc/hien', { method: 'POST', json: chung });
++      this.setState({ vncDangHien: false, vncHien: (j && j.mat_khau) || '', vncHienLoi: '' });
++    } catch (err) {
++      this.setState({ vncDangHien: false, vncHien: '', vncHienLoi: err.message || 'Lỗi khi hiển thị mật khẩu.' });
++    }
++  }
++
++  vncAnBam() { this.setState({ vncHien: '', vncHienLoi: '' }); }
++
+   vncGoMk(e) { this.setState({ vncMk: e.target.value, vncLoi: '', vncTin: '' }); }
+ 
+   async vncDatSubmit(e) {
+@@ -2067,6 +2181,22 @@ class Component extends DCLogic {
+       vncNhanNut: s.vncDangDat ? 'Đang đặt…' : (s.vncDaDat ? 'Đổi' : 'Đặt'),
+       vncLoi: s.vncLoi,
+       vncTin: s.vncTin,
++      // NV305-bao-mat: hiển thị lại sau xác thực lại + công tắc màn hình xem
++      vncHien: s.vncHien,
++      vncHienLoi: s.vncHienLoi,
++      vncDangHien: s.vncDangHien,
++      vncHienBam: () => this.vncHienBam(),
++      vncNhanHien: s.vncDangHien ? 'Đang hiện…' : 'Hiện',
++      vncAnBam: () => this.vncAnBam(),
++      manHinhBat: s.manHinhBat,
++      manHinhDangDoi: s.manHinhDangDoi,
++      manHinhDoiBam: (e) => this.manHinhDoiBam(e),
++      manHinhLoi: s.manHinhLoi,
++      manHinhTin: s.manHinhTin,
++      manHinhTrangThai: s.manHinhDangChay === null ? 'Chưa rõ trạng thái (module chưa cài hoặc dịch vụ chưa hỗ trợ).'
++        : (s.manHinhBat
++          ? (s.manHinhDangChay ? 'Đang bật — màn hình xem đang chạy.' : 'Đang bật — màn hình xem chưa chạy.')
++          : 'Đang tắt — không mở được màn hình xem.'),
+ 
+       // NV289: Khoá cho dịch vụ ngoài gọi vào
+       dvn: this.vmDichVuNgoai(s),
+diff --git a/web/khung.js b/web/khung.js
+index 9c2d1cf..deca051 100644
+--- a/web/khung.js
++++ b/web/khung.js
+@@ -248,16 +248,26 @@
+     || ('máy chủ trả HTTP ' + ma);
+   function taoLoi(tin, ma, code) { const e = new Error(tin); e.ma = ma; e.code = code || null; return e; }
+ 
+-  // Step-up: máy chủ đòi xác nhận lại (403 step_up_required) → hỏi mật khẩu trong hộp thoại (type=password, chỉ textContent),
+-  // gửi api/toi/xac-nhan-lai rồi thử lại đúng MỘT lần. Trả null nếu người dùng bỏ qua.
+-  function hoiMatKhauXacNhanLai() {
++  // Step-up: máy chủ đòi xác nhận lại (403 step_up_required) → hỏi bằng chứng trong hộp thoại
++  // (chỉ textContent), gửi api/toi/xac-nhan-lai rồi thử lại đúng MỘT lần. Trả null nếu người dùng bỏ qua.
++  // NV305-bao-mat (a): người hiện tại đã bật 2FA (napToi trả bat_2fa) thì hỏi MÃ 2FA thay cho
++  // mật khẩu — máy chủ từ chối mật khẩu khi đã bật 2FA, nên hỏi mật khẩu ở đây chỉ tổ thêm một
++  // lần thất bại. Mã khôi phục 2FA cũng được chấp nhận ở ô này (16 ký tự, không chỉ 6 số).
++  function hoiBangChungXacNhanLai() {
++    const dung2fa = !!(typeof nguoiDungHienTai !== 'undefined' && nguoiDungHienTai && nguoiDungHienTai.bat_2fa);
+     return new Promise((xong) => {
+       const hop = document.createElement('dialog');
+       hop.style.cssText = 'max-width:min(92vw,360px);padding:16px;border-radius:12px;border:1px solid #8884';
+       const td = document.createElement('p');
+-      td.textContent = 'Thao tác nguy hiểm cần xác nhận lại. Nhập mật khẩu của bạn để tiếp tục.';
++      td.textContent = dung2fa
++        ? 'Thao tác nguy hiểm cần xác nhận lại. Nhập mã 2FA (6 số, hoặc một mã khôi phục) để tiếp tục.'
++        : 'Thao tác nguy hiểm cần xác nhận lại. Nhập mật khẩu của bạn để tiếp tục.';
+       const o = document.createElement('input');
+-      o.type = 'password'; o.autocomplete = 'current-password'; o.setAttribute('aria-label', 'Mật khẩu');
++      if (dung2fa) {
++        o.type = 'text'; o.autocomplete = 'one-time-code'; o.setAttribute('aria-label', 'Mã 2FA');
++      } else {
++        o.type = 'password'; o.autocomplete = 'current-password'; o.setAttribute('aria-label', 'Mật khẩu');
++      }
+       o.style.cssText = 'width:100%;box-sizing:border-box;min-height:44px;margin:8px 0';
+       const hang = document.createElement('div');
+       hang.style.cssText = 'display:flex;gap:8px;justify-content:flex-end';
+@@ -265,7 +275,7 @@
+       const dong = document.createElement('button'); dong.type = 'button'; dong.textContent = 'Xác nhận'; dong.style.minHeight = '44px';
+       let kq = null;
+       huy.onclick = () => hop.close();
+-      dong.onclick = () => { kq = o.value || null; hop.close(); };
++      dong.onclick = () => { const v = (o.value || '').trim(); kq = v ? (dung2fa ? { ma_2fa: v } : { mat_khau: v }) : null; hop.close(); };
+       o.onkeydown = (ev) => { if (ev.key === 'Enter') dong.onclick(); };
+       hop.onclose = () => { hop.remove(); xong(kq); };
+       hang.append(huy, dong); hop.append(td, o, hang);
+@@ -328,12 +338,12 @@
+       } catch (_) {}
+     }
+ 
+-    // Step-up: hỏi mật khẩu, xác nhận lại rồi thử lại MỘT lần (sai mật khẩu → báo đúng lỗi của máy chủ)
++    // Step-up: hỏi bằng chứng, xác nhận lại rồi thử lại MỘT lần (sai bằng chứng → báo đúng lỗi của máy chủ)
+     if (r.status === 403 && code === 'step_up_required' && !tc._daThuLaiStepUp && typeof document !== 'undefined') {
+       tc._daThuLaiStepUp = true;
+-      const mk = await hoiMatKhauXacNhanLai();
+-      if (mk) {
+-        await goi('api/toi/xac-nhan-lai', { method: 'POST', json: { mat_khau: mk } });
++      const chung = await hoiBangChungXacNhanLai();
++      if (chung) {
++        await goi('api/toi/xac-nhan-lai', { method: 'POST', json: chung });
+         return await goi(duong, tc);
+       }
+     }
