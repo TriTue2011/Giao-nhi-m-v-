@@ -1,0 +1,338 @@
+diff --git a/modules/youtube/web/index.html b/modules/youtube/web/index.html
+index cc5bb05..a80d0fd 100644
+--- a/modules/youtube/web/index.html
++++ b/modules/youtube/web/index.html
+@@ -31,6 +31,25 @@
+     .thanh-chip-duoi .nut { flex: 0 0 auto; white-space: nowrap; }
+   }
+   .hang-kq .kenh { color: #555; font-size: 13px; }
++  /* NV304b — bố cục đúng demo: tìm lên trên cùng; màn hình rộng (≥1024px)
++     thì thẻ đang phát bên trái, kết quả bên phải; hẹp hơn thì một cột. */
++  .luoi-2-cot { display: flex; flex-direction: column; gap: 16px; }
++  .luoi-2-cot .cot-trai, .luoi-2-cot .cot-phai { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
++  @media (min-width: 1024px) {
++    .luoi-2-cot { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); gap: 16px; align-items: start; }
++  }
++  /* Nút tròn có biểu tượng SVG (demo) cho Phát/Queue/Playlist ở kết quả
++     tìm kiếm: 40px, chạm được bằng ngón tay, nhãn đầy đủ qua aria-label
++     (chữ vẫn có trong mã để công cụ đọc màn hình và test cũ tìm thấy). */
++  .nut-tron { flex: none; width: 40px; height: 40px; padding: 0; border-radius: 50%;
++         border: 1px solid #ddd; background: #fff; color: #181816; cursor: pointer;
++         display: inline-flex; align-items: center; justify-content: center; }
++  .nut-tron:hover { background: #f5f5f5; }
++  .nut-tron:focus-visible { outline: 2px solid #181816; outline-offset: 2px; }
++  .nut-tron:disabled { opacity: .55; cursor: not-allowed; }
++  .nut-tron.nut-chinh { background: #181816; color: #fff; border-color: #181816; }
++  .nut-tron.nut-chinh:hover { background: #333; }
++  .nut-tron svg { width: 22px; height: 22px; display: block; }
+   /* NV304a: nhúng trong tab Đời sống (?nhung=1) thì ẩn chrome của trang tab
+      (nút quay lại + tiêu đề) — Đời sống đã có tiêu đề và chip của nó. */
+   html.nhung .quay-lai, html.nhung .tieu-de-trang { display: none; }
+@@ -38,6 +57,11 @@
+   .hang-kq .hang-nut .nut { flex: none; }
+   .phien-dang-chon { background: #fff8e1; }
+   @media (prefers-color-scheme: dark) {
++    .nut-tron { background: #333; border-color: #555; color: #eee; }
++    .nut-tron:hover { background: #444; }
++    .nut-tron:focus-visible { outline-color: #eee; }
++    .nut-tron.nut-chinh { background: #f0f0f0; color: #111; border-color: #f0f0f0; }
++    .nut-tron.nut-chinh:hover { background: #ddd; }
+     .bia, .hang-kq img { background: #333; }
+     .chip-nguon { background: #333; }
+     .thanh-tien-do { background: #444; }
+@@ -57,7 +81,26 @@
+     máy chủ (trình duyệt không giữ khoá nào). Mục nào chưa có thì ẩn — không có nút chết.</p>
+   <p class="bao bao-loi" id="loi-chung" role="alert" hidden></p>
+ 
+-  <section class="the" aria-labelledby="tieu-de-dang-phat">
++<section class="the" aria-labelledby="tieu-de-tim">
++    <h2 id="tieu-de-tim">Tìm kiếm</h2>
++    <div class="hang-nut" role="group" aria-label="Nguồn tìm">
++      <button class="nut nut-chinh" id="chip-yt" type="button" aria-pressed="true">YouTube</button>
++      <button class="nut" id="chip-zing" type="button" aria-pressed="false">Zing MP3</button>
++      <button class="nut" id="chip-fb" type="button" aria-pressed="false">Facebook</button>
++    </div>
++    <label for="o-tu-khoa">Từ khoá hoặc link bài, link playlist</label>
++    <div class="o-va-nut">
++      <input class="o" id="o-tu-khoa" maxlength="2048" autocomplete="off"
++             placeholder="Tên bài, ca sĩ… hoặc dán link YouTube">
++      <button class="nut nut-chinh" id="nut-tim" type="button">Tìm</button>
++    </div>
++    <p class="phu" id="ghi-chu-nguon">Tìm trên YouTube: gõ từ khoá hoặc dán link bài/playlist.</p>
++    <p class="bao bao-loi" id="loi-tim" role="alert" hidden></p>
++  </section>
++
++  <div class="luoi-2-cot">
++    <div class="cot-trai">
++<section class="the" aria-labelledby="tieu-de-dang-phat">
+     <h2 id="tieu-de-dang-phat">Đang phát</h2>
+     <img class="bia" id="anh-bia" alt="" hidden>
+     <p>
+@@ -78,38 +121,28 @@
+       <button class="nut" id="nut-sau" type="button" disabled>Bài kế ⏭</button>
+       <button class="nut" id="nut-dung" type="button" disabled>⏹ Dừng hẳn</button>
+     </div>
+-    <p><button class="nut nut-nho" id="nut-man-hinh" type="button">🌙 Nghe khi tắt màn hình</button></p>
++    <p><button class="nut nut-nho" id="nut-man-hinh" type="button"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 13A8 8 0 0 1 11 4a8 8 0 1 0 9 9z"></path></svg> Nghe khi tắt màn hình</button></p>
+     <p class="bao bao-vang" id="bao-man-hinh" hidden></p>
+   </section>
+ 
+-  <section class="the" aria-labelledby="tieu-de-nhom">
++<section class="the" aria-labelledby="tieu-de-nhom">
+     <h2 id="tieu-de-nhom">Nhóm đang phát — bấm để điều khiển</h2>
+     <p class="phu">Mỗi nhóm loa/tivi đang phát là một phiên riêng. Bấm một nhóm
+       để các nút ở trên điều khiển nhóm đó.</p>
+     <ul class="ds-kq" id="ds-nhom" aria-live="polite"></ul>
+   </section>
+-
+-  <section class="the" aria-labelledby="tieu-de-tim">
+-    <h2 id="tieu-de-tim">Tìm kiếm</h2>
+-    <div class="hang-nut" role="group" aria-label="Nguồn tìm">
+-      <button class="nut nut-chinh" id="chip-yt" type="button" aria-pressed="true">YouTube</button>
+-      <button class="nut" id="chip-zing" type="button" aria-pressed="false">Zing MP3</button>
+-      <button class="nut" id="chip-fb" type="button" aria-pressed="false">Facebook</button>
+-    </div>
+-    <label for="o-tu-khoa">Từ khoá hoặc link bài, link playlist</label>
+-    <div class="o-va-nut">
+-      <input class="o" id="o-tu-khoa" maxlength="2048" autocomplete="off"
+-             placeholder="Tên bài, ca sĩ… hoặc dán link YouTube">
+-      <button class="nut nut-chinh" id="nut-tim" type="button">Tìm</button>
+     </div>
+-    <p class="phu" id="ghi-chu-nguon">Tìm trên YouTube: gõ từ khoá hoặc dán link bài/playlist.</p>
+-    <p class="bao bao-loi" id="loi-tim" role="alert" hidden></p>
++    <div class="cot-phai">
++  <section class="the" aria-labelledby="tieu-de-ket-qua">
++    <h2 id="tieu-de-ket-qua">Kết quả</h2>
+     <label for="o-playlist-nhan">Playlist nhận bài khi bấm «Thêm vào Playlist»</label>
+     <select class="o" id="o-playlist-nhan" aria-label="Playlist nhận bài"></select>
+     <ul class="ds-kq" id="ds-ket-qua" aria-live="polite"></ul>
+   </section>
++    </div>
++  </div>
+ 
+-  <section class="the" aria-labelledby="tieu-de-playlist">
++<section class="the" aria-labelledby="tieu-de-playlist">
+     <h2 id="tieu-de-playlist">Playlist</h2>
+     <label for="o-nhap-text">Nhập playlist: link playlist YouTube hoặc mã chia sẻ TTPL1.</label>
+     <div class="o-va-nut">
+@@ -130,13 +163,13 @@
+     <ul class="ds-kq" id="ds-playlist" aria-live="polite"></ul>
+   </section>
+ 
+-  <section class="the" aria-labelledby="tieu-de-queue">
++<section class="the" aria-labelledby="tieu-de-queue">
+     <h2 id="tieu-de-queue">Hàng đợi</h2>
+     <p class="phu" id="queue-tom-tat">Chưa có phiên nào đang chạy.</p>
+     <ul class="ds-kq" id="ds-queue" aria-live="polite"></ul>
+   </section>
+ 
+-  <section class="the" aria-labelledby="tieu-de-loa">
++<section class="the" aria-labelledby="tieu-de-loa">
+     <h2 id="tieu-de-loa">Loa &amp; tivi</h2>
+     <p class="phu">Chọn loa/tivi rồi bấm «Phát» ở kết quả tìm kiếm hoặc playlist.
+       Danh sách lấy từ module Home Assistant.</p>
+@@ -149,7 +182,7 @@
+     <p class="bao bao-loi" id="loi-loa" role="alert" hidden></p>
+   </section>
+ 
+-  <section class="the" aria-labelledby="tieu-de-cai-dat">
++<section class="the" aria-labelledby="tieu-de-cai-dat">
+     <h2 id="tieu-de-cai-dat"><button type="button" class="muc-gap-nut" data-mo-muc="cai-dat"
+         aria-expanded="false" aria-controls="nd-cai-dat">
+       <span>Cài đặt</span><span class="mui" aria-hidden="true">▾</span></button></h2>
+diff --git a/modules/youtube/web/trang.js b/modules/youtube/web/trang.js
+index cb2ef6d..2eba105 100644
+--- a/modules/youtube/web/trang.js
++++ b/modules/youtube/web/trang.js
+@@ -321,6 +321,61 @@ async function taiTrangThai() {
+ }
+ 
+ /* ── tìm kiếm ─────────────────────────────────────────────────────── */
++/* NV304b: nút tròn SVG cho kết quả tìm kiếm (đúng demo). SVG dựng bằng
++   createElementNS — KHÔNG innerHTML, giữ quy ước NV301 (dữ liệu ngoài
++   chỉ qua textContent); ba biểu tượng đều là hằng trong mã, không chứa
++   dữ liệu ngoài. Nhãn đầy đủ nằm ở aria-label + title. */
++const NS_SVG = 'http://www.w3.org/2000/svg';
++function svgKhoi() {
++  const s = document.createElementNS(NS_SVG, 'svg');
++  s.setAttribute('viewBox', '0 0 24 24');
++  s.setAttribute('aria-hidden', 'true');
++  return s;
++}
++function svgDuong(s, d) {
++  const p = document.createElementNS(NS_SVG, 'path');
++  p.setAttribute('d', d);
++  p.setAttribute('fill', 'none');
++  p.setAttribute('stroke', 'currentColor');
++  p.setAttribute('stroke-width', '1.8');
++  p.setAttribute('stroke-linecap', 'round');
++  p.setAttribute('stroke-linejoin', 'round');
++  s.append(p);
++  return s;
++}
++function svgPhat() {
++  const s = svgKhoi();
++  const p = document.createElementNS(NS_SVG, 'path');
++  p.setAttribute('d', 'M8 5.5v13l11-6.5z');
++  p.setAttribute('fill', 'currentColor');
++  s.append(p);
++  return s;
++}
++function svgHangDoi() {
++  return svgDuong(svgDuong(svgKhoi(), 'M4 6h12M4 12h12M4 18h8'), 'M18 15v6M15 18h6');
++}
++function svgPlaylist() {
++  const s = svgKhoi();
++  svgDuong(s, 'M9 18V6l10-2v11');
++  ['M6.5 18a2.5 2.5 0 1 0 0 .01', 'M16.5 15a2.5 2.5 0 1 0 0 .01'].forEach((d) => {
++    const c = document.createElementNS(NS_SVG, 'path');
++    c.setAttribute('d', d);
++    c.setAttribute('fill', 'none');
++    c.setAttribute('stroke', 'currentColor');
++    c.setAttribute('stroke-width', '1.8');
++    s.append(c);
++  });
++  return s;
++}
++function nutTron(nhan, veSvg, lopThem) {
++  const b = el('button', 'nut-tron' + (lopThem ? ' ' + lopThem : ''));
++  b.type = 'button';
++  b.setAttribute('aria-label', nhan);
++  b.title = nhan;
++  b.append(veSvg());
++  return b;
++}
++
+ function nutKetQua(muc) {
+   const li = el('li', 'hang-kq');
+   if (muc.thumbnail) {
+@@ -336,8 +391,7 @@ function nutKetQua(muc) {
+     (muc.duration ? ' · ' + dinhDangGiay(muc.duration) : '')));
+   li.append(nd);
+   const mucTieu = muc.source === 'zing' ? (muc.url || muc.id) : muc.id;
+-  const nutPhat = el('button', 'nut nut-nho nut-chinh', 'Phát');
+-  nutPhat.type = 'button';
++  const nutPhat = nutTron('Phát', svgPhat, 'nut-chinh');
+   nutPhat.addEventListener('click', async () => {
+     try {
+       const loa = loaDaChon();
+@@ -351,8 +405,7 @@ function nutKetQua(muc) {
+       if (String(e.message) !== 'het_phien') hienLoi('loi-tim', e.message);
+     }
+   });
+-  const nutQueue = el('button', 'nut nut-nho', 'Thêm vào Queue');
+-  nutQueue.type = 'button';
++  const nutQueue = nutTron('Thêm vào Queue', svgHangDoi);
+   nutQueue.addEventListener('click', async () => {
+     try {
+       const thamSo = { muc_tieu: mucTieu, nguon: muc.source };
+@@ -364,8 +417,7 @@ function nutKetQua(muc) {
+       if (String(e.message) !== 'het_phien') hienLoi('loi-tim', e.message);
+     }
+   });
+-  const nutPl = el('button', 'nut nut-nho', 'Thêm vào Playlist');
+-  nutPl.type = 'button';
++  const nutPl = nutTron('Thêm vào Playlist', svgPlaylist);
+   nutPl.addEventListener('click', async () => {
+     try {
+       const pid = $('o-playlist-nhan').value;
+diff --git a/test/test_module_youtube_nv304_b.py b/test/test_module_youtube_nv304_b.py
+new file mode 100644
+index 0000000..ad0cf74
+--- /dev/null
++++ b/test/test_module_youtube_nv304_b.py
+@@ -0,0 +1,94 @@
++"""NV304 mảnh (b) — trình phát đúng demo: tìm lên trên cùng, 2 cột màn
++hình rộng, nút tròn SVG cho Phát/Queue/Playlist.
++
++Kiểm bằng phân tích HTML tĩnh (html.parser) + đọc trang.js, không cần
++trình duyệt thật (máy này không có Chrome):
++- Thứ tự mục: «Tìm kiếm» trước «Đang phát»; có mục «Kết quả» riêng
++  chứa <ul id="ds-ket-qua">; «Đang phát» + «Nhóm đang phát» ở cột trái,
++  «Kết quả» ở cột phải, cả hai trong .luoi-2-cot.
++- CSS: từ 1024 px trở lên, .luoi-2-cot là lưới 2 cột; dưới đó một cột.
++- trang.js nutKetQua: ba nút kết quả là nút tròn SVG (lớp nut-tron,
++  dựng bằng createElementNS — KHÔNG innerHTML với dữ liệu, giữ quy ước
++  NV301), nhãn đầy đủ «Phát» / «Thêm vào Queue» / «Thêm vào Playlist»
++  qua aria-label (test NV301 cũ vẫn tìm thấy chuỗi), không còn nút viên
++  thuốc cho ba nút này.
++"""
++
++from __future__ import annotations
++
++import pathlib
++import re
++import subprocess
++from html.parser import HTMLParser
++
++GOC = pathlib.Path(__file__).resolve().parents[1]
++HTML = (GOC / "modules" / "youtube" / "web" / "index.html").read_text()
++JS = (GOC / "modules" / "youtube" / "web" / "trang.js").read_text()
++
++
++class _CauTruc(HTMLParser):
++    """Ghi, với mỗi id tiêu đề mục, chồng div bao quanh nó."""
++
++    def __init__(self):
++        super().__init__()
++        self.ngan_xep = []
++        self.muc = {}
++
++    def handle_starttag(self, tag, attrs):
++        d = dict(attrs)
++        if tag == "div":
++            self.ngan_xep.append(d.get("class", ""))
++        if tag in ("h2", "section"):
++            pass
++        if tag == "h2" and d.get("id"):
++            self.muc[d["id"]] = list(self.ngan_xep)
++
++    def handle_endtag(self, tag):
++        if tag == "div" and self.ngan_xep:
++            self.ngan_xep.pop()
++
++
++def cau_truc():
++    p = _CauTruc()
++    p.feed(HTML)
++    return p.muc
++
++
++def test_thu_tu_tim_tren_cung_va_co_muc_ket_qua():
++    assert HTML.index('id="tieu-de-tim"') < HTML.index('id="tieu-de-dang-phat"')
++    assert 'id="tieu-de-ket-qua"' in HTML
++    ket_qua = HTML[HTML.index('id="tieu-de-ket-qua"'):]
++    tiep = ket_qua.index("<section", 10) if "<section" in ket_qua[10:] else len(ket_qua)
++    assert 'id="ds-ket-qua"' in ket_qua[:tiep]
++
++
++def test_hai_cot_man_hinh_rong():
++    muc = cau_truc()
++    assert "luoi-2-cot" in muc["tieu-de-dang-phat"]
++    assert "luoi-2-cot" in muc["tieu-de-nhom"]
++    assert "luoi-2-cot" in muc["tieu-de-ket-qua"]
++    assert "cot-trai" in muc["tieu-de-dang-phat"]
++    assert "cot-trai" in muc["tieu-de-nhom"]
++    assert "cot-phai" in muc["tieu-de-ket-qua"]
++    css = HTML[HTML.index("<style>"):HTML.index("</style>")]
++    m = re.search(r"@media\s*\(min-width:\s*1024px\)\s*\{(.*?)\n\s*\}", css, re.S)
++    assert m, "thiếu media query 1024px"
++    assert ".luoi-2-cot" in m.group(1) and "grid-template-columns" in m.group(1)
++
++
++def test_nut_ket_qua_tron_svg():
++    vung = JS[JS.index("function nutKetQua"):JS.index("async function timKiem")]
++    assert "nutTron(" in vung
++    assert "nut-tron" in JS  # lớp ở hàm trợ giúp nutTron
++    assert "createElementNS" in JS  # SVG dựng bằng createElementNS, không innerHTML
++    for nhan in ("Phát", "Thêm vào Queue", "Thêm vào Playlist"):
++        assert nhan in vung, f"thiếu nhãn {nhan!r} trong nutKetQua"
++    assert "el('button', 'nut nut-nho nut-chinh', 'Phát')" not in vung
++    assert ".innerHTML" not in JS
++
++
++def test_trang_js_hop_le():
++    r = subprocess.run(["node", "--check",
++                        str(GOC / "modules" / "youtube" / "web" / "trang.js")],
++                       capture_output=True, text=True, timeout=60)
++    assert r.returncode == 0, r.stderr
