@@ -47,3 +47,8 @@ specify init . --here --force --non-interactive --integration muse --ignore-agen
 5. Luồng inbox NV giữ nguyên — artifacts Spec Kit chỉ bổ sung, không thay brief NV.
 6. Lưu ý kỹ thuật: máy nào chạy `specify init` tiếp theo phải có CLI `muse`, nếu không thì luôn kèm `--ignore-agent-tools`; không cài chung integration của agent khác trong cùng project (integration `muse` không được khai là an toàn multi-install).
 7. Patch này độc lập với NV292 đang chạy song song (clone riêng, không chạm file của NV292) và với scaffold web2api (nhánh `muse/spec-kit-web2api` riêng).
+
+## Xác minh nộp
+
+- Nhánh Giao `muse/spec-kit-r1` = `77db5e323919652b958e22627abb4f788504e16e` (kiểm bằng `ls-remote`).
+- Con trực tiếp của Giao main `8b00fcecb671c62da1fbea7545eba51fc5d1d99e` (main không bị đẩy, không bị đổi).
