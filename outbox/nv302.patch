@@ -1,0 +1,951 @@
+diff --git a/custom_components/r1_speaker/number.py b/custom_components/r1_speaker/number.py
+index 8e63ed4..4e507ea 100644
+--- a/custom_components/r1_speaker/number.py
++++ b/custom_components/r1_speaker/number.py
+@@ -8,11 +8,13 @@ from homeassistant.core import HomeAssistant
+ from homeassistant.exceptions import HomeAssistantError
+ from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
+ 
+-from .const import (DEFAULT_MIC_GAIN_DB, EQ_BAND_NAMES, EQ_BANDS, EQ_MAX, EQ_MIN, GAIN_MAX, GAIN_MIN, MIC_GAIN_MAX,
++from .const import (CONF_AIRPLAY_PORT, CONF_HA_NHAC_NAC, DEFAULT_AIRPLAY_PORT, DEFAULT_HA_NHAC_NAC, DEFAULT_MIC_GAIN_DB,
++                    EQ_BAND_NAMES, EQ_BANDS, EQ_MAX, EQ_MIN, GAIN_MAX, GAIN_MIN, MIC_GAIN_MAX,
+                     MUSIC_LIGHT_CHROMA, MUSIC_LIGHT_LUMA, MUSIC_LIGHT_RANGE, STRENGTH_MAX, STRENGTH_MIN, VOL_MAX,
+                     VOL_MIN)
+ from .coordinator import R1ConfigEntry, R1Coordinator
+ from .entity import R1Entity, R1MicEntity, R1MusicLightEntity, device_info, preregister
++from .settings import airplay_port, dat_tuy_chon, ha_nhac_nac
+ 
+ 
+ async def async_setup_entry(hass: HomeAssistant, entry: R1ConfigEntry,
+@@ -31,7 +33,59 @@ async def async_setup_entry(hass: HomeAssistant, entry: R1ConfigEntry,
+     ])
+     preregister(hass, entry, "number", f"{entry.entry_id}_mic_gain", "r1_tang_mic")
+     preregister(hass, entry, "number", f"{entry.entry_id}_hoan_phut", "r1_hoan_bao_thuc")
+-    async_add_entities([R1MicGain(entry), R1LightMaster(entry), R1HoanBaoThuc(entry)])
++    # NV302 — phát nhạc & tin báo: số nấc hạ nhạc nền, cổng AirPlay.
++    preregister(hass, entry, "number", f"{entry.entry_id}_ha_nhac_nac", "r1_so_nac_ha_nhac")
++    preregister(hass, entry, "number", f"{entry.entry_id}_airplay_port", "r1_cong_airplay")
++    async_add_entities([R1MicGain(entry), R1LightMaster(entry), R1HoanBaoThuc(entry),
++                        R1HaNhacNac(entry), R1AirplayPort(entry)])
++
++
++class R1HaNhacNac(R1MicEntity, NumberEntity):
++    """NV302 — số nấc hạ nhạc nền khi loa nói (1–14, mặc định 5; chỉ có tác dụng khi
++    tin song song bật). Ghi vào tuỳ chọn, đọc trực tiếp mỗi lần phát."""
++
++    _attr_translation_key = "ha_nhac_nac"
++    _attr_entity_category = EntityCategory.CONFIG
++    _attr_native_min_value = 1
++    _attr_native_max_value = 14
++    _attr_native_step = 1
++    _attr_mode = NumberMode.SLIDER
++
++    def __init__(self, entry: R1ConfigEntry) -> None:
++        super().__init__(entry, "ha_nhac_nac")
++
++    @property
++    def native_value(self) -> float:
++        return ha_nhac_nac(self._entry)
++
++    async def async_set_native_value(self, value: float) -> None:
++        dat_tuy_chon(self.hass, self._entry, CONF_HA_NHAC_NAC, int(round(value)),
++                     DEFAULT_HA_NHAC_NAC)
++        self.async_write_ha_state()
++
++
++class R1AirplayPort(R1MicEntity, NumberEntity):
++    """NV302 — cổng RAOP (AirPlay 1) của loa (1–65535, mặc định 5012; cổng này có thể
++    đổi theo từng lần khởi động loa nên sai thì đổi ở đây). Ghi vào tuỳ chọn."""
++
++    _attr_translation_key = "airplay_port"
++    _attr_entity_category = EntityCategory.CONFIG
++    _attr_native_min_value = 1
++    _attr_native_max_value = 65535
++    _attr_native_step = 1
++    _attr_mode = NumberMode.BOX
++
++    def __init__(self, entry: R1ConfigEntry) -> None:
++        super().__init__(entry, "airplay_port")
++
++    @property
++    def native_value(self) -> float:
++        return airplay_port(self._entry)
++
++    async def async_set_native_value(self, value: float) -> None:
++        dat_tuy_chon(self.hass, self._entry, CONF_AIRPLAY_PORT, int(round(value)),
++                     DEFAULT_AIRPLAY_PORT)
++        self.async_write_ha_state()
+ 
+ 
+ class R1Volume(R1Entity, NumberEntity):
+diff --git a/custom_components/r1_speaker/select.py b/custom_components/r1_speaker/select.py
+index b27de51..99414c2 100644
+--- a/custom_components/r1_speaker/select.py
++++ b/custom_components/r1_speaker/select.py
+@@ -11,10 +11,11 @@ from homeassistant.helpers.device_registry import DeviceInfo
+ from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
+ from homeassistant.helpers.restore_state import RestoreEntity
+ 
+-from .const import DOMAIN, EQ_MAX, EQ_MIN, EQ_PRESET_MB
++from .const import CONF_DUONG_PHAT, DEFAULT_DUONG_PHAT, DOMAIN, DUONG_PHAT_GIA_TRI, EQ_MAX, EQ_MIN, EQ_PRESET_MB
+ from .coordinator import R1ConfigEntry, R1Coordinator
+ from .entity import R1Entity, R1MicEntity, preregister
+ from .phim import CU_CHI, danh_sach
++from .settings import dat_tuy_chon, duong_phat
+ 
+ 
+ async def async_setup_entry(hass: HomeAssistant, entry: R1ConfigEntry,
+@@ -23,7 +24,37 @@ async def async_setup_entry(hass: HomeAssistant, entry: R1ConfigEntry,
+     preregister(hass, entry, "select", f"{entry.entry_id}-pipeline", "r1_tro_ly")
+     for cc in CU_CHI:
+         preregister(hass, entry, "select", f"{entry.entry_id}_phim_{cc}", f"r1_phim_nhan_{cc}")
+-    async_add_entities([R1PipelineSelect(hass, entry), R1EqPreset(entry.runtime_data), *[R1PhimSelect(entry, cc) for cc in CU_CHI]])
++    # NV302 — đường phát nhạc/tin báo: cùng một nguồn với hộp tuỳ chọn, thẻ chỉ đọc/ghi qua đây.
++    preregister(hass, entry, "select", f"{entry.entry_id}_duong_phat", "r1_duong_phat")
++    async_add_entities([R1PipelineSelect(hass, entry), R1EqPreset(entry.runtime_data), *[R1PhimSelect(entry, cc) for cc in CU_CHI],
++                        R1DuongPhat(entry)])
++
++
++class R1DuongPhat(R1MicEntity, SelectEntity):
++    """NV302 — đường phát nhạc và tin báo (DLNA / DLNA trước / AirPlay trước /
++    AirPlay). Ghi vào tuỳ chọn (một nguồn duy nhất với hộp tuỳ chọn); giá trị được
++    đọc trực tiếp mỗi lần phát nên đổi ở thẻ là có hiệu lực ngay, không cần nạp lại
++    tích hợp. Thực thể là cài đặt phía HA nên luôn khả dụng."""
++
++    _attr_translation_key = "duong_phat"
++    _attr_entity_category = EntityCategory.CONFIG
++
++    def __init__(self, entry: R1ConfigEntry) -> None:
++        super().__init__(entry, "duong_phat")
++
++    @property
++    def options(self) -> list[str]:
++        return list(DUONG_PHAT_GIA_TRI)
++
++    @property
++    def current_option(self) -> str:
++        return duong_phat(self._entry)
++
++    async def async_select_option(self, option: str) -> None:
++        if option not in DUONG_PHAT_GIA_TRI:
++            raise HomeAssistantError(f"Đường phát «{option}» không có")
++        dat_tuy_chon(self.hass, self._entry, CONF_DUONG_PHAT, option, DEFAULT_DUONG_PHAT)
++        self.async_write_ha_state()
+ 
+ 
+ class R1PhimSelect(SelectEntity, RestoreEntity):
+diff --git a/custom_components/r1_speaker/strings.json b/custom_components/r1_speaker/strings.json
+index 967a809..d055f66 100644
+--- a/custom_components/r1_speaker/strings.json
++++ b/custom_components/r1_speaker/strings.json
+@@ -50,6 +50,12 @@
+       },
+       "light_master": {
+         "name": "Light brightness"
++      },
++      "ha_nhac_nac": {
++        "name": "Duck steps"
++      },
++      "airplay_port": {
++        "name": "AirPlay port"
+       }
+     },
+     "switch": {
+@@ -112,6 +118,12 @@
+       },
+       "lich_chu_nhat": {
+         "name": "Sunday"
++      },
++      "tts_song_song": {
++        "name": "Parallel AirPlay announcements"
++      },
++      "ha_nhac_xuong": {
++        "name": "Duck background music while speaking"
+       }
+     },
+     "sensor": {
+@@ -244,6 +256,15 @@
+           "bao_thuc_hoan": "Alarm: snooze",
+           "hen_gio_tat_nhac_30": "Sleep timer 30 min (fade out)"
+         }
++      },
++      "duong_phat": {
++        "name": "Playback route",
++        "state": {
++          "dlna": "DLNA (default)",
++          "dlna_truoc": "Try DLNA first, fall back to AirPlay",
++          "airplay_truoc": "Try AirPlay first, fall back to DLNA",
++          "airplay": "AirPlay"
++        }
+       }
+     },
+     "binary_sensor": {
+diff --git a/custom_components/r1_speaker/switch.py b/custom_components/r1_speaker/switch.py
+index ab2ce18..918631b 100644
+--- a/custom_components/r1_speaker/switch.py
++++ b/custom_components/r1_speaker/switch.py
+@@ -16,12 +16,12 @@ from homeassistant.helpers.restore_state import RestoreEntity
+ from homeassistant.helpers.update_coordinator import CoordinatorEntity
+ 
+ from .client import R1Client, R1Error
+-from .const import (BT_DOI_DOC_LAI, CONF_LICH_BAT, CONF_LICH_NGAY, CONF_TU_PHUC_HOI,
+-                    DEFAULT_LICH_BAT, DEFAULT_LICH_NGAY, DEFAULT_TU_PHUC_HOI, MUSIC_LIGHT_ENABLE,
+-                    THU_KHOA)
++from .const import (BT_DOI_DOC_LAI, CONF_HA_NHAC_XUONG, CONF_LICH_BAT, CONF_LICH_NGAY, CONF_TTS_SONG_SONG,
++                    CONF_TU_PHUC_HOI, DEFAULT_HA_NHAC_XUONG, DEFAULT_LICH_BAT, DEFAULT_LICH_NGAY,
++                    DEFAULT_TTS_SONG_SONG, DEFAULT_TU_PHUC_HOI, MUSIC_LIGHT_ENABLE, THU_KHOA)
+ from .coordinator import R1ConfigEntry, R1Coordinator
+ from .entity import R1Entity, R1MicEntity, R1MusicLightEntity, preregister
+-from .settings import dat_tuy_chon, lich_bat, lich_ngay, tu_phuc_hoi
++from .settings import dat_tuy_chon, ha_nhac_xuong, lich_bat, lich_ngay, tts_song_song_airplay, tu_phuc_hoi
+ 
+ 
+ @dataclass(frozen=True, kw_only=True)
+@@ -60,12 +60,16 @@ async def async_setup_entry(hass: HomeAssistant, entry: R1ConfigEntry,
+     preregister(hass, entry, "switch", f"{entry.entry_id}_tu_phuc_hoi", "r1_tu_phuc_hoi_khi_treo")
+     for thu, khoa in enumerate(THU_KHOA):
+         preregister(hass, entry, "switch", f"{entry.entry_id}_{khoa}", f"r1_{khoa}")
++    # NV302 — phát nhạc & tin báo: tin song song AirPlay, hạ nhạc nền khi loa nói.
++    preregister(hass, entry, "switch", f"{entry.entry_id}_tts_song_song", "r1_tts_song_song")
++    preregister(hass, entry, "switch", f"{entry.entry_id}_ha_nhac_xuong", "r1_ha_nhac_xuong")
+     async_add_entities([R1MuteSwitch(entry), R1AssistSwitch(entry), R1IntercomSwitch(entry),
+                         R1ParallelSwitch(entry),
+                         R1MusicLightSwitch(entry.runtime_data),
+                         R1BluetoothSwitch(entry.runtime_data),
+                         R1LichBatSwitch(entry), R1TuPhucHoiSwitch(entry),
+-                        *(R1LichNgaySwitch(entry, thu) for thu in range(7))])
++                        *(R1LichNgaySwitch(entry, thu) for thu in range(7)),
++                        R1TtsSongSongSwitch(entry), R1HaNhacXuongSwitch(entry)])
+ 
+ 
+ class R1Switch(R1Entity, SwitchEntity):
+@@ -389,6 +393,53 @@ class R1LichNgaySwitch(R1MicEntity, SwitchEntity):
+         self.async_write_ha_state()
+ 
+ 
++class R1TtsSongSongSwitch(R1MicEntity, SwitchEntity):
++    """NV302 — tin báo đi AirPlay song song với đường phát chính (mặc định TẮT,
++    chưa đo trên loa thật: chỉ bật khi muốn thử). Ghi vào tuỳ chọn, đọc trực tiếp
++    mỗi lần phát nên có hiệu lực ngay."""
++
++    _attr_translation_key = "tts_song_song"
++    _attr_entity_category = EntityCategory.CONFIG
++
++    def __init__(self, entry: R1ConfigEntry) -> None:
++        super().__init__(entry, "tts_song_song")
++
++    @property
++    def is_on(self) -> bool:
++        return tts_song_song_airplay(self._entry)
++
++    async def async_turn_on(self, **kwargs: Any) -> None:
++        dat_tuy_chon(self.hass, self._entry, CONF_TTS_SONG_SONG, True, DEFAULT_TTS_SONG_SONG)
++        self.async_write_ha_state()
++
++    async def async_turn_off(self, **kwargs: Any) -> None:
++        dat_tuy_chon(self.hass, self._entry, CONF_TTS_SONG_SONG, False, DEFAULT_TTS_SONG_SONG)
++        self.async_write_ha_state()
++
++
++class R1HaNhacXuongSwitch(R1MicEntity, SwitchEntity):
++    """NV302 — hạ nhạc nền khi loa nói (chỉ có tác dụng khi tin song song bật).
++    Mặc định TẮT, chưa đo trên loa thật."""
++
++    _attr_translation_key = "ha_nhac_xuong"
++    _attr_entity_category = EntityCategory.CONFIG
++
++    def __init__(self, entry: R1ConfigEntry) -> None:
++        super().__init__(entry, "ha_nhac_xuong")
++
++    @property
++    def is_on(self) -> bool:
++        return ha_nhac_xuong(self._entry)
++
++    async def async_turn_on(self, **kwargs: Any) -> None:
++        dat_tuy_chon(self.hass, self._entry, CONF_HA_NHAC_XUONG, True, DEFAULT_HA_NHAC_XUONG)
++        self.async_write_ha_state()
++
++    async def async_turn_off(self, **kwargs: Any) -> None:
++        dat_tuy_chon(self.hass, self._entry, CONF_HA_NHAC_XUONG, False, DEFAULT_HA_NHAC_XUONG)
++        self.async_write_ha_state()
++
++
+ class R1MusicLightSwitch(R1MusicLightEntity, SwitchEntity):
+     """Bật/tắt đèn theo nhạc CỦA FIRMWARE (đọc ``music_light_enable``, ghi qua APK loa)."""
+ 
+diff --git a/custom_components/r1_speaker/translations/en.json b/custom_components/r1_speaker/translations/en.json
+index 1e4de20..c47cb28 100644
+--- a/custom_components/r1_speaker/translations/en.json
++++ b/custom_components/r1_speaker/translations/en.json
+@@ -50,6 +50,12 @@
+       },
+       "light_master": {
+         "name": "Light brightness"
++      },
++      "ha_nhac_nac": {
++        "name": "Duck steps"
++      },
++      "airplay_port": {
++        "name": "AirPlay port"
+       }
+     },
+     "switch": {
+@@ -112,6 +118,12 @@
+       },
+       "lich_chu_nhat": {
+         "name": "Sunday"
++      },
++      "tts_song_song": {
++        "name": "Parallel AirPlay announcements"
++      },
++      "ha_nhac_xuong": {
++        "name": "Duck background music while speaking"
+       }
+     },
+     "sensor": {
+@@ -244,6 +256,15 @@
+           "bao_thuc_hoan": "Alarm: snooze",
+           "hen_gio_tat_nhac_30": "Sleep timer 30 min (fade out)"
+         }
++      },
++      "duong_phat": {
++        "name": "Playback route",
++        "state": {
++          "dlna": "DLNA (default)",
++          "dlna_truoc": "Try DLNA first, fall back to AirPlay",
++          "airplay_truoc": "Try AirPlay first, fall back to DLNA",
++          "airplay": "AirPlay"
++        }
+       }
+     },
+     "binary_sensor": {
+diff --git a/custom_components/r1_speaker/translations/vi.json b/custom_components/r1_speaker/translations/vi.json
+index 6f46af9..98d314e 100644
+--- a/custom_components/r1_speaker/translations/vi.json
++++ b/custom_components/r1_speaker/translations/vi.json
+@@ -50,6 +50,12 @@
+       },
+       "light_master": {
+         "name": "Độ sáng đèn"
++      },
++      "ha_nhac_nac": {
++        "name": "Số nấc hạ"
++      },
++      "airplay_port": {
++        "name": "Cổng AirPlay"
+       }
+     },
+     "switch": {
+@@ -112,6 +118,12 @@
+       },
+       "lich_chu_nhat": {
+         "name": "Chủ nhật"
++      },
++      "tts_song_song": {
++        "name": "Tin báo song song AirPlay"
++      },
++      "ha_nhac_xuong": {
++        "name": "Hạ nhạc nền khi loa nói"
+       }
+     },
+     "sensor": {
+@@ -244,6 +256,15 @@
+           "bao_thuc_hoan": "Báo thức: hoãn (báo lại sau)",
+           "hen_gio_tat_nhac_30": "Hẹn giờ tắt nhạc 30 phút (nhỏ dần)"
+         }
++      },
++      "duong_phat": {
++        "name": "Đường phát",
++        "state": {
++          "dlna": "DLNA (mặc định)",
++          "dlna_truoc": "Thử DLNA trước, hỏng thì AirPlay",
++          "airplay_truoc": "Thử AirPlay trước, hỏng thì DLNA",
++          "airplay": "AirPlay"
++        }
+       }
+     },
+     "binary_sensor": {
+diff --git a/custom_components/r1_speaker/www/r1-settings-card.js b/custom_components/r1_speaker/www/r1-settings-card.js
+index dbd976f..f103de1 100644
+--- a/custom_components/r1_speaker/www/r1-settings-card.js
++++ b/custom_components/r1_speaker/www/r1-settings-card.js
+@@ -1,12 +1,14 @@
+ /* r1-settings-card — thẻ Lovelace CÀI ĐẶT cho loa Phicomm R1 (tích hợp r1_speaker).
+  *
+- * Mặc định chỉ hiện tiêu đề + nút «Cài đặt»; bấm nút mới mở bảng cài đặt, chia ba nhóm:
++ * Mặc định chỉ hiện tiêu đề + nút «Cài đặt»; bấm nút mới mở bảng cài đặt, chia bốn nhóm (NV302 thêm «Khởi động lại»):
+  *   Âm thanh  — âm lượng, EQ 5 dải, tăng mic, tắt mic; khử tạp / AGC / bộ hạn đỉnh (CHỈ ĐỌC: là
+  *               tuỳ chọn của mục cài đặt, không phải thực thể; sửa ở trang Tuỳ chọn của tích hợp);
+  *   Ánh sáng  — mục «Thử đèn» RIÊNG (chọn vùng, hiệu ứng, thông số rồi bấm Thử; không lưu), và cài đặt đèn theo
+  *               chức năng: mỗi chức năng có bật/tắt + hai vùng (đáy, viền), mỗi vùng một hiệu ứng với bộ thông số
+  *               RIÊNG của hiệu ứng đó (form dựng từ danh mục ``danh_muc`` do HA gửi);
+  *   Kết nối   — host, cổng, ha_url, khoá bộ đàm (chỉ «đã có / chưa có», KHÔNG hiện giá trị khoá).
++ *   Khởi động lại (NV302) — lịch khởi động lại (bật/tắt, giờ, ngày trong tuần), tự phục hồi khi treo
++ *               (mục Nâng cao), nút khởi động lại ngay, lần khởi động lại cuối và trạng thái phản hồi.
+  *
+  * Thẻ KHÔNG gọi loa: chỉ đọc thực thể HA (sensor.r1_cai_dat và các thực thể EQ / âm lượng / mic) và
+  * gọi dịch vụ HA (number.set_value, switch.turn_on/off, r1_speaker.set_light_function,
+@@ -20,16 +22,37 @@
+  */
+ (function () {
+   "use strict";
+-  var BUILD = "2026-10-23.30";
++  var BUILD = "2026-11-03.1";
+ 
+   var PLATFORM = "r1_speaker";
+   var FUNCTIONS = ["cho", "nghe", "nghi", "phan_hoi", "dam_thoai", "phat_nhac", "loi", "tat_mic"];
+-  var TABS = ["audio", "light", "conn"];
++  var TABS = ["audio", "light", "conn", "khoi_dong"];
++  var DUONG_PHAT_OPT = ["dlna", "dlna_truoc", "airplay_truoc", "airplay"];
++  var THU_KHOA = ["lich_thu_2", "lich_thu_3", "lich_thu_4", "lich_thu_5", "lich_thu_6", "lich_thu_7", "lich_chu_nhat"];
+   var OPTIONS_PATH = "/config/integrations/integration/r1_speaker";
+   var TEXT = {
+     vi: {
+       title: "Loa R1 — Cài đặt", open: "Cài đặt", close: "Đóng",
+-      audio: "Âm thanh", light: "Ánh sáng", conn: "Kết nối",
++      audio: "Âm thanh", light: "Ánh sáng", conn: "Kết nối", khoi_dong: "Khởi động lại",
++      phat_title: "Phát nhạc & tin báo",
++      duong_phat: "Đường phát", duong_phat_note: "Nhạc và tin báo đi đường nào.",
++      duong_phat_opt: { dlna: "DLNA", dlna_truoc: "DLNA trước", airplay_truoc: "AirPlay trước", airplay: "AirPlay" },
++      song_song: "Tin báo song song AirPlay",
++      song_song_note: "Chưa đo trên loa thật: chỉ bật khi muốn thử.",
++      ha_xuong: "Hạ nhạc nền khi loa nói",
++      ha_xuong_note: "Chỉ có tác dụng khi tin song song bật. Chưa đo trên loa thật.",
++      ha_nac: "Số nấc hạ", airplay_port: "Cổng AirPlay",
++      lich_title: "Khởi động lại loa", lich_bat: "Khởi động lại theo lịch", lich_gio: "Giờ",
++      lich_ngay: "Ngày trong tuần",
++      ngay_label: { lich_thu_2: "T2", lich_thu_3: "T3", lich_thu_4: "T4", lich_thu_5: "T5",
++                    lich_thu_6: "T6", lich_thu_7: "T7", lich_chu_nhat: "CN" },
++      tu_phuc_hoi: "Tự khởi động lại khi loa treo",
++      tu_phuc_hoi_note: "Mặc định tắt: chỉ khi loa treo kéo dài và ADB còn nối được thì HA khởi động lại loa một lần.",
++      khoi_nang_cao: "Nâng cao", reboot_now: "Khởi động lại ngay",
++      lan_cuoi: "Lần khởi động lại cuối", phan_hoi: "Loa phản hồi", chua_co: "chưa có",
++      khoi_chua_co: "Chưa có thực thể lịch (cần gộp NV288 trước).",
++      ly_binh_thuong: "bình thường", ly_treo: "treo (mạng thông, ứng dụng im)", ly_mat_mang: "mất mạng",
++      ly_lich: "lịch", ly_treo_phuc: "treo (tự phục hồi)", ly_bam: "bấm nút",
+       none: "Không tìm thấy thực thể r1_speaker nào.",
+       volume: "Âm lượng", eq: "EQ", mic_gain: "Tăng mic (dB)", mute: "Tắt mic",
+       adv: "Cài đặt nâng cao", adv_note: "Mọi số là mặc định CHƯA đo trên loa R1. Đổi một mục sẽ nạp lại tích hợp để áp dụng (mic nối lại sau vài giây).",
+@@ -69,7 +92,26 @@
+     },
+     en: {
+       title: "R1 speaker — Settings", open: "Settings", close: "Close",
+-      audio: "Audio", light: "Light", conn: "Connection",
++      audio: "Audio", light: "Light", conn: "Connection", khoi_dong: "Restart",
++      phat_title: "Music & announcements",
++      duong_phat: "Playback route", duong_phat_note: "Which route music and announcements take.",
++      duong_phat_opt: { dlna: "DLNA", dlna_truoc: "DLNA first", airplay_truoc: "AirPlay first", airplay: "AirPlay" },
++      song_song: "Parallel AirPlay announcements",
++      song_song_note: "Not measured on a real speaker yet: only turn on to try it.",
++      ha_xuong: "Duck background music while speaking",
++      ha_xuong_note: "Only takes effect while parallel announcements are on. Not measured on a real speaker yet.",
++      ha_nac: "Duck steps", airplay_port: "AirPlay port",
++      lich_title: "Speaker restart", lich_bat: "Scheduled restart", lich_gio: "Time",
++      lich_ngay: "Weekdays",
++      ngay_label: { lich_thu_2: "Mon", lich_thu_3: "Tue", lich_thu_4: "Wed", lich_thu_5: "Thu",
++                    lich_thu_6: "Fri", lich_thu_7: "Sat", lich_chu_nhat: "Sun" },
++      tu_phuc_hoi: "Auto restart when speaker hangs",
++      tu_phuc_hoi_note: "Off by default: only when the speaker stays hung and ADB is still reachable does HA restart it once.",
++      khoi_nang_cao: "Advanced", reboot_now: "Restart now",
++      lan_cuoi: "Last restart", phan_hoi: "Speaker responding", chua_co: "none yet",
++      khoi_chua_co: "Schedule entities are missing (merge NV288 first).",
++      ly_binh_thuong: "normal", ly_treo: "hung (network up, app silent)", ly_mat_mang: "network lost",
++      ly_lich: "scheduled", ly_treo_phuc: "hung (auto recovery)", ly_bam: "button press",
+       none: "No r1_speaker entity found.",
+       volume: "Volume", eq: "EQ", mic_gain: "Mic gain (dB)", mute: "Mute mic",
+       adv: "Advanced settings", adv_note: "Every value is a default NOT yet measured on the R1. Changing one reloads the integration to apply it (the mic reconnects in a few seconds).",
+@@ -138,6 +180,14 @@
+       settings: all("sensor", "settings")[0], volume: all("number", "volume")[0],
+       mic_gain: all("number", "mic_gain")[0], mute: all("switch", "mute")[0],
+       bands: all("number", "eq_band"),
++      duong_phat: all("select", "duong_phat")[0], tts_song_song: all("switch", "tts_song_song")[0],
++      ha_nhac_xuong: all("switch", "ha_nhac_xuong")[0], ha_nhac_nac: all("number", "ha_nhac_nac")[0],
++      airplay_port: all("number", "airplay_port")[0],
++      lich_bat: all("switch", "lich_bat")[0], tu_phuc_hoi: all("switch", "tu_phuc_hoi")[0],
++      lich_ngay: THU_KHOA.map(function (k) { return all("switch", k)[0] || null; }),
++      lich_gio: all("time", "lich_gio")[0], phan_hoi: all("binary_sensor", "phan_hoi")[0],
++      lan_khoi_dong_lai_cuoi: all("sensor", "lan_khoi_dong_lai_cuoi")[0],
++      reboot: all("button", "reboot")[0],
+     };
+   }
+ 
+@@ -163,6 +213,21 @@
+       return b;
+     }).sort(function (x, y) { return x.band - y.band; });
+     var mst = stateOf(hass, ent.mute);
++    var sw = function (id) {
++      var s = stateOf(hass, id);
++      return { entity: id || null, present: !!id, available: isUp(s), on: isUp(s) ? s.state === "on" : null };
++    };
++    var sel = function (id) {
++      var s = stateOf(hass, id);
++      return { entity: id || null, present: !!id, available: isUp(s),
++               value: isUp(s) ? s.state : null, options: DUONG_PHAT_OPT };
++    };
++    var tm = function (id) {
++      var s = stateOf(hass, id);
++      return { entity: id || null, present: !!id, available: isUp(s), value: isUp(s) ? s.state : null };
++    };
++    var ph = stateOf(hass, ent.phan_hoi), phAt = (ph && ph.attributes) || {};
++    var lc = stateOf(hass, ent.lan_khoi_dong_lai_cuoi), lcAt = (lc && lc.attributes) || {};
+     var chuc = al.chuc_nang || {};
+     var zoneOf = function (z) { z = z || {}; return { effect: z.effect || "tat", params: z.params || {} }; };
+     var fns = FUNCTIONS.filter(function (k) { return chuc[k]; }).map(function (k) {
+@@ -198,6 +263,20 @@
+         apk: kn.apk_dang_noi === true, listenPort: kn.cong_nghe_mic || null, listenKeySet: kn.khoa_nghe_mic === "da_co",
+         admin: !!(hass && hass.user && hass.user.is_admin),
+       },
++      phat: {
++        duong_phat: sel(ent.duong_phat), song_song: sw(ent.tts_song_song), ha_xuong: sw(ent.ha_nhac_xuong),
++        ha_nac: level(ent.ha_nhac_nac, 1, 14, 1), airplay_port: level(ent.airplay_port, 1, 65535, 1),
++      },
++      khoi_dong: {
++        lich: sw(ent.lich_bat), gio: tm(ent.lich_gio), tu_phuc_hoi: sw(ent.tu_phuc_hoi),
++        ngay: THU_KHOA.map(function (k, i) {
++          var w = sw(ent.lich_ngay[i]); w.key = k; return w;
++        }),
++        reboot: { entity: ent.reboot || null, present: !!ent.reboot },
++        lan_cuoi: { value: isUp(lc) ? lc.state : null, ly_do: lcAt.ly_do || null },
++        phan_hoi: { on: isUp(ph) ? ph.state === "on" : null, ly_do: phAt.ly_do || null,
++                    present: !!ent.phan_hoi },
++      },
+     };
+   }
+ 
+@@ -232,6 +311,24 @@
+     if (a.type === "mute" && model.audio.mute.entity) {
+       return ["switch", a.on ? "turn_on" : "turn_off", { entity_id: model.audio.mute.entity }];
+     }
++    /* NV302 — điều khiển mới chỉ gọi dịch vụ HA qua thực thể, không cần sensor cài đặt. */
++    if (a.type === "duong_phat" && model.phat && model.phat.duong_phat.entity) {
++      return ["select", "select_option", { entity_id: model.phat.duong_phat.entity, option: String(a.value) }];
++    }
++    if (a.type === "sw" && a.entity) {
++      return ["switch", a.on ? "turn_on" : "turn_off", { entity_id: a.entity }];
++    }
++    if (a.type === "num" && a.entity) {
++      return ["number", "set_value", { entity_id: a.entity, value: Number(a.value) }];
++    }
++    if (a.type === "gio" && model.khoi_dong && model.khoi_dong.gio.entity) {
++      var gio = String(a.value);
++      if (/^\d{2}:\d{2}$/.test(gio)) gio += ":00";
++      return ["time", "set_value", { entity_id: model.khoi_dong.gio.entity, time: gio }];
++    }
++    if (a.type === "reboot" && model.khoi_dong && model.khoi_dong.reboot.entity) {
++      return ["button", "press", { entity_id: model.khoi_dong.reboot.entity }];
++    }
+     if (!sid) return null;
+     var coerce = function (field, v) {
+       if (field === "enabled" || field === "rim" || field === "bat") return v === true || v === "true" || v === "on";
+@@ -309,6 +406,37 @@
+       '<span class="val">' + esc(A.micGain.value === null ? "—" : A.micGain.value + " dB") + "</span></div>";
+     if (!m.gop) h += '<div class="row"><label>' + esc(t.mute) + '</label><input type="checkbox" data-mute' +
+       (A.mute.on ? " checked" : "") + (A.mute.available ? "" : " disabled") + "></div>";
++    /* NV302 — mục «Phát nhạc & tin báo»: sau điều khiển âm thanh chính, trước mục nâng cao. */
++    (function () {
++      var P = m.phat;
++      if (!P) return;
++      h += '<section><b>' + esc(t.phat_title) + "</b>";
++      h += '<div class="row"><label>' + esc(t.duong_phat) + "</label><select" +
++        (P.duong_phat.entity ? ' data-duong-phat' : "") + (P.duong_phat.available ? "" : " disabled") + ">" +
++        P.duong_phat.options.map(function (o) {
++          return '<option value="' + esc(o) + '"' + (P.duong_phat.value === o ? " selected" : "") + ">" +
++            esc((t.duong_phat_opt || {})[o] || o) + "</option>";
++        }).join("") + "</select></div>";
++      h += '<div class="note">' + esc(t.duong_phat_note) + "</div>";
++      h += '<div class="row"><label>' + esc(t.song_song) + '</label><input type="checkbox"' +
++        (P.song_song.entity ? ' data-sw="' + esc(P.song_song.entity) + '"' : "") +
++        (P.song_song.on ? " checked" : "") + (P.song_song.available ? "" : " disabled") + "></div>";
++      h += '<div class="note">' + esc(t.song_song_note) + "</div>";
++      h += '<div class="row"><label>' + esc(t.ha_xuong) + '</label><input type="checkbox"' +
++        (P.ha_xuong.entity ? ' data-sw="' + esc(P.ha_xuong.entity) + '"' : "") +
++        (P.ha_xuong.on ? " checked" : "") + (P.ha_xuong.available ? "" : " disabled") + "></div>";
++      h += '<div class="note">' + esc(t.ha_xuong_note) + "</div>";
++      h += '<div class="row"><label>' + esc(t.ha_nac) + "</label>" +
++        slider(P.ha_nac.entity ? 'data-num="' + esc(P.ha_nac.entity) + '"' : "",
++               P.ha_nac.value, P.ha_nac.min, P.ha_nac.max, P.ha_nac.step, !P.ha_nac.available) +
++        '<span class="val">' + esc(P.ha_nac.value === null ? "—" : P.ha_nac.value) + "</span></div>";
++      h += '<div class="row"><label>' + esc(t.airplay_port) + '</label><input type="number"' +
++        (P.airplay_port.entity ? ' data-num="' + esc(P.airplay_port.entity) + '"' : "") +
++        ' min="' + esc(P.airplay_port.min) + '" max="' + esc(P.airplay_port.max) + '" step="1" value="' +
++        esc(P.airplay_port.value === null ? P.airplay_port.min : P.airplay_port.value) + '"' +
++        (P.airplay_port.available ? "" : " disabled") + "></div>";
++      h += "</section>";
++    })();
+     if (A.adv && A.adv.length) {
+       h += '<section class="adv"><b>' + esc(t.adv) + '</b><div class="note">' + esc(t.adv_note) + "</div>";
+       var gr = "";
+@@ -330,6 +458,44 @@
+     return h;
+   }
+ 
++  /* NV302 — tab «Khởi động lại» (NV288): lịch + tự phục hồi + nút bấm lại + lần cuối + trạng thái phản hồi.
++     Thực thể lịch vắng mặt (gộp trước NV288) thì điều khiển tương ứng bị vô hiệu, không vỡ. */
++  function htmlKhoiDong(m, t) {
++    var K = m.khoi_dong, h = '<div data-panel="khoi_dong">';
++    if (!K.lich.present) h += '<div class="note">' + esc(t.khoi_chua_co) + "</div>";
++    h += '<div class="row"><label>' + esc(t.lich_bat) + '</label><input type="checkbox"' +
++      (K.lich.entity ? ' data-sw="' + esc(K.lich.entity) + '"' : "") +
++      (K.lich.on ? " checked" : "") + (K.lich.available ? "" : " disabled") + "></div>";
++    h += '<div class="row"><label>' + esc(t.lich_gio) + '</label><input type="time"' +
++      (K.gio.entity ? ' data-gio' : "") + ' value="' +
++      esc(K.gio.value ? K.gio.value.slice(0, 5) : "") + '"' +
++      (K.gio.available ? "" : " disabled") + "></div>";
++    h += '<div class="grp">' + esc(t.lich_ngay) + '</div><div class="row ngay-row">';
++    K.ngay.forEach(function (w) {
++      h += "<label>" + esc((t.ngay_label || {})[w.key] || w.key) + '<input type="checkbox"' +
++        (w.entity ? ' data-sw="' + esc(w.entity) + '"' : "") +
++        (w.on ? " checked" : "") + (w.available ? "" : " disabled") + "></label>";
++    });
++    h += "</div>";
++    h += '<details class="grp"><summary><b>' + esc(t.khoi_nang_cao) + "</b></summary>" +
++      '<div class="row"><label>' + esc(t.tu_phuc_hoi) + '</label><input type="checkbox"' +
++      (K.tu_phuc_hoi.entity ? ' data-sw="' + esc(K.tu_phuc_hoi.entity) + '"' : "") +
++      (K.tu_phuc_hoi.on ? " checked" : "") + (K.tu_phuc_hoi.available ? "" : " disabled") + "></div>" +
++      '<div class="note">' + esc(t.tu_phuc_hoi_note) + "</div></details>";
++    h += '<div class="row"><button class="sec"' + (K.reboot.entity ? " data-reboot" : " disabled") + ">" +
++      esc(t.reboot_now) + "</button></div>";
++    var lyLan = { lich: t.ly_lich, treo: t.ly_treo_phuc, bam: t.ly_bam }[K.lan_cuoi.ly_do] || K.lan_cuoi.ly_do;
++    h += '<div class="row"><span>' + esc(t.lan_cuoi) + "</span><b>" +
++      (K.lan_cuoi.value ? esc(K.lan_cuoi.value.replace("T", " ").slice(0, 16)) +
++        (lyLan ? " (" + esc(lyLan) + ")" : "") : esc(t.chua_co)) + "</b></div>";
++    var lyPh = { binh_thuong: t.ly_binh_thuong, treo: t.ly_treo, mat_mang: t.ly_mat_mang }[K.phan_hoi.ly_do] ||
++      K.phan_hoi.ly_do;
++    h += '<div class="row"><span>' + esc(t.phan_hoi) + "</span><b>" +
++      (K.phan_hoi.on === null ? esc(t.chua_co) : esc(K.phan_hoi.on ? t.on : t.off) +
++        (lyPh ? " (" + esc(lyPh) + ")" : "")) + "</b></div>";
++    return h + "</div>";
++  }
++
+   /* ── Nhóm Ánh sáng: danh mục hiệu ứng do HA gửi (den_hieu_ung.py); form dựng theo thông số CỦA TỪNG hiệu ứng. ── */
+   function nm(o, lg) { return lg === "vi" ? o.vi : o.en; }
+   function findEffect(L, zone, id) {
+@@ -454,7 +620,7 @@
+       '<div class="note">' + esc(t.conn_note) + '</div><button class="sec" data-goto>' + esc(t.goto) + "</button></div>";
+   }
+ 
+-  /* HTML thuần của thẻ. Đóng: chỉ tiêu đề + nút. Mở: ba tab + nhóm đang chọn. */
++  /* HTML thuần của thẻ. Đóng: chỉ tiêu đề + nút. Mở: bốn tab + nhóm đang chọn. */
+   function renderHtml(m, ui, t, lg) {
+     lg = lg || "vi";
+     if (!m.found) return '<ha-card><div class="warn">' + esc(t.none) + "</div></ha-card>";
+@@ -467,18 +633,22 @@
+         '" aria-selected="' + (ui.tab === k ? "true" : "false") + '">' + esc(t[k]) + "</button>";
+     });
+     h += "</div>";
+-    h += ui.tab === "light" ? htmlLight(m, t, lg, ui) : (ui.tab === "conn" ? htmlConn(m, t) : htmlAudio(m, t));
++    h += ui.tab === "light" ? htmlLight(m, t, lg, ui) : (ui.tab === "conn" ? htmlConn(m, t) :
++      (ui.tab === "khoi_dong" ? htmlKhoiDong(m, t) : htmlAudio(m, t)));
+     return h + "</ha-card>";
+   }
+ 
+   var CSS = [
+-    ":host{display:block}", "ha-card{padding:12px 16px}", "h2{margin:0;font-size:1.1em}",
++    ":host{display:block}", "ha-card{padding:12px 16px;font-size:14px}", "h2{margin:0;font-size:1.1em}",
+     ".head{display:flex;align-items:center;justify-content:space-between;gap:8px}",
+-    ".row{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:6px 0}",
++    ".row{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:6px 0;min-height:44px}",
+     ".row input[type=range]{flex:1}", ".val{min-width:3em;text-align:right}",
++    "input[type=checkbox]{width:22px;height:22px}",
++    ".ngay-row{flex-wrap:wrap;justify-content:flex-start}",
++    ".ngay-row label{display:flex;align-items:center;gap:4px;margin-right:10px}",
+     "section{margin-top:10px;border-top:1px solid var(--divider-color,#ddd);padding-top:6px}",
+     "section.active{border-left:3px solid var(--primary-color,#03a9f4);padding-left:8px}",
+-    ".tabs{display:flex;gap:6px;margin:10px 0}", ".tab.sel{background:var(--primary-color,#03a9f4);color:var(--text-primary-color,#fff)}",
++    ".tabs{display:flex;flex-wrap:wrap;gap:6px;margin:10px 0}", ".tab.sel{background:var(--primary-color,#03a9f4);color:var(--text-primary-color,#fff)}",
+     "button{font:inherit;padding:6px 14px;border-radius:8px;border:1px solid var(--divider-color,#bbb);",
+     "background:transparent;color:inherit;cursor:pointer}", "button.sec{margin-top:4px}",
+     ".warn{color:var(--error-color,#db4437)}", ".small{font-size:.8em}", ".note{font-size:.8em;opacity:.75}", ".grp{font-weight:600;margin-top:8px}", "input[type=number]{width:90px}", "pre.lenh{white-space:pre-wrap;word-break:break-all;font-size:.75em;user-select:all;margin:6px 0}",
+@@ -587,6 +757,20 @@
+       if (mg) mg.addEventListener("change", function () { dispatch({ type: "micgain", value: mg.value }); });
+       var mu = q("[data-mute]");
+       if (mu) mu.addEventListener("change", function () { dispatch({ type: "mute", on: mu.checked }); });
++      /* NV302 — đường phát, công tắc chung, số, giờ lịch, nút khởi động lại ngay. */
++      all("[data-duong-phat]", function (el) {
++        el.addEventListener("change", function () { dispatch({ type: "duong_phat", value: el.value }); });
++      });
++      all("[data-sw]", function (el) {
++        el.addEventListener("change", function () { dispatch({ type: "sw", entity: el.dataset.sw, on: el.checked }); });
++      });
++      all("[data-num]", function (el) {
++        el.addEventListener("change", function () { dispatch({ type: "num", entity: el.dataset.num, value: el.value }); });
++      });
++      var gio = q("[data-gio]");
++      if (gio) gio.addEventListener("change", function () { dispatch({ type: "gio", value: gio.value }); });
++      var rb = q("[data-reboot]");
++      if (rb) rb.addEventListener("click", function () { dispatch({ type: "reboot" }); });
+       all("[data-fn][data-field]", function (el) {                      // chỉ ô «Bật» của chức năng
+         el.addEventListener("change", function () {
+           dispatch({ type: "fn", key: el.dataset.fn, field: el.dataset.field, value: el.checked });
+diff --git a/docs/CAI-DAT-CHI-TIET.md b/docs/CAI-DAT-CHI-TIET.md
+index 08d468d..3693f0d 100644
+--- a/docs/CAI-DAT-CHI-TIET.md
++++ b/docs/CAI-DAT-CHI-TIET.md
+@@ -102,6 +102,11 @@ hiệu còn sống để lần treo thật sau này có số liệu.
+ | Khởi động lại theo lịch, Tự khởi động lại khi loa treo, Thứ Hai, Thứ Ba, Thứ Tư, Thứ Năm, Thứ Sáu, Thứ Bảy, Chủ nhật (NV288) | switch | Bật/tắt lịch, bật/tắt tự phục hồi khi treo, chọn ngày trong tuần (mỗi ngày một công tắc). Tất cả mặc định TẮT / mọi ngày. Cũng chỉnh được ở Tuỳ chọn → bước lịch và ở thẻ Cài đặt (NV302) |
+ | Giờ khởi động lại (NV288) | time | Giờ lịch khởi động lại (HH:MM, mặc định 03:00) |
+ | Lần khởi động lại cuối (NV288) | sensor | Thời điểm loa khởi động lại gần nhất; thuộc tính `ly_do`: `lich` (theo lịch), `treo` (tự phục hồi), `bam` (người bấm nút) |
++| Đường phát (NV302) | select | Nhạc và tin báo đi đường nào: `dlna` (mặc định), `dlna_truoc` (thử DLNA trước, hỏng thì AirPlay), `airplay_truoc` (thử AirPlay trước, hỏng thì DLNA), `airplay`. Cũng chỉnh được ở thẻ Cài đặt, tab Âm thanh, mục «Phát nhạc & tin báo» |
++| Tin báo song song AirPlay (NV302) | switch | Tin báo đi AirPlay song song với đường phát chính. Mặc định TẮT, chưa đo trên loa thật: chỉ bật khi muốn thử |
++| Hạ nhạc nền khi loa nói (NV302) | switch | Hạ nhạc nền khi loa nói (chỉ có tác dụng khi tin song song bật). Mặc định TẮT, chưa đo trên loa thật |
++| Số nấc hạ (NV302) | number | Số nấc hạ nhạc nền, 1–14, mặc định 5 |
++| Cổng AirPlay (NV302) | number | Cổng RAOP (AirPlay 1) của loa, 1–65535, mặc định 5012; cổng này có thể đổi theo từng lần khởi động loa |
+ | Phím loa: nhấn đơn, Phím loa: nhấn đúp, Phím loa: nhấn ba lần, Phím loa: nhấn giữ | select | Hành động khi bấm nút giữa theo từng cử chỉ. Mặc định theo nút giữa của app AI box: **1 lần** = tắt báo thức đang kêu, không có thì bật/tắt đàm thoại; **2 lần** = bật/tắt Assist (từ đánh thức); **3 lần** = bật/tắt Bluetooth; **giữ** = bật/tắt đèn theo nhạc (AI box đòi giữ 3 giây, ở đây ngưỡng giữ là 0,8 giây). Muốn như APK cũ (đơn = tắt mic, đúp = Bluetooth) thì đổi ở bốn ô chọn. **Nguồn phím** (Tuỳ chọn → «Nguồn phím»): `adb` (mặc định; HA đọc `getevent` qua ADB, cần ADB mạng mở và giữ MỘT luồng ADB liên tục nên máy khác `adb connect` phải đợi), `apk` (APK 1.3 qua dịch vụ trợ năng) hoặc `tat`. Danh sách hành động lấy từ bảng trong `phim.py`: **thêm hành động mới = viết một hàm và gắn `@hanh_dong`**, nó tự có trong cả bốn ô chọn |
+ | Phím loa | event | Mỗi cử chỉ phát một sự kiện (`don`, `doi`, `ba`, `giu`) kèm mã phím; dùng làm điều kiện kích hoạt trong tự động hoá, kể cả cho mã phím khác 195 |
+ | Dừng nhạc | button | Nút Stop ở trang thiết bị (gọi `media_player.media_stop` của loa, tự gửi lại nếu loa bỏ qua). Hộp điều khiển chuẩn của Home Assistant chỉ hiện Stop khi loa không hỗ trợ Tạm dừng nên không đặt cạnh nút Phát/Tạm dừng được; biểu tượng loa cạnh thanh âm lượng là nút **Tắt tiếng loa** | |
+diff --git a/docs/HUONG-DAN-CAI-DAT.md b/docs/HUONG-DAN-CAI-DAT.md
+index aebab0f..c9f1343 100644
+--- a/docs/HUONG-DAN-CAI-DAT.md
++++ b/docs/HUONG-DAN-CAI-DAT.md
+@@ -110,7 +110,7 @@ khiển. Nếu thẻ không hiện (HA không có `frontend`), thêm tay: Cài 
+ ⋮ → Tài nguyên → `/r1_speaker/r1-eq-card.js`, loại **Mô-đun JavaScript**.
+ 
+ **Thẻ cài đặt (ẩn):** `type: custom:r1-settings-card` (tự nạp từ `/r1_speaker/r1-settings-card.js`).
+-Mặc định chỉ có tiêu đề và nút «Cài đặt»; bấm nút mới mở ba nhóm Âm thanh / Ánh sáng / Kết nối. Đèn
++Mặc định chỉ có tiêu đề và nút «Cài đặt»; bấm nút mới mở bốn nhóm Âm thanh / Ánh sáng / Kết nối / Khởi động lại (NV302). Đèn
+ theo chức năng chỉ SÁNG khi có dịch vụ đèn trên loa (chưa có) — xem `DEN-LED.md`.
+ 
+ ## 3. Assist và bộ đàm
+diff --git a/tests/test_giao_dien_the_gop.py b/tests/test_giao_dien_the_gop.py
+index 2ed1ca8..cf94a73 100644
+--- a/tests/test_giao_dien_the_gop.py
++++ b/tests/test_giao_dien_the_gop.py
+@@ -97,7 +97,7 @@ def test_giao_dien_the_gop_dong_mac_dinh_va_khong_trung_cai_dat(tmp_path):
+     c = r["caiDat"]
+     assert c["settings"] and not c["talk"] and not c["eq"]
+     assert not c["vol"] and c["eq"] == 0 and not c["mute"]                               # không trùng
+-    assert c["micGain"] and not c["nutDong"] and c["tabCon"] == 3                        # mở sẵn, ba nhóm
++    assert c["micGain"] and not c["nutDong"] and c["tabCon"] == 4                        # mở sẵn, bốn nhóm (NV302 thêm «Khởi động lại»)
+     assert r["eq"] == {"thanVao": True, "talk": False, "eq": True, "settings": False}
+     assert r["dongLai"] == {"thanVao": True, "talk": False, "eq": False, "settings": False}
+     assert "r1-card 2026-" in r["ver"] and "đàm thoại 2026-" in r["ver"]       # ghi phiên bản để đối chiếu
+diff --git a/tests/test_nv302_the.py b/tests/test_nv302_the.py
+new file mode 100644
+index 0000000..34dd3d2
+--- /dev/null
++++ b/tests/test_nv302_the.py
+@@ -0,0 +1,140 @@
++"""NV302 — thẻ «Cài đặt»: mục «Phát nhạc & tin báo» trong tab Âm thanh, tab mới
++«Khởi động lại», và điều khiển mới gọi đúng dịch vụ HA qua thực thể.
++
++Chạy mô hình bằng Node trên trạng thái thật của tích hợp (khuôn như
++``test_the_cai_dat.py``); không cần Chrome thật.
++"""
++
++import json
++import shutil
++import subprocess
++from pathlib import Path
++
++import pytest
++from homeassistant.helpers import entity_registry as er
++
++from .test_bo_dam import _them
++
++CARD = Path(__file__).parent.parent / "custom_components" / "r1_speaker" / "www" / "r1-settings-card.js"
++need_node = pytest.mark.skipif(shutil.which("node") is None, reason="cần Node để chạy mô hình thẻ")
++
++LICH_KHOA = ("switch.r1_lich_khoi_dong_lai", "switch.r1_tu_phuc_hoi_khi_treo",
++              "switch.r1_lich_thu_2", "switch.r1_lich_thu_3", "switch.r1_lich_thu_4",
++              "switch.r1_lich_thu_5", "switch.r1_lich_thu_6", "switch.r1_lich_thu_7",
++              "switch.r1_lich_chu_nhat", "time.r1_lich_gio", "binary_sensor.r1_loa_phan_hoi",
++              "sensor.r1_lan_khoi_dong_lai_cuoi", "button.r1_khoi_dong_lai")
++
++
++def _hass_gia(hass, bo=None):
++    reg = er.async_get(hass)
++    ents, states = {}, {}
++    for e in reg.entities.values():
++        if e.platform != "r1_speaker":
++            continue
++        ents[e.entity_id] = {"entity_id": e.entity_id, "platform": e.platform,
++                             "translation_key": e.translation_key, "device_id": e.device_id}
++        st = hass.states.get(e.entity_id)
++        states[e.entity_id] = {"state": st.state, "attributes": dict(st.attributes)}
++    for eid in (bo or ()):
++        ents.pop(eid, None)
++        states.pop(eid, None)
++    return {"entities": ents, "states": states, "language": "vi"}
++
++
++def _node(expr, **payload):
++    script = ("const c=require(process.argv[1]);let s='';process.stdin.on('data',d=>s+=d).on('end',"
++              "()=>{const i=JSON.parse(s);console.log(JSON.stringify((" + expr + ")))})")
++    out = subprocess.run(["node", "-e", script, str(CARD)], input=json.dumps(payload),
++                         capture_output=True, text=True, timeout=20)
++    assert out.returncode == 0, out.stderr
++    return json.loads(out.stdout)
++
++
++def _mo_hinh(gia):
++    return _node("c.buildModel(i.hass,i.config)", hass=gia, config={})
++
++
++def _html(model, tab):
++    ui = {"open": True, "tab": tab, "thu": {"zone": "day", "effect": None, "params": {}, "secs": 8}}
++    return _node("c.renderHtml(i.m,i.ui,c.TEXT[i.l],i.l)", m=model, ui=ui, l="vi")
++
++
++def _goi(model, hanh_dong):
++    return _node("c.makeCall(i.m,i.a)", m=model, a=hanh_dong)
++
++
++@need_node
++async def test_mo_hinh_co_du_phat_va_khoi_dong(hass, r1):
++    await _them(hass, r1)
++    m = _mo_hinh(_hass_gia(hass))
++    assert _node("c.TABS") == ["audio", "light", "conn", "khoi_dong"]
++    assert m["phat"]["duong_phat"]["present"] is True and m["phat"]["duong_phat"]["value"] == "dlna"
++    assert m["phat"]["song_song"]["present"] is True and m["phat"]["song_song"]["on"] is False
++    assert m["phat"]["ha_nac"]["value"] == 5 and m["phat"]["airplay_port"]["value"] == 5012
++    assert m["khoi_dong"]["lich"]["present"] is True and m["khoi_dong"]["lich"]["on"] is False
++    assert m["khoi_dong"]["gio"]["value"] == "03:00:00"
++    assert len(m["khoi_dong"]["ngay"]) == 7
++    assert all(w["on"] is True for w in m["khoi_dong"]["ngay"])     # mặc định mọi ngày
++    assert m["khoi_dong"]["reboot"]["present"] is True
++    assert m["khoi_dong"]["phan_hoi"]["present"] is True
++
++
++@need_node
++async def test_goi_dich_vu_dung_qua_thuc_the(hass, r1):
++    await _them(hass, r1)
++    m = _mo_hinh(_hass_gia(hass))
++    assert _goi(m, {"type": "duong_phat", "value": "airplay"}) == [
++        "select", "select_option", {"entity_id": "select.r1_duong_phat", "option": "airplay"}]
++    assert _goi(m, {"type": "sw", "entity": "switch.r1_tts_song_song", "on": True}) == [
++        "switch", "turn_on", {"entity_id": "switch.r1_tts_song_song"}]
++    assert _goi(m, {"type": "sw", "entity": "switch.r1_lich_thu_2", "on": False}) == [
++        "switch", "turn_off", {"entity_id": "switch.r1_lich_thu_2"}]
++    assert _goi(m, {"type": "num", "entity": "number.r1_so_nac_ha_nhac", "value": 8}) == [
++        "number", "set_value", {"entity_id": "number.r1_so_nac_ha_nhac", "value": 8}]
++    assert _goi(m, {"type": "gio", "value": "04:30"}) == [
++        "time", "set_value", {"entity_id": "time.r1_lich_gio", "time": "04:30:00"}]
++    assert _goi(m, {"type": "reboot"}) == [
++        "button", "press", {"entity_id": "button.r1_khoi_dong_lai"}]
++
++
++@need_node
++async def test_html_co_muc_phat_va_tab_khoi_dong(hass, r1):
++    await _them(hass, r1)
++    m = _mo_hinh(_hass_gia(hass))
++    am_thanh = _html(m, "audio")
++    assert "Phát nhạc &amp; tin báo" in am_thanh or "Phát nhạc & tin báo" in am_thanh
++    assert "data-duong-phat" in am_thanh and "data-num" in am_thanh
++    assert "Tin báo song song AirPlay" in am_thanh
++    khoi = _html(m, "khoi_dong")
++    assert 'data-panel="khoi_dong"' in khoi
++    assert "data-gio" in khoi and "data-reboot" in khoi
++    assert khoi.count('data-sw="switch.r1_lich_thu_') == 6
++    assert 'data-sw="switch.r1_lich_chu_nhat"' in khoi          # 6 ô T2–T7 + 1 ô CN = 7 ngày
++    assert "Lần khởi động lại cuối" in khoi and "Loa phản hồi" in khoi
++
++
++@need_node
++async def test_thieu_thuc_the_lich_thi_vo_hieu_khong_vo(hass, r1):
++    """Phòng thủ theo thiết kế NV302: gộp trước NV288 thì điều khiển lịch bị vô hiệu
++    (không vỡ), còn mục phát nhạc vẫn dùng được."""
++    await _them(hass, r1)
++    m = _mo_hinh(_hass_gia(hass, bo=LICH_KHOA))
++    assert m["khoi_dong"]["lich"]["present"] is False
++    assert m["phat"]["duong_phat"]["present"] is True
++    khoi = _html(m, "khoi_dong")
++    assert "cần gộp NV288 trước" in khoi
++    assert "data-gio" not in khoi and "data-reboot" not in khoi     # không gọi dịch vụ ma
++    assert _goi(m, {"type": "reboot"}) is None
++    assert _goi(m, {"type": "duong_phat", "value": "airplay"})[0] == "select"
++
++
++@need_node
++async def test_html_thoat_du_lieu_ngoai_o_tab_khoi_dong(hass, r1):
++    await _them(hass, r1)
++    gia = _hass_gia(hass)
++    gia["states"]["sensor.r1_lan_khoi_dong_lai_cuoi"] = {
++        "state": "<script>alert(1)</script>", "attributes": {"ly_do": "<b>x</b>"}}
++    m = _mo_hinh(gia)
++    khoi = _html(m, "khoi_dong")
++    assert "<script>" not in khoi and "&lt;script&gt;" in khoi
++    assert "<b>x</b>" not in khoi
+diff --git a/tests/test_nv302_thuc_the.py b/tests/test_nv302_thuc_the.py
+new file mode 100644
+index 0000000..c492d8f
+--- /dev/null
++++ b/tests/test_nv302_thuc_the.py
+@@ -0,0 +1,64 @@
++"""NV302 — thực thể phát nhạc & tin báo: tồn tại, đổi qua thực thể cập nhật tuỳ
++chọn và ngược lại (một nguồn duy nhất với hộp tuỳ chọn). Dùng ``_them`` + loa giả.
++"""
++
++from tests.test_bo_dam import _them
++
++
++async def _goi(hass, mien, dich_vu, thuc_the, **them):
++    await hass.services.async_call(mien, dich_vu, {"entity_id": thuc_the, **them}, blocking=True)
++    await hass.async_block_till_done()
++
++
++def _tuy_chon(hass, e):
++    return hass.config_entries.async_get_entry(e.entry_id).options
++
++
++async def test_duong_phat_doi_qua_thuc_the(hass, r1):
++    e = await _them(hass, r1)
++    assert hass.states.get("select.r1_duong_phat").state == "dlna"
++    await _goi(hass, "select", "select_option", "select.r1_duong_phat", option="airplay")
++    assert _tuy_chon(hass, e)["duong_phat"] == "airplay"
++    assert hass.states.get("select.r1_duong_phat").state == "airplay"
++    await _goi(hass, "select", "select_option", "select.r1_duong_phat", option="dlna")
++    assert "duong_phat" not in _tuy_chon(hass, e)          # về mặc định thì khoá bị gỡ
++
++
++async def test_cong_tac_phat_nhac_ghi_tuy_chon(hass, r1):
++    e = await _them(hass, r1)
++    await _goi(hass, "switch", "turn_on", "switch.r1_tts_song_song")
++    assert _tuy_chon(hass, e)["tts_song_song_airplay"] is True
++    await _goi(hass, "switch", "turn_on", "switch.r1_ha_nhac_xuong")
++    assert _tuy_chon(hass, e)["ha_nhac_xuong"] is True
++    await _goi(hass, "switch", "turn_off", "switch.r1_tts_song_song")
++    assert "tts_song_song_airplay" not in _tuy_chon(hass, e)
++    await _goi(hass, "switch", "turn_off", "switch.r1_ha_nhac_xuong")
++    assert "ha_nhac_xuong" not in _tuy_chon(hass, e)
++
++
++async def test_so_phat_nhac_ghi_tuy_chon(hass, r1):
++    e = await _them(hass, r1)
++    assert hass.states.get("number.r1_so_nac_ha_nhac").state == "5"
++    await _goi(hass, "number", "set_value", "number.r1_so_nac_ha_nhac", value=8)
++    assert _tuy_chon(hass, e)["ha_nhac_nac"] == 8
++    await _goi(hass, "number", "set_value", "number.r1_so_nac_ha_nhac", value=5)
++    assert "ha_nhac_nac" not in _tuy_chon(hass, e)
++    assert hass.states.get("number.r1_cong_airplay").state == "5012"
++    await _goi(hass, "number", "set_value", "number.r1_cong_airplay", value=5013)
++    assert _tuy_chon(hass, e)["airplay_port"] == 5013
++    await _goi(hass, "number", "set_value", "number.r1_cong_airplay", value=5012)
++    assert "airplay_port" not in _tuy_chon(hass, e)
++
++
++async def test_doi_tuy_chon_truc_tiep_thi_thuc_the_thay_theo(hass, r1):
++    # Đường thật khi tuỳ chọn đổi ngoài thực thể: options flow nạp lại mục (thực thể
++    # đọc tuỳ chọn trực tiếp nên sau khi nạp lại thì state theo tuỳ chọn mới).
++    e = await _them(hass, r1)
++    hass.config_entries.async_update_entry(e, options={"duong_phat": "airplay_truoc",
++                                                       "tts_song_song_airplay": True,
++                                                       "ha_nhac_nac": 9})
++    await hass.config_entries.async_reload(e.entry_id)
++    await hass.async_block_till_done()
++    assert hass.states.get("select.r1_duong_phat").state == "airplay_truoc"
++    assert hass.states.get("switch.r1_tts_song_song").state == "on"
++    assert hass.states.get("number.r1_so_nac_ha_nhac").state == "9"
+diff --git a/tests/test_the_cai_dat.py b/tests/test_the_cai_dat.py
+index b2efb52..1b145b9 100644
+--- a/tests/test_the_cai_dat.py
++++ b/tests/test_the_cai_dat.py
+@@ -126,7 +126,8 @@ async def test_muc_cai_dat_an_mac_dinh_va_chi_hien_khi_bam(hass, r1):
+     assert ui["open"] is True
+     mo = _html(m, ui)
+     assert 'aria-expanded="true"' in mo and 'data-panel="audio"' in mo
+-    assert [t for t in ("audio", "light", "conn") if f'data-tab="{t}"' in mo] == ["audio", "light", "conn"]
++    # NV302 thêm tab thứ 4 «Khởi động lại» (lịch NV288 + nút bấm lại).
++    assert [t for t in ("audio", "light", "conn", "khoi_dong") if f'data-tab="{t}"' in mo] == ["audio", "light", "conn", "khoi_dong"]
+     assert mo.count("data-eq=") == 5 and "data-vol" in mo and "data-mic-gain" in mo and "data-mute" in mo
+     assert _node("c.reduceUi(i.ui,{type:'toggle'})", ui=ui) == CAI_DAT_AN   # bấm lần nữa: ẩn
+     # chọn nhóm: chỉ hiện nhóm đó; tab lạ bị bỏ qua
