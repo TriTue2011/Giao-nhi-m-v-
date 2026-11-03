@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mạng nhà — Mẫu giao diện tĩnh (NV290 giai đoạn 1)</title>
+<style>
+  body { font-family: system-ui, sans-serif; margin: 0; padding: 16px; background: #f4f4f2; color: #222; }
+  .khung { max-width: 720px; margin: 0 auto; }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  .mau { background: #fff3cd; border: 1px solid #e6c87a; padding: 8px 12px; font-size: 13px; margin-bottom: 12px; }
+  .ailamgi { font-size: 14px; background: #fff; border: 1px solid #ddd; padding: 10px 12px; margin-bottom: 12px; }
+  .khoi { background: #fff; border: 1px solid #ddd; padding: 12px; margin-bottom: 12px; }
+  .khoi h2 { font-size: 16px; margin: 0 0 8px; }
+  .canhbao { background: #fdecea; border: 1px solid #e0a19a; padding: 10px 12px; margin-bottom: 12px; }
+  .canhbao h2 { font-size: 15px; margin: 0 0 6px; color: #8a1f1f; }
+  .dong { display: flex; justify-content: space-between; gap: 8px; padding: 8px 0; border-top: 1px solid #eee; }
+  .dong:first-of-type { border-top: none; }
+  .ten { font-weight: 600; }
+  .phu { font-size: 13px; color: #555; }
+  button { font-size: 14px; padding: 7px 14px; border: 1px solid #999; background: #fff; cursor: pointer; }
+  button.chinh { background: #222; color: #fff; border-color: #222; }
+  button.nguy { background: #b3261e; color: #fff; border-color: #b3261e; }
+  button:disabled { opacity: .5; cursor: default; }
+  select { font-size: 14px; padding: 6px; }
+  details { font-size: 13px; color: #555; margin-top: 6px; }
+  .trangthai { font-size: 13px; color: #555; margin-top: 8px; }
+  .chan { font-size: 13px; color: #555; margin-top: 10px; }
+</style>
+</head>
+<body>
+<div class="khung">
+  <h1>Mạng nhà</h1>
+  <div class="mau">MẪU TĨNH — dữ liệu dưới đây là dữ liệu mẫu, không phải thiết bị thật. Các nút chưa chạy thật.</div>
+
+  <div class="ailamgi"><b>Ai làm gì:</b> MikroTik giữ quyền cao hơn — chặn thật ở tầng mạng, không vòng qua được.
+  AdGuard lo tên miền và ứng dụng theo tên. AdGuard lỗi thì MikroTik giữ phần chặn thô, lọc quảng cáo tạm tắt.</div>
+
+  <!-- DẢI CẢNH BÁO D — chỉ hiện khi có sự kiện -->
+  <div class="canhbao">
+    <h2>⚠ Đang có 1 cảnh báo xâm nhập</h2>
+    <div><b>Camera sân</b> — mức cao: vừa tự tạo ánh xạ cổng ra internet (UPnP) lúc 21:14.
+    Đã cách ly + cắt đường lúc 21:14. Hẹn tự mở lại sau 24 giờ.</div>
+    <div style="margin-top:8px"><button class="chinh">Khôi phục</button>
+    <button>Xem bằng chứng</button></div>
+  </div>
+
+  <!-- KHỐI A — NGẮT / NỐI INTERNET CẢ NHÀ -->
+  <div class="khoi">
+    <h2>Internet cả nhà</h2>
+    <div>Internet cả nhà <b>đang mở</b>.</div>
+    <div style="margin-top:10px">
+      <button class="nguy">Ngắt internet cả nhà</button>
+      <label class="phu"> Hẹn tự nối lại sau
+        <select><option>15 phút</option><option selected>30 phút</option><option>60 phút</option><option>120 phút</option></select>
+      </label>
+    </div>
+    <div class="trangthai">Máy quản trị, web2api và Home Assistant vẫn nối được trong lúc ngắt.
+    Hết hẹn tự nối lại — không có chế độ ngắt vô hạn.</div>
+  </div>
+
+  <!-- KHỐI B — THIẾT BỊ MỚI CHỜ DUYỆT -->
+  <div class="khoi">
+    <h2>Thiết bị mới xin vào mạng (2)</h2>
+    <div class="dong">
+      <div><div class="ten">Điện thoại mới</div><div class="phu">Hãng gợi ý: Apple · thấy lần đầu lúc 20:47</div></div>
+      <div><button class="chinh">Đồng ý</button> <button>Từ chối</button></div>
+    </div>
+    <div class="dong">
+      <div><div class="ten">Máy chưa đặt tên</div><div class="phu">Hãng gợi ý: Samsung · thấy lần đầu lúc 20:52, chưa có IP</div></div>
+      <div><button class="chinh">Đồng ý</button> <button>Từ chối</button></div>
+    </div>
+    <div class="trangthai">Chỉ khi bấm Đồng ý máy mới ra được internet. Máy đổi MAC nhưng đã có
+    ClientID / WireGuard / VLAN riêng thì không hiện ở đây.</div>
+  </div>
+
+  <!-- KHỐI C — AI VỪA DÙNG MẠNG, DÙNG GÌ -->
+  <div class="khoi">
+    <h2>Thiết bị vừa dùng mạng</h2>
+    <div class="dong">
+      <div><div class="ten">Laptop làm việc</div><div class="phu">Người nhà · đang hoạt động · 12 Mb/s xuống / 3 Mb/s lên</div>
+      <div class="phu">Dùng gì gần nhất: tên miền A (42 lượt), tên miền B (18 lượt) · bị chặn 5 lượt</div></div>
+      <div class="phu">Được phép</div>
+    </div>
+    <div class="dong">
+      <div><div class="ten">TV phòng khách</div><div class="phu">Người nhà · đang hoạt động · 8 Mb/s xuống</div>
+      <div class="phu">Dùng gì gần nhất: tên miền C (31 lượt) · bị chặn 0 lượt</div></div>
+      <div class="phu">Được phép</div>
+    </div>
+    <div class="dong">
+      <div><div class="ten">Camera sân</div><div class="phu">Camera · đang bị cách ly (xem dải cảnh báo ở đầu trang)</div>
+      <div class="phu">Dùng gì: chỉ đọc luồng nội bộ từ máy quản trị</div></div>
+      <div class="phu">Cách ly</div>
+    </div>
+    <div class="dong">
+      <div><div class="ten">NAS nhà</div><div class="phu">NAS · lần thấy cuối 20:30 · không có lưu lượng ra ngoài</div>
+      <div class="phu">Dùng gì gần nhất: tên miền D (6 lượt) · bị chặn 0 lượt</div></div>
+      <div class="phu">Được phép</div>
+    </div>
+    <details><summary>Nâng cao — địa chỉ và định danh (mẫu)</summary>
+      <div style="margin-top:6px">Ví dụ một mục (không phải thiết bị thật): IP LAN mẫu 192.168.88.10 ·
+      MAC mẫu 02:00:5E:11:22:33 · ClientID: chưa gán · Nhóm: người nhà · Tóm tắt «dùng gì»: đang bật.</div>
+    </details>
+  </div>
+
+  <!-- NÂNG CAO CHUNG -->
+  <div class="khoi">
+    <h2>Nâng cao</h2>
+    <div class="phu">Công tắc «Cho phép ghi lên router (tài khoản w2a-chan)» đang TẮT thì mọi nút ghi
+    ở trang này khoá, chỉ còn xem. Bật công tắc đó ở <b>Cài đặt của module MikroTik</b> mới dùng được nút ghi.</div>
+    <div class="phu" style="margin-top:8px">Thông tin kết nối (địa chỉ IP LAN, tài khoản, mật khẩu) nằm ở
+    <b>Cài đặt của module MikroTik / AdGuard</b>, luôn ẩn, bấm mới mở sửa, bí mật chỉ ghi đè — không nằm ở trang này.</div>
+    <div style="margin-top:8px"><button>Xem lịch sử ngắt / cách ly / luật</button></div>
+  </div>
+
+  <!-- TRẠNG THÁI KHÁC (minh hoạ bằng chữ — không phải nút chạy) -->
+  <div class="chan">
+    <b>Các trạng thái khác (minh hoạ):</b><br>
+    • Đang ngắt: «Đang ngắt internet cả nhà, còn 22 phút — tự nối lại lúc 21:52» + nút «Nối lại ngay».<br>
+    • AdGuard lỗi: «AdGuard lỗi — đang dùng DNS dự phòng: lọc quảng cáo và theo dõi “dùng gì” tạm tắt;
+    cách ly/ngắt mạng/phát hiện xâm nhập qua router vẫn hoạt động».<br>
+    • Chưa kết nối: «Chưa kết nối — thêm ở Cài đặt của module MikroTik» + liên kết đúng dòng cần thêm.
+  </div>
+</div>
+</body>
+</html>
