@@ -1,0 +1,178 @@
+diff --git a/docs/KIEM-GIAO-DIEN-NV294.md b/docs/KIEM-GIAO-DIEN-NV294.md
+new file mode 100644
+index 0000000..fea9c0d
+--- /dev/null
++++ b/docs/KIEM-GIAO-DIEN-NV294.md
+@@ -0,0 +1,172 @@
++# Kiểm giao diện web2api — NV294 bước 2
++
++Bảng kiểm tĩnh theo từng trang: mẫu AI slop, tương phản/khoảng cách/chữ,
++trạng thái trống/lỗi/đang tải, sáng–tối, điện thoại 375px. Xếp theo mức
++ảnh hưởng để giai đoạn 3 bắt đầu ngay khi có Chrome.
++
++**Phương pháp.** Kiểm bằng mã nguồn, không bằng mắt: đọc toàn bộ
++`web/khung.css`, toàn bộ `web/*.dc.html`, `web/khung.js`,
++`web/support.js`; đo tương phản bằng công thức WCAG từ giá trị hex trong
++mã; grep các mẫu (gradient, emoji, chào mừng, `tabular-nums`,
++`prefers-color-scheme`, trạng thái trống/lỗi/đang tải). Máy làm lượt này
++**không có Chrome thật** nên không có ảnh chụp nào — mọi nhận xét «chưa
++đo ở 375px» hay «cần Chrome xác minh» dưới đây đều là việc giai đoạn 3
++phải làm trước khi sửa, không phải kết luận đã chắc.
++
++**Phạm vi.**
++
++- Kiểm: Đăng nhập, Thiết lập ban đầu, Studio, Hệ thống (trang Module),
++  Bảo mật & người dùng, khung Module (iframe), Phiên tài khoản,
++  Tích hợp & công cụ, Trợ giúp, và ba trang khu Nhà / Đời sống / Tác
++  phẩm (chung một markup, kiểm một lần). Trang định tuyến `index.html`
++  không phải màn hình (chỉ chuyển hướng) nên chỉ ghi một dòng.
++- **Loại trừ 1: `web/He-thong-AI.dc.html` (NV282).** Đã xác minh từ main
++  `8ed35ab`: tệp có chứa mã đánh dấu NV282 (khu «Tài khoản» theo demo
++  bản 9), nhưng `git log` của main không có commit nào nhắc NV282 hay
++  NV280 — không xác nhận được việc NV282 đã gộp theo đúng nghĩa nhánh
++  hay chưa. Theo brief («nếu chưa rõ thì loại»), loại cả trang này khỏi
++  phạm vi kiểm và ghi rõ lý do tại đây.
++- **Loại trừ 2: bảng chi tiết Module (NV280)** — khối `chiTiet(x)` trong
++  `web/He-thong.dc.html` (dòng ~1601, «khối tài nguyên MỘT dòng mỗi thứ,
++  có nhãn nguồn»). Phần còn lại của trang Hệ thống vẫn được kiểm.
++
++## Điểm mạnh — giai đoạn 3 giữ nguyên, đừng sửa lùi
++
++- **Tương phản chữ đạt AA toàn bộ** (đo từ hex): mực 16,31:1; chữ phụ
++  5,42:1 (nền) / 5,91:1 (thẻ); teal 5,02:1 / 5,47:1; các cặp huy hiệu và
++  báo 6,89–8,14:1.
++- **Không có mẫu slop nặng**: grep toàn `web/` = 0 gradient, 0 emoji
++  chào mừng, 0 «Chào mừng»/«Welcome back»; bóng chỉ ở menu nổi, thẻ nằm
++  yên chỉ có viền; nút chính màu mực, teal không tràn lan.
++- **Trạng thái lỗi phủ rộng**: mọi trang đều có báo lỗi (`.bao-loi`),
++  trang Bảo mật 15 chỗ và Hệ thống 20 chỗ, phần lớn nằm trong khối lỗi
++  chứ không chỉ banner đầu trang; khung Module có banner lỗi + nút
++  «Thử lại» cho trường hợp khung không tải được.
++- **Trạng thái trống có câu chữ thật**: bảng trống có `.bang-tb-rong`,
++  ô khu chưa có giá trị hiện chữ nghiêng màu phụ («chưa có…»), trang
++  Tích hợp/Phiên/Trợ giúp có câu trống theo ngữ cảnh.
++- **Cảm ứng đã lo**: mục bấm tối thiểu 44×44px và ô nhập 16px (chống
++  iOS tự zoom) trong khối `pointer:coarse`; viền focus 2px teal rõ.
++- **Bí mật đúng quy tắc**: trang Bảo mật chỉ hiện trạng thái «đã lưu»,
++  không trả bí mật về giao diện (hành vi phía máy chủ, theo QUY-TAC).
++
++## Phát hiện xếp theo mức ảnh hưởng
++
++### CAO
++
++- **C1. Tiêu đề trang không thống nhất; 8/11 màn hình giấu `h1`.**
++  Bằng chứng: trang Hệ thống, Bảo mật, Phiên, Tích hợp, Trợ giúp, khung
++  Module và cả ba trang khu đều dùng `h1` ẩn (`.an-chu`); chỉ Đăng nhập
++  và Thiết lập có tiêu đề nhìn thấy (20px, kiểu nhãn mục) và Studio có
++  tiêu đề chào 46px căn giữa, Newsreader («Bạn muốn làm gì hôm nay?»).
++  Token `.tieu-de` 38px trong `khung.css` không trang nào dùng. Hệ quả:
++  người dùng không có điểm tựa thị giác chung để biết mình đang ở đâu;
++  trình đọc màn hình thì có `h1` nhưng mắt thường thì không. Giai đoạn 3
++  chốt MỘT thang tiêu đề hiển thị (giữ `h1` ẩn chỉ nơi tiêu đề nhìn
++  thấy thực sự trùng với điều hướng) và quyết số phận `.tieu-de`.
++  Cần Chrome xác minh: tiêu đề nào hiện ra ở mỗi trang trước khi sửa.
++- **C2. Chế độ tối chỉ có ở một khối, chưa phải hệ thống.**
++  Bằng chứng: toàn `web/` chỉ có đúng hai chỗ `prefers-color-scheme:
++  dark`, cả hai đều nằm trong khối làn (NV255) của trang Hệ thống (biến
++  cục bộ `--lc-*`); `khung.css` và mọi trang còn lại chỉ có sáng. Hệ
++  quả: bật tối ở hệ điều hành thì chỉ khối làn đổi màu, còn lại vẫn
++  sáng — nhìn lệch nhau. Đây là quyết định phạm vi trước khi sửa: nếu
++  chủ máy muốn tối thì giai đoạn 3 phải làm theme tối hệ thống (token
++  tối cho `khung.css` trước, rồi mới tới từng trang); nếu không muốn
++  tối thì ghi rõ «chỉ sáng» và bỏ hai chỗ tối lẻ đó để khỏi lệch.
++  Không sửa lẻ từng trang trước khi chốt.
++
++### TRUNG BÌNH
++
++- **T1. Không có trạng thái đang tải giữ khung.**
++  Bằng chứng: không trang dữ liệu nào có thanh xương hay vùng giữ chỗ
++  lúc tải; chỉ có trang định tuyến `index.html` («Đang mở web2api…»),
++  chữ «Đang đo…» khi đo tài nguyên, và nút submit khoá khi đang gửi ở
++  Đăng nhập. Hệ quả: lần tải đầu hoặc mạng chậm, trang trống hoặc
++  nhảy bố cục khi dữ liệu về. Giai đoạn 3: thêm trạng thái «Đang tải…»
++  giữ đúng bố cục cuối cho mọi khối dữ liệu trước (rẻ, ít rủi ro), rồi
++  mới tính đến thanh xương. Cần Chrome xác minh: lúc tải mỗi trang hiện
++  ra cái gì.
++- **T2. Số không dùng chữ số bảng (`tabular-nums`) ngoài trang AI.**
++  Bằng chứng: `tabular-nums` chỉ xuất hiện trong `He-thong-AI.dc.html`
++  (ngoài phạm vi) và một chỗ làn ở Hệ thống; bảng, số liệu khu, số đếm
++  ở các trang còn lại dùng chữ thường. Hệ quả: số có thể nhảy ngang
++  khi giá trị cập nhật (đặc biệt ở bảng và ô số liệu). Giai đoạn 3: thêm
++  class số chung (`.so { font-variant-numeric: tabular-nums }`) và gắn
++  vào cột số — nhưng phải kiểm bằng Chrome rằng phông Be Vietnam Pro
++  thực sự có chữ số bảng (nếu không đổi thì đổi cách khác, đừng gắn cho
++  có).
++- **T3. Nhãn IN HOA có giãn chữ dùng ở nhiều chỗ.**
++  Bằng chứng: `.nhan-muc` (12px, 600, IN HOA, giãn .04em) làm tiêu đề
++  cho hầu hết mục ở Bảo mật và các trang khác; `.bang-tb-dau` (12px,
++  600, IN HOA, giãn .06em) làm đầu bảng. Chuẩn app-screens cho phép tối
++  đa một nhãn in hoa có giãn mỗi màn hình. Hệ quả: tiếng Việt in hoa
++  kèm dấu vốn đã nặng, dùng nhiều thì trang kêu to hơn dữ liệu. Giai
++  đoạn 3: giữ IN HOA cho một loại duy nhất (đề xuất: đầu bảng) và chuyển
++  tiêu đề mục sang câu thường đậm 500 — hoặc ngược lại, nhưng chỉ một.
++- **T4. Mốc điện thoại 1023px của demo chưa từng đo ở 375px.**
++  Bằng chứng: mốc chính là 1023px (thanh trên gọn, thanh dưới hiện);
++  mốc phụ 640px (làn một cột), 560px (form/bảng một cột), 480px (thanh
++  trên gọn hơn). Tĩnh thấy nhiều chỗ đã bẻ dòng tốt (hàng bảng
++  `flex-wrap`, bảng markdown cuộn trong khung, ô khu tự điền tối thiểu
++  230px nên ở 375px thành một cột vừa). Nhưng chưa có ảnh chụp 375px
++  nào, và các điểm rủi ro vẫn còn: menu nổi 200px, hàng chip dài, cột
++  chat Studio 880px, khung Module `calc(100vh - 150px)`. Giai đoạn 3
++  phải chụp 375px từng trang trước khi kết luận «điện thoại ổn».
++
++### THẤP
++
++- **Th1. Chữ 10px ở nhãn thanh dưới (máy tính để bàn).**
++  Bằng chứng: `.bn > a, .bn > button` 10px; khối cảm ứng đã nâng lên
++  12px. Dưới sàn 11px của chuẩn app-screens. Giai đoạn 3: nâng sàn lên
++  12px cho mọi con trỏ.
++- **Th2. Chữ 11px rải rác.** Vai người dùng ở thanh trên, nhãn ngôn ngữ
++  khối mã, vài ghi chú 11px — tương phản vẫn đạt nhưng nhỏ. Giai đoạn 3:
++  gom về 12px khi chạm vào các chỗ đó.
++- **Th3. Không có hộp thoại xác nhận thống nhất.**
++  Bằng chứng: không có `<dialog>` nào trong `web/`; xác nhận rải rác
++  (ví dụ `window.confirm` ở luồng đăng nhập tất cả). Giai đoạn 3: chốt
++  một mẫu xác nhận (nội tuyến trong khối hoặc hộp thoại chung) và thay
++  dần, không bắt buộc đổi hết một lần.
++- **Th4. Token chết trong CSS.** `.tieu-de` và `.nhan-tren` không trang
++  nào dùng (đã ghi trong `docs/DESIGN.md`). Giai đoạn 3: theo quyết ở
++  C1 mà dùng lại hay dọn — đừng để token chết nằm chung với token sống.
++
++## Bảng theo từng trang
++
++| Trang | Mẫu AI slop | Tương phản / khoảng cách / chữ | Trống | Lỗi | Đang tải | Sáng–tối | Điện thoại 375px |
++|---|---|---|---|---|---|---|---|
++| Đăng nhập | Không | Tốt; thẻ giữa 400px, nút chính 44px toàn chiều rộng; `h1` 20px kiểu nhãn | Không áp dụng (form) | Có (banner lỗi + khoá nút khi gửi) | Nút khoá khi gửi; chưa rõ chữ nút có đổi không | Chỉ sáng | Vừa theo tính toán (400px + đệm); chưa chụp |
++| Thiết lập ban đầu | Không | Tốt; thẻ giữa 480px, hộp lệnh tối nền mực | Không áp dụng (form) | Có | Không thấy | Chỉ sáng | Vừa theo tính toán (480px co theo khung); chưa chụp |
++| Studio | Tiêu đề chào 46px căn giữa — vượt thang tiêu đề app (cảnh báo từ 34px) nhưng là màn hình trò chuyện, có thể giữ nếu chủ máy chốt | Cột chat giữa 880px, container query ẩn chữ phụ ở 800/620px; tin nhắn tối đa 85% | Có, theo điều kiện («Chưa có model nào vì module… chưa có khoá») | Có (4 chỗ) | Không có khung giữ chỗ; luồng chat hiện theo stream | Chỉ sáng | Chưa chụp; cột 880px co lại được, cần xem trình soạn |
++| Hệ thống (trừ khối chiTiet NV280) | Không | Tốt; làn nhóm có màu theo loại, bẻ một cột dưới 640px | Có (`.rong` 2 chỗ) | Có (20 chỗ, trong khối) | Chỉ chữ «Đang đo…» khi đo | **Chỉ khối làn có tối** — lệch với phần còn lại | Chưa chụp; làn đã một cột dưới 640px |
++| Bảo mật & người dùng | Không | Tốt; mục thu gọn có nút, đầu bảng IN HOA (xem T3) | Có (bảng trống 3 chỗ) | Có (15 chỗ, trong mục) | Không thấy | Chỉ sáng | Chưa chụp; hàng bảng bẻ dòng |
++| Khung Module (iframe) | Không áp dụng (nội dung là của module) | Khung `calc(100vh - 150px)`, tối thiểu 480px | Có câu khi module không có trang riêng | Có banner + «Thử lại» | Không có chỉ báo lúc khung đang tải | Theo module bên trong | Chưa chụp |
++| Phiên tài khoản | Không | Tốt; phiên theo nhóm thu gọn | Có (bảng trống + câu «chưa có») | Có (3 chỗ) | Không thấy | Chỉ sáng | Chưa chụp |
++| Tích hợp & công cụ | Không | Tốt | Có câu «chưa có» | Có (11 chỗ) | Không thấy | Chỉ sáng | Chưa chụp |
++| Trợ giúp | Không | Tốt; mục thu gọn đóng mặc định, có ô lọc | Có câu «chưa có» | Có (1 chỗ) | Không thấy | Chỉ sáng | Chưa chụp |
++| Nhà / Đời sống / Tác phẩm (chung markup) | Không | Tốt; ô gọn giá trị Newsreader 26px, ô chưa có giá trị hiện chữ nghiêng màu phụ; chip «Cài đặt» ở cuối, luôn ẩn tới khi bấm (đúng QUY-TAC) | Có theo từng ô | Có (6 chỗ mỗi trang) | Chỉ chữ «đang lưu» | Chỉ sáng | Một cột vừa theo tính toán (ô tối thiểu 230px); chưa chụp |
++| `index.html` (định tuyến) | Không phải màn hình | Không áp dụng | Không áp dụng | Có đường về Đăng nhập khi chuyển hướng lỗi | **Có** («Đang mở web2api…») — mẫu tốt | Không áp dụng | Không áp dụng |
++
++## Thứ tự sửa cho giai đoạn 3 (khi có Chrome)
++
++1. Chụp trước toàn bộ trang (sáng + tối hệ điều hành, 375px + 1280px)
++   rồi mới sửa — ảnh là bằng chứng, không sửa mù.
++2. Chốt phạm vi chế độ tối (C2) với chủ máy trước mọi sửa khác.
++3. Chốt thang tiêu đề hiển thị (C1) và xử lý token chết (Th4) cùng lúc.
++4. Thêm trạng thái «Đang tải…» giữ bố cục cho các khối dữ liệu (T1).
++5. Thêm class số bảng và kiểm phông thật (T2).
++6. Gom nhãn IN HOA về một loại (T3) và nâng sàn chữ lên 12px (Th1, Th2).
++7. Chụp sau, đối chiếu từng trang với bảng trên, rồi mới chốt mẫu xác
++   nhận thống nhất (Th3) nếu còn sức.
++
++## Giới hạn của bảng kiểm này
++
++- Kiểm tĩnh, chưa nhìn bằng mắt: mọi dòng «chưa chụp» đều có thể đổi
++  kết luận khi có ảnh thật. Đặc biệt: bố cục 375px, hành vi lúc tải,
++  và chữ số bảng của Be Vietnam Pro đều chưa được xác nhận bằng trình
++  duyệt.
++- Không kiểm trang AI (NV282) và khối chi tiết Module (NV280) — hai
++  phần này cần một lượt kiểm riêng khi điều kiện cho phép.
++- Không sửa một dòng giao diện nào ở bước này, đúng ranh giới NV294:
++  patch bước 2 chỉ có tài liệu này.
