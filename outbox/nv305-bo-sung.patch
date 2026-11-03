@@ -1,0 +1,294 @@
+diff --git a/app/novnc.py b/app/novnc.py
+index fa82e31..5293a31 100644
+--- a/app/novnc.py
++++ b/app/novnc.py
+@@ -576,12 +576,28 @@ async def api_xem_trinh_duyet(module: str, request: Request):
+     Bearer quản trị được miễn; (2) module chỉ cần phương thức ``trinh_duyet_xem_mo()`` trả ``{"dich": ...}``
+     là địa chỉ noVNC nội bộ (websockify của dịch vụ), lõi ghim đích qua kiểm SSRF rồi cấp vé một lần 60 giây
+     như mọi vé /novnc khác. Mật khẩu VNC KHÔNG đi qua đường này: x11vnc vẫn bắt mật khẩu, người xem tự nhập
+-    một lần ở hộp nhập của noVNC (mật khẩu chỉ chủ máy biết, đọc từ trong container dịch vụ).
++    một lần ở hộp nhập của noVNC (mật khẩu chỉ chủ máy biết vì chính chủ máy đặt qua giao diện).
++
++    NV305-bo-sung: chưa từng đặt mật khẩu qua giao diện thì đường này từ chối mở và báo chưa đặt (xem
++    chặn dưới đây), thay vì cấp vé tới trang noVNC rồi bắt nhập một mật khẩu không ai biết (tệp cũ còn
++    sót) hoặc không mở được (x11vnc chưa có mật khẩu nên chưa chạy).
+ 
+     Hồ sơ ghim ở đây chỉ là khoá phiên xem (ID ngẫu nhiên), không phải hồ sơ trình duyệt riêng: đóng hồ sơ
+     (DELETE /phien hoặc thu hồi) chỉ thu hồi vé/phiên xem, KHÔNG đóng trình duyệt đang đăng nhập của dịch vụ."""
+     kiem_tra_step_up(request)
+     mod = _module_co(request, module, "trinh_duyet_xem_mo", "xem trình duyệt đang đăng nhập")
++    # NV305-bo-sung: chỉ chặn khi module trả lời dứt khoát «chưa từng đặt qua giao diện»
++    # (da_dat is False). Module không hỗ trợ trạng thái, hoặc hỏi trạng thái lỗi, thì đi
++    # đường cũ — lỗi (nếu có) sẽ hiện ở bước mở xem của nó, không chặn oan.
++    lay_trang_thai = getattr(mod, "trang_thai_mat_khau_vnc", None)
++    if callable(lay_trang_thai):
++        try:
++            kq_tt = await lay_trang_thai()
++        except Exception:
++            kq_tt = None
++        if isinstance(kq_tt, dict) and kq_tt.get("ok") and kq_tt.get("da_dat") is False:
++            raise LoiOpenAI(400, "Chưa đặt mật khẩu xem trình duyệt — hãy đặt trong "
++                                 "«Bảo mật & người dùng» trước khi mở màn hình xem.")
+     try:
+         kq = await mod.trinh_duyet_xem_mo()
+     except Exception as e:
+@@ -695,8 +711,10 @@ async def api_dat_mat_khau_vnc(request: Request):
+ @api_router.get("/mat-khau-vnc/trang-thai")
+ async def api_trang_thai_mat_khau_vnc(request: Request):
+     """NV305: đã từng đặt mật khẩu qua giao diện hay chưa. Chỉ quản trị, KHÔNG cần step-up vì chỉ trả
+-    một bool, không có bí mật nào đi ra. Chưa đặt thì giao diện vẫn cho đặt, và màn hình xem vẫn dùng
+-    mật khẩu ngẫu nhiên cũ của dịch vụ."""
++    một bool, không có bí mật nào đi ra. Chưa đặt thì giao diện vẫn cho đặt, còn màn hình xem từ chối
++    mở và báo chưa đặt cho tới khi chủ máy đặt qua giao diện (NV305-bo-sung: không còn mật khẩu ngẫu
++    nhiên sinh trong container; tệp cũ nếu còn trên đĩa vẫn giữ nguyên cho tới khi bị ghi đè qua giao
++    diện)."""
+     mod = _module_may_dang_nhap(request)
+     lay = getattr(mod, "trang_thai_mat_khau_vnc", None)
+     if not callable(lay):
+diff --git a/dich-vu/may-dang-nhap/README.md b/dich-vu/may-dang-nhap/README.md
+index 07f9848..9773052 100644
+--- a/dich-vu/may-dang-nhap/README.md
++++ b/dich-vu/may-dang-nhap/README.md
+@@ -136,12 +136,12 @@ Mọi yêu cầu gọi tới API (ngoại trừ `GET /health`) đều bắt bu
+ 
+ ### 3.2. Mật khẩu VNC cho màn hình ảo (noVNC)
+ 
+-- Giao thức RFB (VNC) chỉ sử dụng 8 ký tự đầu tiên của mật khẩu. Do đó, script `entrypoint.sh` sinh ngẫu nhiên đúng 8 ký tự từ bảng chữ-số (`A-Za-z0-9`, độ mạnh ~47 bit entropy) bằng lệnh:
+-  `tr -dc 'A-Za-z0-9' < /dev/urandom | head -c 8 > /khoa/mat-khau-vnc`
++- Giao thức RFB (VNC) chỉ sử dụng 8 ký tự đầu tiên của mật khẩu (mật khẩu xem 1–8 ký tự, đặt trong ô «Mật khẩu xem trình duyệt đăng nhập» ở «Bảo mật & người dùng» của lõi).
++- NV305-bo-sung — mật khẩu CHỈ tạo trong web UI, không đặt trong container: `entrypoint.sh` KHÔNG BAO GIỜ tạo `/khoa/mat-khau-vnc` — không biến môi trường, không sinh ngẫu nhiên. Biến `CAPTCHA_SOLVER_MAT_KHAU_VNC` đã bỏ hẳn. Tệp đã có trên đĩa (đặt qua giao diện từ trước, hoặc còn sót từ bản cũ) được giữ nguyên cho tới khi chủ máy ghi đè qua giao diện.
+ - Tệp mật khẩu lưu tại `/khoa/mat-khau-vnc` với quyền `0600` và không bao giờ được in ra stdout/log.
+-- Ghi chú vận hành: noVNC mặc định TẮT. Khi bật qua `CAPTCHA_SOLVER_BAT_NOVNC=1` (đặt ở tệp ghi đè cục bộ ngoài repo, không sửa trong repo), websockify nghe `0.0.0.0:6080` trên mạng Docker nội bộ để web2api tới được qua proxy `/novnc`; x11vnc vẫn chỉ nghe loopback `127.0.0.1:5900` trong container và vẫn bắt mật khẩu — mật khẩu không đi qua API web2api nào, người xem nhập một lần ở hộp nhập của noVNC (chủ máy đọc mật khẩu bằng `docker exec web2api-may-dang-nhap cat /khoa/mat-khau-vnc`).
+-- NV305 — chủ máy tự đặt, không cần docker exec nữa: lõi có ô «Mật khẩu xem trình duyệt đăng nhập» trong «Bảo mật & người dùng» gọi `PUT /api/trinh-duyet/mat-khau-vnc` (quản trị, step-up, giới hạn tần suất), lõi chuyển qua module may-dang-nhap tới `PUT /v1/novnc/mat-khau` của dịch vụ (khoá dịch vụ, nhóm `dang_nhap`): ghi `/khoa/mat-khau-vnc` (0600) + tệp đánh dấu `/khoa/mat-khau-vnc-chu-dat`, rồi `supervisorctl restart x11vnc` để mật khẩu mới có hiệu lực ngay mà không dựng lại container. `GET /v1/novnc/mat-khau/trang-thai` chỉ trả bool «đã từng đặt qua giao diện hay chưa», không trả mật khẩu. Nếu nạp lại x11vnc không được (noVNC đang tắt), mật khẩu vẫn đã ghi và sẽ có hiệu lực khi x11vnc khởi động lại.
+-- NV305 — entrypoint chỉ ghi mật khẩu lần đầu: tệp `/khoa/mat-khau-vnc` đã có (do chủ máy đặt qua giao diện) thì entrypoint GIỮ NGUYÊN khi khởi động lại container; biến `CAPTCHA_SOLVER_MAT_KHAU_VNC` chỉ còn là mật khẩu ban đầu khi chưa có tệp nào. Muốn đổi mật khẩu thì đặt qua giao diện, không đổi biến rồi khởi động lại.
++- Ghi chú vận hành: noVNC mặc định TẮT. Khi bật qua `CAPTCHA_SOLVER_BAT_NOVNC=1` (đặt ở tệp ghi đè cục bộ ngoài repo, không sửa trong repo), websockify nghe `0.0.0.0:6080` trên mạng Docker nội bộ để web2api tới được qua proxy `/novnc`; x11vnc vẫn chỉ nghe loopback `127.0.0.1:5900` trong container và vẫn bắt mật khẩu — người xem nhập một lần ở hộp nhập của noVNC mật khẩu mà chủ máy đã đặt qua giao diện. Không còn đường đọc mật khẩu bằng docker exec.
++- NV305 — chủ máy tự đặt: lõi có ô «Mật khẩu xem trình duyệt đăng nhập» trong «Bảo mật & người dùng» gọi `PUT /api/trinh-duyet/mat-khau-vnc` (quản trị, step-up, giới hạn tần suất), lõi chuyển qua module may-dang-nhap tới `PUT /v1/novnc/mat-khau` của dịch vụ (khoá dịch vụ, nhóm `dang_nhap`): ghi `/khoa/mat-khau-vnc` (0600) + tệp đánh dấu `/khoa/mat-khau-vnc-chu-dat`, rồi `supervisorctl restart x11vnc` để mật khẩu mới có hiệu lực ngay mà không dựng lại container. `GET /v1/novnc/mat-khau/trang-thai` chỉ trả bool «đã từng đặt qua giao diện hay chưa», không trả mật khẩu. Nếu nạp lại x11vnc không được (noVNC đang tắt), mật khẩu vẫn đã ghi và sẽ có hiệu lực khi x11vnc khởi động lại.
++- Chưa từng đặt qua giao diện thì màn hình xem báo chưa đặt: lõi từ chối cấp vé xem (`POST /api/trinh-duyet/{module}/xem` trả 400 «Chưa đặt mật khẩu xem trình duyệt») cho tới khi chủ máy đặt qua giao diện — không tự sinh mật khẩu trong container, không chạy x11vnc `-nopw` ngầm. Tệp mật khẩu cũ nếu còn trên đĩa vẫn được giữ nguyên cho tới khi bị ghi đè qua giao diện, nhưng màn hình xem vẫn đòi mật khẩu đã đặt qua giao diện (mật khẩu cũ không ai biết thì không mở được — cứ đặt mới qua giao diện là xong).
+ 
+ ### 3.3. Két mật khẩu tài khoản (`vault.key`)
+ 
+diff --git a/dich-vu/may-dang-nhap/entrypoint.sh b/dich-vu/may-dang-nhap/entrypoint.sh
+index 9dd2a8e..84f7541 100644
+--- a/dich-vu/may-dang-nhap/entrypoint.sh
++++ b/dich-vu/may-dang-nhap/entrypoint.sh
+@@ -18,22 +18,14 @@ chmod 0700 /khoa /data 2>/dev/null || true
+ 
+ # noVNC/websockify/x11vnc mặc định KHÔNG chạy.
+ # Chỉ khi CAPTCHA_SOLVER_BAT_NOVNC=1 mới chạy supervisord-novnc.conf.
+-# Giao thức RFB chỉ dùng 8 ký tự đầu nên sinh đúng 8 ký tự ngẫu nhiên A-Za-z0-9 (~47 bit), không in ra stdout.
+-# NV305: tệp mật khẩu ĐÃ CÓ thì GIỮ NGUYÊN — mật khẩu chủ máy đặt qua giao diện (đường PUT /v1/novnc/mat-khau)
+-# không bị ghi đè mỗi lần khởi động lại container. Biến CAPTCHA_SOLVER_MAT_KHAU_VNC chỉ dùng làm mật khẩu
+-# BAN ĐẦU khi chưa có tệp nào (đường tạm trước NV305); muốn đổi mật khẩu thì đặt qua giao diện, không đổi biến.
++# NV305-bo-sung: entrypoint KHÔNG BAO GIỜ tạo /khoa/mat-khau-vnc — không biến môi
++# trường, không sinh ngẫu nhiên. Mật khẩu CHỈ được tạo trong web UI (chủ máy đặt qua
++# «Bảo mật & người dùng» → đường PUT /v1/novnc/mat-khau của dịch vụ, dịch vụ ghi tệp
++# này). Tệp đã có trên đĩa (đặt qua giao diện từ trước, hoặc còn sót từ bản cũ) được
++# giữ nguyên — entrypoint không đụng vào nó. Chưa có tệp nào thì x11vnc (đọc tệp này
++# bằng -passwdfile, không -nopw) không khởi động được và nằm FATAL cho tới khi chủ máy
++# đặt mật khẩu qua giao diện; đường PUT khi đó nạp lại x11vnc (supervisorctl restart).
+ if [ "$CAPTCHA_SOLVER_BAT_NOVNC" = "1" ] || [ "$CAPTCHA_SOLVER_BAT_NOVNC" = "true" ]; then
+-    if [ ! -f /khoa/mat-khau-vnc ]; then
+-        if [ -n "$CAPTCHA_SOLVER_MAT_KHAU_VNC" ]; then
+-            umask 077
+-            printf '%s' "$CAPTCHA_SOLVER_MAT_KHAU_VNC" | head -c 8 > /khoa/mat-khau-vnc
+-            chmod 0600 /khoa/mat-khau-vnc
+-        else
+-            umask 077
+-            tr -dc 'A-Za-z0-9' < /dev/urandom | head -c 8 > /khoa/mat-khau-vnc
+-            chmod 0600 /khoa/mat-khau-vnc
+-        fi
+-    fi
+     exec /usr/bin/supervisord -c /etc/supervisor/supervisord-novnc.conf
+ else
+     exec /usr/bin/supervisord -c /etc/supervisor/supervisord.conf
+diff --git a/dich-vu/may-dang-nhap/src/main.py b/dich-vu/may-dang-nhap/src/main.py
+index f301c54..06aa590 100644
+--- a/dich-vu/may-dang-nhap/src/main.py
++++ b/dich-vu/may-dang-nhap/src/main.py
+@@ -246,8 +246,9 @@ class MatKhauVncReq(BaseModel):
+ 
+ 
+ # W2A NV305: mật khẩu xem trình duyệt (VNC) do chủ máy tự đặt trong «Bảo mật & người dùng» của lõi.
+-# Trước đây mật khẩu do entrypoint sinh ngẫu nhiên vào /khoa/mat-khau-vnc, chủ máy phải docker exec mới đọc
+-# được. Đường này ghi đè tệp đó (0600) + tệp đánh dấu «đã đặt», rồi nạp lại x11vnc bằng supervisorctl để
++# Trước NV305, mật khẩu do entrypoint sinh ngẫu nhiên vào /khoa/mat-khau-vnc, chủ máy phải docker exec mới đọc
++# được; từ NV305-bo-sung, entrypoint không còn tạo mật khẩu trong container (chỉ tạo qua web UI).
++# Đường này ghi đè tệp đó (0600) + tệp đánh dấu «đã đặt», rồi nạp lại x11vnc bằng supervisorctl để
+ # mật khẩu mới có hiệu lực ngay mà không dựng lại container. Mật khẩu KHÔNG BAO GIỜ trả về trong phản hồi
+ # hay vào log; nhóm tính năng dang_nhap (mặc định bật) vì đây là màn hình của luồng đăng nhập.
+ @app.put("/v1/novnc/mat-khau", dependencies=[Depends(can_tinh_nang("dang_nhap"))])
+diff --git a/dich-vu/may-dang-nhap/src/mat_khau_vnc.py b/dich-vu/may-dang-nhap/src/mat_khau_vnc.py
+index 7f8b1a3..5e8a128 100644
+--- a/dich-vu/may-dang-nhap/src/mat_khau_vnc.py
++++ b/dich-vu/may-dang-nhap/src/mat_khau_vnc.py
+@@ -16,8 +16,9 @@ log = logging.getLogger("may-dang-nhap.mat-khau-vnc")
+ 
+ #: Tên tệp mật khẩu VNC trong thư mục khoá (x11vnc đọc bằng -passwdfile).
+ TEN_TEP_MAT_KHAU = "mat-khau-vnc"
+-#: Tệp đánh dấu «đã từng đặt qua giao diện» (rỗng, 0600): phân biệt với mật khẩu
+-#: ngẫu nhiên do entrypoint sinh lúc đầu — entrypoint không ghi đè tệp đã có.
++#: Tệp đánh dấu «đã từng đặt qua giao diện» (rỗng, 0600): phân biệt với tệp mật khẩu
++#: cũ còn sót từ trước (bản cũ từng để entrypoint sinh ngẫu nhiên) — entrypoint hiện
++#: tại không tạo cũng không ghi đè tệp nào; chỉ đường PUT qua giao diện mới ghi.
+ TEN_TEP_DANH_DAU = "mat-khau-vnc-chu-dat"
+ #: Cấu hình supervisord chạy noVNC (có chương trình x11vnc) — dùng để nạp lại.
+ DUONG_SUPERVISOR_NOVNC = "/etc/supervisor/supervisord-novnc.conf"
+diff --git a/dich-vu/may-dang-nhap/test_c2a_dockerfile.py b/dich-vu/may-dang-nhap/test_c2a_dockerfile.py
+index 44f7d0e..1b6146b 100644
+--- a/dich-vu/may-dang-nhap/test_c2a_dockerfile.py
++++ b/dich-vu/may-dang-nhap/test_c2a_dockerfile.py
+@@ -158,8 +158,16 @@ def kiem_entrypoint(ep: str) -> list[str]:
+     loi = []
+     if "/tmp/.X11-unix" not in ep or "1777" not in ep:
+         loi.append("entrypoint.sh phải tạo /tmp/.X11-unix với quyền 1777")
+-    if "head -c 8" not in ep or "A-Za-z0-9" not in ep:
+-        loi.append("entrypoint.sh phải sinh mật khẩu VNC 8 ký tự từ bảng chữ-số (A-Za-z0-9) bằng head -c 8")
++    # NV305-bo-sung: mật khẩu VNC CHỈ tạo trong web UI — entrypoint không được tạo
++    # mật khẩu trong container dưới bất kỳ hình thức nào (biến môi trường, sinh ngẫu
++    # nhiên, ghi tệp). Quy tắc cũ «entrypoint phải sinh mật khẩu 8 ký tự» đã bị quyết
++    # 18:00 ngày 03/11 đảo ngược, nên kiểm tra này cũng đảo theo.
++    if "CAPTCHA_SOLVER_MAT_KHAU_VNC" in ep:
++        loi.append("entrypoint.sh không còn được dùng biến môi trường CAPTCHA_SOLVER_MAT_KHAU_VNC (NV305-bo-sung: chỉ tạo trong web UI)")
++    if "urandom" in ep or "tr -dc" in ep:
++        loi.append("entrypoint.sh không được sinh mật khẩu VNC trong container (NV305-bo-sung: chỉ tạo trong web UI)")
++    if "> /khoa/mat-khau-vnc" in ep:
++        loi.append("entrypoint.sh không được ghi tệp mật khẩu VNC (NV305-bo-sung: chỉ dịch vụ ghi từ mật khẩu đặt qua giao diện)")
+     if "od -tx1" in ep:
+         loi.append("entrypoint.sh không được dùng od -tx1 cho mật khẩu VNC")
+     for line in ep.splitlines():
+@@ -306,6 +314,16 @@ def test_dot_bien_entrypoint():
+     loi_od = kiem_entrypoint(ep_od)
+     assert any("od -tx1" in err for err in loi_od), "Phải phát hiện dùng od -tx1"
+ 
++    # (c) NV305-bo-sung: dùng lại biến môi trường mật khẩu VNC
++    ep_env = ep_goc + "\nif [ -n \"$CAPTCHA_SOLVER_MAT_KHAU_VNC\" ]; then echo x; fi\n"
++    loi_env = kiem_entrypoint(ep_env)
++    assert any("CAPTCHA_SOLVER_MAT_KHAU_VNC" in err for err in loi_env), "Phải phát hiện dùng biến môi trường mật khẩu VNC"
++
++    # (d) NV305-bo-sung: sinh ngẫu nhiên lại mật khẩu VNC trong container
++    ep_rand = ep_goc + "\ntr -dc 'A-Za-z0-9' < /dev/urandom | head -c 8 > /khoa/mat-khau-vnc\n"
++    loi_rand = kiem_entrypoint(ep_rand)
++    assert any("trong container" in err for err in loi_rand), "Phải phát hiện sinh mật khẩu VNC trong container"
++
+ 
+ def test_bien_the_du_goi_phu_thuoc_trong_in():
+     """Quét AST các import của tập tệp src/ được dùng và kiểm tra đầy đủ gói trong requirements-*.in cho từng biến thể."""
+diff --git a/dich-vu/may-dang-nhap/test_nv305_mat_khau_vnc.py b/dich-vu/may-dang-nhap/test_nv305_mat_khau_vnc.py
+index 322a8b9..b05c85a 100644
+--- a/dich-vu/may-dang-nhap/test_nv305_mat_khau_vnc.py
++++ b/dich-vu/may-dang-nhap/test_nv305_mat_khau_vnc.py
+@@ -49,6 +49,20 @@ def test_mat_khau_sai_dinh_dang(mk):
+     assert kiem_mat_khau_vnc(mk) is not None
+ 
+ 
++# NV305-bo-sung: entrypoint KHÔNG còn tạo mật khẩu trong container — bỏ hẳn biến
++# môi trường CAPTCHA_SOLVER_MAT_KHAU_VNC và cả đường sinh ngẫu nhiên. Mật khẩu chỉ
++# được tạo qua giao diện (PUT /v1/novnc/mat-khau); tệp đã có trên đĩa được giữ nguyên.
++def test_entrypoint_khong_tao_mat_khau_trong_container():
++    ep = (Path(__file__).resolve().parent / "entrypoint.sh").read_text(encoding="utf-8")
++    assert "CAPTCHA_SOLVER_MAT_KHAU_VNC" not in ep
++    assert "urandom" not in ep
++    assert "tr -dc" not in ep
++    # Đường dẫn tệp vẫn được nhắc trong chú thích (để test_c2a_dockerfile biết tệp ở
++    # /khoa, không ở /data), nhưng entrypoint không còn lệnh ghi nào vào tệp đó.
++    assert "/khoa/mat-khau-vnc" in ep
++    assert "> /khoa/mat-khau-vnc" not in ep
++
++
+ def test_ghi_tep_0600_va_danh_dau_va_nap_lai(tmp_path):
+     chay = ChayGia(ma=0)
+     kq = ghi_mat_khau_vnc(MK, thu_muc_khoa=tmp_path, chay_lenh=chay)
+diff --git a/modules/may-dang-nhap/module.py b/modules/may-dang-nhap/module.py
+index 3c5fd55..63be88d 100644
+--- a/modules/may-dang-nhap/module.py
++++ b/modules/may-dang-nhap/module.py
+@@ -2174,7 +2174,8 @@ class Module:
+         KHÔNG dùng khoá dịch vụ: chỉ suy host từ dich_vu_url đã cấu hình (mặc định là tên container trong
+         mạng Docker nội bộ) và đổi cổng API 8010 thành cổng websockify 6080. Lõi ghim đích qua kiểm SSRF
+         trước khi cấp vé; mật khẩu VNC vẫn do x11vnc giữ trong container, người xem tự nhập ở hộp nhập
+-        của noVNC — module này không biết và không trả mật khẩu đó."""
++        của noVNC — module này không biết và không trả mật khẩu đó. NV305-bo-sung: chưa từng đặt qua
++        giao diện thì lõi chặn ở đường /xem trước khi tới đây, module không cần tự chặn."""
+         host = urllib.parse.urlsplit(str(self._url or "")).hostname
+         if not host:
+             raise RuntimeError("Chưa cấu hình địa chỉ dịch vụ đăng nhập tự động")
+diff --git a/test/test_nv305_mat_khau_vnc.py b/test/test_nv305_mat_khau_vnc.py
+index f4532d3..1281e2f 100644
+--- a/test/test_nv305_mat_khau_vnc.py
++++ b/test/test_nv305_mat_khau_vnc.py
+@@ -179,6 +179,75 @@ def test_trang_thai_khong_khoa_bi_401_va_chua_cai_bi_404(moi_truong):
+         assert r.status_code == 404, r.text
+ 
+ 
++# NV305-bo-sung: màn hình xem từ chối mở khi chưa từng đặt mật khẩu qua giao diện
++# (mật khẩu chỉ tạo trong web UI, không còn sinh trong container). Module giả có thêm
++# trinh_duyet_xem_mo (đích loopback, cần WEB2API_TEST_CHO_PHEP_LOOPBACK=1 như test NV276).
++class ModXemMkVncGia(ModMkVncGia):
++    def __init__(self, *args, **kwargs):
++        super().__init__(*args, **kwargs)
++        self.da_mo_xem = False
++
++    async def trinh_duyet_xem_mo(self):
++        self.da_mo_xem = True
++        return {"dich": "http://127.0.0.1:6080"}
++
++
++class ModXemKhongTrangThaiGia:
++    async def trinh_duyet_xem_mo(self):
++        return {"dich": "http://127.0.0.1:6080"}
++
++
++class ModXemTrangThaiLoiGia(ModXemMkVncGia):
++    async def trang_thai_mat_khau_vnc(self):
++        raise RuntimeError("Không nối được dịch vụ")
++
++
++def test_xem_bi_chan_khi_chua_dat_mat_khau(moi_truong, monkeypatch):
++    monkeypatch.setenv("WEB2API_TEST_CHO_PHEP_LOOPBACK", "1")
++    with TestClient(app) as c:
++        mod = ModXemMkVncGia(da_dat=False)
++        c.app.state.so.dang_chay[MODULE] = mod
++        r = c.post(f"/api/trinh-duyet/{MODULE}/xem", json={}, headers=_qt())
++        assert r.status_code == 400, r.text
++        assert "Chưa đặt mật khẩu xem trình duyệt" in r.text
++        assert mod.da_mo_xem is False
++
++
++def test_xem_mo_duoc_khi_da_dat_mat_khau(moi_truong, monkeypatch):
++    monkeypatch.setenv("WEB2API_TEST_CHO_PHEP_LOOPBACK", "1")
++    with TestClient(app) as c:
++        mod = ModXemMkVncGia(da_dat=True)
++        c.app.state.so.dang_chay[MODULE] = mod
++        r = c.post(f"/api/trinh-duyet/{MODULE}/xem", json={}, headers=_qt())
++        assert r.status_code == 200, r.text
++        assert r.json()["url"].startswith("/novnc/dang-nhap?ve=")
++        assert mod.da_mo_xem is True
++    novnc._VE.clear()
++    novnc._HO_SO.clear()
++
++
++def test_xem_khong_bi_chan_khi_module_khong_co_trang_thai(moi_truong, monkeypatch):
++    """Module không hỗ trợ trạng thái mật khẩu thì xem như cũ (không chặn)."""
++    monkeypatch.setenv("WEB2API_TEST_CHO_PHEP_LOOPBACK", "1")
++    with TestClient(app) as c:
++        c.app.state.so.dang_chay[MODULE] = ModXemKhongTrangThaiGia()
++        r = c.post(f"/api/trinh-duyet/{MODULE}/xem", json={}, headers=_qt())
++        assert r.status_code == 200, r.text
++    novnc._VE.clear()
++    novnc._HO_SO.clear()
++
++
++def test_xem_van_mo_khi_hoi_trang_thai_loi(moi_truong, monkeypatch):
++    """Hỏi trạng thái lỗi (dịch vụ chập chờn) thì không chặn: xem đi đường cũ và tự báo lỗi của nó."""
++    monkeypatch.setenv("WEB2API_TEST_CHO_PHEP_LOOPBACK", "1")
++    with TestClient(app) as c:
++        c.app.state.so.dang_chay[MODULE] = ModXemTrangThaiLoiGia(da_dat=False)
++        r = c.post(f"/api/trinh-duyet/{MODULE}/xem", json={}, headers=_qt())
++        assert r.status_code == 200, r.text
++    novnc._VE.clear()
++    novnc._HO_SO.clear()
++
++
+ def test_giao_dien_co_o_mat_khau_dung_vi_tri():
+     """Ô mật khẩu nằm trong trang Bảo mật & người dùng, khu vực chỉ quản trị, kèm ghi chú giới hạn 8 ký tự."""
+     i = HTML_BAO_MAT.index('id="mat-khau-xem-trinh-duyet"')
