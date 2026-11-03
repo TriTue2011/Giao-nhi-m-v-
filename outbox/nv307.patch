@@ -1,0 +1,971 @@
+diff --git a/custom_components/r1_speaker/config_flow.py b/custom_components/r1_speaker/config_flow.py
+index 4eccbc4..2a28325 100644
+--- a/custom_components/r1_speaker/config_flow.py
++++ b/custom_components/r1_speaker/config_flow.py
+@@ -33,7 +33,7 @@ from .const import (CONF_AGC_ENABLE, CONF_AGC_MAX_GAIN_DB, CONF_AGC_SILENCE_DB,
+                     CONF_TALK_SILENCE, CONF_TALK_TAIL, CONF_TALK_THRESHOLD_DB, DEFAULT_HOST,
+                     DEFAULT_MIC_LISTEN_PORT, DEFAULT_MIC_PORT, DEFAULT_PLAY_PORT, DEFAULT_PORT, DEFAULT_TALK_PREROLL,
+                     DEFAULT_TALK_SILENCE, DEFAULT_TALK_TAIL, DEFAULT_TALK_THRESHOLD_DB, DOMAIN)
+-from .settings import (khoi_dong_lai_bat, khoi_dong_lai_gio, khoi_dong_lai_khi_treo, khoi_dong_lai_ngay, airplay_port, duong_phat, tts_song_song_airplay, ha_nhac_xuong, ha_nhac_nac, adb_settings, adb_tu_dong_dong, phim_ma, phim_nguon, DuplexSettings, TalkSettings, agc_settings, conf, limiter_settings, noise_settings, wake_settings, ha_url, mic_address, mic_listen, play_address, speaker_host,
++from .settings import (khoi_dong_lai_bat, khoi_dong_lai_gio, khoi_dong_lai_khi_treo, khoi_dong_lai_ngay, airplay_port, duong_phat, tron_tin, tts_song_song_airplay, ha_nhac_xuong, ha_nhac_nac, adb_settings, adb_tu_dong_dong, phim_ma, phim_nguon, DuplexSettings, TalkSettings, agc_settings, conf, limiter_settings, noise_settings, wake_settings, ha_url, mic_address, mic_listen, play_address, speaker_host,
+                        speaker_port, wake_mode, kenh_ten, kenh_kieu)
+ from .const import CONF_KENH, CONF_KENH_KIEU, DEFAULT_KENH_KIEU, KENH_KIEU
+ from .const import CONF_ADB_MODE, CONF_ADB_SERVER, CONF_ADB_TU_DONG, CONF_PHIM_MA, CONF_PHIM_NGUON, DEFAULT_ADB_MODE, DEFAULT_ADB_SERVER, DEFAULT_PHIM_MA, DEFAULT_PHIM_NGUON
+@@ -41,6 +41,7 @@ from .const import CONF_AIRPLAY_PORT, CONF_DUONG_PHAT, DEFAULT_AIRPLAY_PORT, DEF
+ from .const import (CONF_KDL_BAT, CONF_KDL_GIO, CONF_KDL_NGAY, CONF_KDL_TU_PHUC_HOI, DEFAULT_KDL_BAT, DEFAULT_KDL_GIO, DEFAULT_KDL_NGAY,
+                     DEFAULT_KDL_TU_PHUC_HOI, KDL_NGAY_MA)
+ from .const import CONF_TTS_SONG_SONG, DEFAULT_TTS_SONG_SONG, CONF_HA_NHAC_XUONG, DEFAULT_HA_NHAC_XUONG, CONF_HA_NHAC_NAC, DEFAULT_HA_NHAC_NAC
++from .const import CONF_TRON_TIN, DEFAULT_TRON_TIN
+ from .const import (CONF_WAKE_ENABLE, CONF_WAKE_SENSITIVITY, CONF_WAKE_WORD,
+                     DEFAULT_WAKE_ENABLE, DEFAULT_WAKE_SENSITIVITY, DEFAULT_WAKE_WORD)
+ 
+@@ -130,7 +131,7 @@ _GOC = {
+     CONF_ADB_SERVER: DEFAULT_ADB_SERVER, CONF_ADB_MODE: DEFAULT_ADB_MODE, CONF_ADB_TU_DONG: False, CONF_PHIM_MA: DEFAULT_PHIM_MA, CONF_PHIM_NGUON: DEFAULT_PHIM_NGUON,
+     CONF_DUONG_PHAT: DEFAULT_DUONG_PHAT, CONF_AIRPLAY_PORT: DEFAULT_AIRPLAY_PORT,
+     CONF_TTS_SONG_SONG: DEFAULT_TTS_SONG_SONG, CONF_HA_NHAC_XUONG: DEFAULT_HA_NHAC_XUONG,
+-    CONF_HA_NHAC_NAC: DEFAULT_HA_NHAC_NAC,
++    CONF_HA_NHAC_NAC: DEFAULT_HA_NHAC_NAC, CONF_TRON_TIN: DEFAULT_TRON_TIN,
+     CONF_KDL_BAT: DEFAULT_KDL_BAT, CONF_KDL_GIO: DEFAULT_KDL_GIO, CONF_KDL_NGAY: list(DEFAULT_KDL_NGAY),
+     CONF_KDL_TU_PHUC_HOI: DEFAULT_KDL_TU_PHUC_HOI,
+     # NV292: kênh đàm thoại loa–loa (mặc định: không vào kênh nào).
+@@ -235,6 +236,7 @@ class R1OptionsFlow(OptionsFlowWithReload):
+                                 CONF_TTS_SONG_SONG: user_input.get(CONF_TTS_SONG_SONG, DEFAULT_TTS_SONG_SONG),
+                                 CONF_HA_NHAC_XUONG: user_input.get(CONF_HA_NHAC_XUONG, DEFAULT_HA_NHAC_XUONG),
+                                 CONF_HA_NHAC_NAC: user_input.get(CONF_HA_NHAC_NAC, DEFAULT_HA_NHAC_NAC),
++                                CONF_TRON_TIN: user_input.get(CONF_TRON_TIN, DEFAULT_TRON_TIN),
+                                 CONF_KDL_BAT: user_input.get(CONF_KDL_BAT, DEFAULT_KDL_BAT),
+                                 CONF_KDL_GIO: _gio_hhmm(user_input.get(CONF_KDL_GIO)),
+                                 CONF_KDL_NGAY: [m for m in KDL_NGAY_MA if m in user_input.get(CONF_KDL_NGAY, DEFAULT_KDL_NGAY)],
+@@ -260,6 +262,7 @@ class R1OptionsFlow(OptionsFlowWithReload):
+             vol.Optional(CONF_DUONG_PHAT, default=v.get(CONF_DUONG_PHAT, duong_phat(entry))): vol.In(list(DUONG_PHAT_GIA_TRI)),
+             vol.Optional(CONF_AIRPLAY_PORT, default=v.get(CONF_AIRPLAY_PORT, airplay_port(entry))): vol.All(int, vol.Range(min=1, max=65535)),
+             vol.Optional(CONF_TTS_SONG_SONG, default=v.get(CONF_TTS_SONG_SONG, tts_song_song_airplay(entry))): bool,
++            vol.Optional(CONF_TRON_TIN, default=v.get(CONF_TRON_TIN, tron_tin(entry))): bool,
+             vol.Optional(CONF_HA_NHAC_XUONG, default=v.get(CONF_HA_NHAC_XUONG, ha_nhac_xuong(entry))): bool,
+             vol.Optional(CONF_HA_NHAC_NAC, default=v.get(CONF_HA_NHAC_NAC, ha_nhac_nac(entry))): vol.All(int, vol.Range(min=1, max=14)),
+             vol.Optional(CONF_KDL_BAT, default=v.get(CONF_KDL_BAT, khoi_dong_lai_bat(entry))): bool,
+diff --git a/custom_components/r1_speaker/const.py b/custom_components/r1_speaker/const.py
+index a045f01..b1474c3 100644
+--- a/custom_components/r1_speaker/const.py
++++ b/custom_components/r1_speaker/const.py
+@@ -221,6 +221,14 @@ CONF_HA_NHAC_XUONG = "ha_nhac_xuong"
+ DEFAULT_HA_NHAC_XUONG = False
+ CONF_HA_NHAC_NAC = "ha_nhac_nac"
+ DEFAULT_HA_NHAC_NAC = 5
++#: NV307 — «Một đường: trộn tin báo vào luồng nhạc» (đường AirPlay): nhạc đang
++#: phát qua AirPlay thì tin báo được trộn vào chính luồng PCM của phiên đó
++#: (nhạc hạ 12 dB bằng phần mềm, không đổi âm lượng loa, không tạm dừng,
++#: không đổi URI, không next bài). Mặc định TẮT — chưa đo trên loa thật độ
++#: trễ/méo/đồng bộ khi trộn; chỉ bật sau khi nghe thử theo docs/PHAT-RA-LOA.md.
++#: Thắng đường ngược NV303 khi cả hai cùng bật (một đường tốt hơn hai đường).
++CONF_TRON_TIN = "tron_tin_airplay"
++DEFAULT_TRON_TIN = False
+ #: Cổng RAOP (AirPlay 1) của loa. Đo 28/10/2026 ở một lần khởi động: 5012. Cổng DLNA của loa đổi theo từng lần khởi động nên cổng này cũng có thể
+ #: đổi; nếu AirPlay không nối được thì đổi ở Tuỳ chọn.
+ CONF_AIRPLAY_PORT = "airplay_port"
+diff --git a/custom_components/r1_speaker/media_player.py b/custom_components/r1_speaker/media_player.py
+index 91db0c6..50b45b8 100644
+--- a/custom_components/r1_speaker/media_player.py
++++ b/custom_components/r1_speaker/media_player.py
+@@ -50,11 +50,12 @@ from homeassistant.util import dt as dt_util
+ 
+ from . import const
+ from .const import AIRPLAY_BAT_DAU_TOI_DA, DLNA_READY_TIMEOUT, DOMAIN
+-from .settings import airplay_port, duong_phat, tts_song_song_airplay, ha_nhac_xuong, ha_nhac_nac
++from .settings import airplay_port, duong_phat, tron_tin, tts_song_song_airplay, ha_nhac_xuong, ha_nhac_nac
+ from .dmr import R1Dmr, R1DmrError, TrangThaiDmr, UocViTri
+ from .coordinator import R1ConfigEntry, R1Coordinator
+ from .client import R1Error
+ from .airplay import LoiAirPlay, LoiKhongNoi, PhienAirPlay, tao_nguon
++from .tron_tin import TronTin
+ from .entity import R1Entity
+ from .music import CONTROL_COMMANDS, PLAYLIST_COMMANDS, SEARCH_SOURCES, R1Music
+ 
+@@ -177,6 +178,8 @@ class R1Player(R1Entity, MediaPlayerEntity):
+         self._ap_tin_tac: asyncio.Task | None = None
+         self._tin_dlna_tac: asyncio.Task | None = None   # NV303: tác vụ theo dõi tin DLNA song song (nhạc đang ở AirPlay)
+         self._tin_dlna_dang = False          # NV303: tin DLNA song song đang chạy trên renderer: kết quả hỏi renderer KHÔNG phải của nhạc (cổng ``_doc``)
++        self._tron: TronTin | None = None    # NV307: bộ trộn của phiên nhạc AirPlay hiện tại (None = nhạc không ở AirPlay)
++        self._tron_tac: asyncio.Task | None = None   # NV307: tác vụ theo dõi tin đang trộn (báo vệ tinh khi tin xong)
+         self._ap_goc = 0.0                   # giây của bài mà phiên AirPlay hiện tại bắt đầu (sau khi tua)
+         self._ap_url: str | None = None      # địa chỉ đã giải ra, để tua = phát lại từ vị trí đó
+ 
+@@ -219,6 +222,8 @@ class R1Player(R1Entity, MediaPlayerEntity):
+             self._ap_tin_tac.cancel()
+         if self._tin_dlna_tac is not None and not self._tin_dlna_tac.done():
+             self._tin_dlna_tac.cancel()
++        if self._tron_tac is not None and not self._tron_tac.done():
++            self._tron_tac.cancel()
+ 
+     @callback
+     def _huy_cham(self) -> None:
+@@ -504,7 +509,9 @@ class R1Player(R1Entity, MediaPlayerEntity):
+         xong và khôi phục nhạc — lệnh này trả về ngay sau khi đã gửi tin đi, không chờ hết tin (``tts.speak`` khỏi bị treo).
+         NV287: nếu bật ``tts_song_song_airplay`` và nhạc đang ở DLNA thì tin đi AirPlay SONG SONG (không thay URI DLNA,
+         không tạm dừng: tắt ducking nghĩa là nhạc phát tiếp ở mức đầy đủ, bật ducking thì nhạc nhỏ đi rồi trả mức cũ;
+-        chỉ khi không đọc được mức cũ mới về tạm dừng); nhạc hết tin vẫn ở đúng bài, đúng vị trí mà không cần khôi phục."""
++        chỉ khi không đọc được mức cũ mới về tạm dừng); nhạc hết tin vẫn ở đúng bài, đúng vị trí mà không cần khôi phục.
++        NV307: nếu bật ``tron_tin_airplay`` và nhạc đang ở AirPlay thì tin TRỘN vào chính luồng nhạc AirPlay (một phiên RAOP
++        duy nhất, nhạc hạ 12 dB bằng phần mềm, không dừng/khôi phục, không DLNA) — đường này thắng cả NV303 khi cả hai cùng bật."""
+         if not is_announcement(media_id, kwargs):
+             await self._phat(media_type, media_id, **kwargs)
+             return
+@@ -536,6 +543,8 @@ class R1Player(R1Entity, MediaPlayerEntity):
+             self.coordinator.config_entry.async_create_background_task(
+                 self.hass, self._theo_doi_tin(giu), f"{self.entity_id} announce")
+             return
++        if tron_tin(entry) and self._tin_co_the_tron() and await self._tin_tron(media_type, media_id, **kwargs):
++            return                                      # NV307: tin đã trộn vào phiên AirPlay của nhạc, nhạc không bị đụng
+         if tts_song_song_airplay(entry) and self._tin_co_the_nguoc_dlna() and await self._tin_dlna_song_song(media_type, media_id, **kwargs):
+             return                                      # NV303: tin đã đi DLNA song song, nhạc AirPlay không bị đụng
+         giu = await talk.music.hold()
+@@ -784,6 +793,60 @@ class R1Player(R1Entity, MediaPlayerEntity):
+             talk.announce_done()
+             await giu.release()
+ 
++    # ── NV307: tin báo TRỘN vào luồng nhạc AirPlay (một đường) ──────────────────
++    # Khác cả ba đường cũ: không tạm dừng/khôi phục (đường thường), không phiên
++    # RAOP riêng + hạ âm lượng loa (NV287), không DLNA ngược (NV303). Tin được
++    # giải mã thành PCM thứ hai rồi cộng vào đúng luồng PCM của phiên nhạc
++    # đang chạy (``tron_tin.TronTin``): nhạc tự hạ 12 dB bằng phần mềm, hết
++    # tin về mức cũ. Chỉ dùng khi nhạc đang phát qua AirPlay VÀ phiên đó có
++    # bộ trộn đang chạy; còn lại rơi về NV303/đường thường như cũ. Bật công
++    # tắc này cùng ``tts_song_song_airplay`` thì đường trộn THẮNG (một đường
++    # tốt hơn hai đường song song, không phụ thuộc loa có trộn DLNA + RAOP
++    # được hay không — điểm NV303 còn chưa đo).
++
++    def _tin_co_the_tron(self) -> bool:
++        """Nhạc đang phát qua AirPlay và bộ trộn của phiên đó còn sống."""
++        return (self._duong == "airplay" and self._tron is not None and self._tron.dang_chay
++                and self._tt.state in ("playing", "buffering"))
++
++    async def _tin_tron(self, media_type: MediaType | str, media_id: str, **kwargs: Any) -> bool:
++        """True = tin đã chen vào luồng nhạc (tác vụ nền theo dõi và báo vệ
++        tinh). False = chưa chen được (bộ trộn vừa chết): bên gọi về đường
++        NV303/đường thường, không mất tin."""
++        tron = self._tron
++        if tron is None:
++            return False
++        url = media_id
++        if media_source.is_media_source_id(media_id):
++            url = (await media_source.async_resolve_media(self.hass, media_id, self.entity_id)).url
++        url = async_process_play_media_url(self.hass, url)
++        await self._dung_tin_song_song()                # tin song song cũ (nếu có) im trước khi tin trộn vào
++        su_kien = await tron.chen_tin(tao_nguon(url, 0.0))
++        if su_kien is None:                             # bộ trộn chết giữa lúc kiểm và chen
++            return False
++        self._tron_tac = self.coordinator.config_entry.async_create_background_task(
++            self.hass, self._theo_doi_tin_tron(tron, su_kien), f"{self.entity_id} announce tron")
++        return True
++
++    async def _theo_doi_tin_tron(self, tron: TronTin, su_kien) -> None:
++        """Chờ tin trộn xong (hoặc hết hạn), rồi báo vệ tinh. Bị huỷ (gỡ
++        thực thể) thì vẫn báo — vệ tinh không kẹt ở trạng thái đang nói.
++        Hết hạn thì huỷ tin (nhạc ramp về mức cũ ở các khúc kế) chứ không
++        dừng nhạc, không mở lại phiên."""
++        talk = self.coordinator.talk
++        try:
++            async with asyncio.timeout(const.ANNOUNCE_MAX):
++                await su_kien.wait()
++        except TimeoutError:
++            _LOGGER.warning("tin trộn trên %s chưa xong sau %.0f giây — huỷ tin, nhạc về mức cũ",
++                            self.entity_id, const.ANNOUNCE_MAX)
++            if self._tron is tron:                       # phiên khác đã thay thì đừng huỷ tin của nó
++                await tron.huy_tin()
++        finally:
++            if self._tron_tac is asyncio.current_task():
++                self._tron_tac = None
++            talk.announce_done()
++
+     #: Thứ tự thử các đường theo tuỳ chọn ``duong_phat``.
+     _THU_TU = {"dlna": ("dlna",), "dlna_truoc": ("dlna", "airplay"), "airplay_truoc": ("airplay", "dlna"), "airplay": ("airplay",)}
+     _TEN_DUONG = {"dlna": "DLNA", "airplay": "AirPlay"}
+@@ -861,9 +924,17 @@ class R1Player(R1Entity, MediaPlayerEntity):
+         raise HomeAssistantError(str(loi))
+ 
+     async def _mo_airplay(self, url: str, bat_dau: float) -> LoiAirPlay | None:
+-        """Mở một phiên và chờ gói tiếng đầu. Trả ``None`` nếu đã phát; còn lại trả lỗi (phiên đã được dọn)."""
++        """Mở một phiên và chờ gói tiếng đầu. Trả ``None`` nếu đã phát; còn lại trả lỗi (phiên đã được dọn).
++
++        NV307: nguồn nhạc luôn đi qua một ``TronTin`` (kể cả khi công tắc
++        trộn đang TẮT — lúc đó nó chỉ chuyển tiếp nguyên khúc, không tốn
++        tính toán đáng kể) để bật công tắc giữa chừng vẫn trộn được ngay
++        mà không phải phát lại nhạc; quyết định trộn hay không nằm ở lúc
++        có tin (``_tin_tron``), không nằm ở lúc mở phiên."""
+         entry = self.coordinator.config_entry
+-        ap = PhienAirPlay(self._host, airplay_port(entry), tao_nguon(url, bat_dau),
++        tron = TronTin()
++        self._tron = tron
++        ap = PhienAirPlay(self._host, airplay_port(entry), lambda: tron.nguon(tao_nguon(url, bat_dau)),
+                           tren_doi=lambda tt: self._ap_doi(ap, tt))
+         tac = entry.async_create_background_task(self.hass, self._chay_ap(ap), f"{self.entity_id} airplay")
+         self._ap, self._ap_tac, self._ap_goc, self._ap_url = ap, tac, bat_dau, url
+diff --git a/custom_components/r1_speaker/settings.py b/custom_components/r1_speaker/settings.py
+index 12aa738..512c181 100644
+--- a/custom_components/r1_speaker/settings.py
++++ b/custom_components/r1_speaker/settings.py
+@@ -21,6 +21,7 @@ from .const import CONF_AIRPLAY_PORT, CONF_DUONG_PHAT, DEFAULT_AIRPLAY_PORT, DEF
+ from .const import (CONF_KDL_BAT, CONF_KDL_GIO, CONF_KDL_NGAY, CONF_KDL_TU_PHUC_HOI, DEFAULT_KDL_BAT, DEFAULT_KDL_GIO,
+                     DEFAULT_KDL_NGAY, DEFAULT_KDL_TU_PHUC_HOI, KDL_NGAY_MA)
+ from .const import CONF_TTS_SONG_SONG, DEFAULT_TTS_SONG_SONG, CONF_HA_NHAC_XUONG, DEFAULT_HA_NHAC_XUONG, CONF_HA_NHAC_NAC, DEFAULT_HA_NHAC_NAC
++from .const import CONF_TRON_TIN, DEFAULT_TRON_TIN
+ from .const import (CONF_WAKE_ENABLE, CONF_WAKE_SENSITIVITY, CONF_WAKE_WORD,
+                     DEFAULT_WAKE_ENABLE, DEFAULT_WAKE_SENSITIVITY, DEFAULT_WAKE_WORD)
+ from .const import (CONF_AGC_ENABLE, CONF_AGC_MAX_GAIN_DB, CONF_AGC_SILENCE_DB, CONF_AGC_TARGET_DB,
+@@ -218,6 +219,12 @@ def tts_song_song_airplay(entry: ConfigEntry) -> bool:
+     return conf(entry, CONF_TTS_SONG_SONG, DEFAULT_TTS_SONG_SONG) is True
+ 
+ 
++def tron_tin(entry: ConfigEntry) -> bool:
++    """NV307: tin báo trộn vào luồng nhạc AirPlay (một đường). Mặc định TẮT
++    (chưa đo trên loa thật độ trễ/méo khi trộn)."""
++    return conf(entry, CONF_TRON_TIN, DEFAULT_TRON_TIN) is True
++
++
+ def ha_nhac_xuong(entry: ConfigEntry) -> bool:
+     """NV287: hạ nhạc nền trong lúc tin song song phát. Mặc định TẮT; chỉ có
+     tác dụng khi ``tts_song_song_airplay`` bật (tin đi đường thường thì nhạc đã
+diff --git a/custom_components/r1_speaker/strings.json b/custom_components/r1_speaker/strings.json
+index f9a43d9..e5bba24 100644
+--- a/custom_components/r1_speaker/strings.json
++++ b/custom_components/r1_speaker/strings.json
+@@ -95,6 +95,9 @@
+       "tin_nguoc_nhac": {
+         "name": "Announcements on the opposite path to the music"
+       },
++      "tron_tin": {
++        "name": "Mix announcements into the music (one AirPlay path)"
++      },
+       "ha_nhac_xuong": {
+         "name": "Duck music while speaking"
+       },
+@@ -343,6 +346,7 @@
+           "duong_phat": "How music and announcements reach the speaker: dlna (default, as before) · dlna_truoc (DLNA, falls back to AirPlay) · airplay_truoc (AirPlay, falls back to DLNA) · airplay. AirPlay is sent by this integration itself and needs ffmpeg on the HA host; seek restarts playback from that position",
+           "airplay_port": "The speaker's AirPlay (RAOP) port, default 5012; change it if AirPlay cannot connect after the speaker restarted",
+           "tts_song_song_airplay": "Announcements go the OPPOSITE way to the music, music keeps playing: music on DLNA → announcement over AirPlay; music on AirPlay → announcement over DLNA; falls back to the normal path (pause music, speak, resume) on any error (default OFF — not yet measured on a real speaker whether it can mix DLNA + RAOP; enable only after the measurement in docs/PHAT-RA-LOA.md)",
++          "tron_tin_airplay": "Mix announcements INTO the music stream over AirPlay (one RAOP session, no pause/resume, no DLNA): music drops 12 dB in software while the announcement speaks, then returns smoothly. Only applies when music is on AirPlay; wins over the opposite-path option when both are on (default OFF — mixing latency/distortion not yet measured on a real speaker; enable only after listening per docs/PHAT-RA-LOA.md)",
+           "ha_nhac_xuong": "Duck background music while a parallel announcement plays (only applies when parallel AirPlay announcements are on; music drops by ha_nhac_nac steps, then returns to the exact previous level, even if the announcement errors)",
+           "ha_nhac_nac": "Ducking steps (speaker 0–15 scale)",
+           "khoi_dong_lai_bat": "Restart the speaker on a schedule (OFF by default; preventive)",
+diff --git a/custom_components/r1_speaker/thuc_the_tuy_chon.py b/custom_components/r1_speaker/thuc_the_tuy_chon.py
+index f1c2cfa..0aec288 100644
+--- a/custom_components/r1_speaker/thuc_the_tuy_chon.py
++++ b/custom_components/r1_speaker/thuc_the_tuy_chon.py
+@@ -168,6 +168,7 @@ def _dang_ky(hass: HomeAssistant, entry: R1ConfigEntry, domain: str, ds: list) -
+ def switches(hass: HomeAssistant, entry: R1ConfigEntry) -> list:
+     return _dang_ky(hass, entry, "switch", [
+         R1TuyChonSwitch(entry, "tin_nguoc_nhac", const.CONF_TTS_SONG_SONG, const.DEFAULT_TTS_SONG_SONG, settings.tts_song_song_airplay),
++        R1TuyChonSwitch(entry, "tron_tin", const.CONF_TRON_TIN, const.DEFAULT_TRON_TIN, settings.tron_tin),
+         R1TuyChonSwitch(entry, "ha_nhac_xuong", const.CONF_HA_NHAC_XUONG, const.DEFAULT_HA_NHAC_XUONG, settings.ha_nhac_xuong),
+         R1TuyChonSwitch(entry, "kdl_bat", const.CONF_KDL_BAT, const.DEFAULT_KDL_BAT, settings.khoi_dong_lai_bat),
+         R1TuyChonSwitch(entry, "kdl_khi_treo", const.CONF_KDL_TU_PHUC_HOI, const.DEFAULT_KDL_TU_PHUC_HOI, settings.khoi_dong_lai_khi_treo),
+diff --git a/custom_components/r1_speaker/translations/en.json b/custom_components/r1_speaker/translations/en.json
+index f36049f..59e5564 100644
+--- a/custom_components/r1_speaker/translations/en.json
++++ b/custom_components/r1_speaker/translations/en.json
+@@ -95,6 +95,9 @@
+       "tin_nguoc_nhac": {
+         "name": "Announcements on the opposite path to the music"
+       },
++      "tron_tin": {
++        "name": "Mix announcements into the music (one AirPlay path)"
++      },
+       "ha_nhac_xuong": {
+         "name": "Duck music while speaking"
+       },
+@@ -343,6 +346,7 @@
+           "duong_phat": "How music and announcements reach the speaker: dlna (default, as before) · dlna_truoc (DLNA, falls back to AirPlay) · airplay_truoc (AirPlay, falls back to DLNA) · airplay. AirPlay is sent by this integration itself and needs ffmpeg on the HA host; seek restarts playback from that position",
+           "airplay_port": "The speaker's AirPlay (RAOP) port, default 5012; change it if AirPlay cannot connect after the speaker restarted",
+           "tts_song_song_airplay": "Announcements go the OPPOSITE way to the music, music keeps playing: music on DLNA → announcement over AirPlay; music on AirPlay → announcement over DLNA; falls back to the normal path (pause music, speak, resume) on any error (default OFF — not yet measured on a real speaker whether it can mix DLNA + RAOP; enable only after the measurement in docs/PHAT-RA-LOA.md)",
++          "tron_tin_airplay": "Mix announcements INTO the music stream over AirPlay (one RAOP session, no pause/resume, no DLNA): music drops 12 dB in software while the announcement speaks, then returns smoothly. Only applies when music is on AirPlay; wins over the opposite-path option when both are on (default OFF — mixing latency/distortion not yet measured on a real speaker; enable only after listening per docs/PHAT-RA-LOA.md)",
+           "ha_nhac_xuong": "Duck background music while a parallel announcement plays (only applies when parallel AirPlay announcements are on; music drops by ha_nhac_nac steps, then returns to the exact previous level, even if the announcement errors)",
+           "ha_nhac_nac": "Ducking steps (speaker 0–15 scale)",
+           "khoi_dong_lai_bat": "Restart the speaker on a schedule (OFF by default; preventive)",
+diff --git a/custom_components/r1_speaker/translations/vi.json b/custom_components/r1_speaker/translations/vi.json
+index e6bddb6..9777a52 100644
+--- a/custom_components/r1_speaker/translations/vi.json
++++ b/custom_components/r1_speaker/translations/vi.json
+@@ -95,6 +95,9 @@
+       "tin_nguoc_nhac": {
+         "name": "Tin báo đi đường ngược với nhạc"
+       },
++      "tron_tin": {
++        "name": "Trộn tin báo vào luồng nhạc (một đường AirPlay)"
++      },
+       "ha_nhac_xuong": {
+         "name": "Hạ nhạc nền khi loa nói"
+       },
+@@ -343,6 +346,7 @@
+           "duong_phat": "Đường phát nhạc và tin ra loa: dlna (mặc định, như cũ) · dlna_truoc (DLNA, hỏng thì AirPlay) · airplay_truoc (AirPlay, hỏng thì DLNA) · airplay. AirPlay do tích hợp tự gửi, cần ffmpeg trên máy chạy HA; không tua được ngay trên loa, tua = phát lại từ vị trí đó",
+           "airplay_port": "Cổng AirPlay (RAOP) của loa, mặc định 5012; đổi nếu AirPlay không nối được sau khi loa khởi động lại",
+           "tts_song_song_airplay": "Tin báo đi đường NGƯỢC với nhạc, nhạc không dừng: nhạc DLNA thì tin đi AirPlay; nhạc AirPlay thì tin đi DLNA; lỗi thì rơi về đường thường (tạm dừng nhạc, phát tin, khôi phục). Mặc định TẮT — chưa đo trên loa thật xem loa có trộn được DLNA + RAOP hay không; chỉ bật sau khi đo theo docs/PHAT-RA-LOA.md",
++          "tron_tin_airplay": "Trộn tin báo VÀO luồng nhạc AirPlay (một phiên RAOP duy nhất, không tạm dừng/khôi phục, không đi DLNA): nhạc hạ 12 dB bằng phần mềm trong lúc tin nói rồi về mức cũ mượt. Chỉ có tác dụng khi nhạc đang ở AirPlay; bật cùng tuỳ chọn đường ngược thì đường trộn THẮNG. Mặc định TẮT — chưa đo trên loa thật độ trễ/méo khi trộn; chỉ bật sau khi nghe thử theo docs/PHAT-RA-LOA.md",
+           "ha_nhac_xuong": "Hạ nhạc nền trong lúc tin song song phát (chỉ có tác dụng khi tin song song bật; nhạc nhỏ đi ha_nhac_nac nấc rồi trả đúng mức cũ, kể cả khi tin lỗi)",
+           "ha_nhac_nac": "Số nấc hạ khi ducking (thang 0–15 của loa)",
+           "khoi_dong_lai_bat": "Khởi động lại loa theo lịch (mặc định TẮT; phòng ngừa)",
+diff --git a/custom_components/r1_speaker/tron_tin.py b/custom_components/r1_speaker/tron_tin.py
+new file mode 100644
+index 0000000..c912d1e
+--- /dev/null
++++ b/custom_components/r1_speaker/tron_tin.py
+@@ -0,0 +1,266 @@
++"""NV307 — trộn tin báo (TTS) vào luồng nhạc AirPlay, TRONG tích hợp.
++
++Bối cảnh: nhạc qua AirPlay do chính tích hợp gửi (``airplay.py``: ffmpeg giải
++mã trên máy HA → PCM16 LE 44,1 kHz stereo → RAOP), nên tích hợp có thể trộn
++ngay ở mức PCM trước khi gói RTP: một phiên RAOP duy nhất, không tạm dừng
++nhạc, không đổi URI, không next bài — khác hẳn NV287 (tin đi phiên RAOP
++riêng + hạ âm lượng loa) và NV303 (tin đi DLNA ngược đường).
++
++Cách trộn (cộng PCM trong Python, KHÔNG dùng ``amix``/``sidechaincompress``
++của ffmpeg — xem báo cáo NV307: chatgpt2api không có tương đương, và trộn
++trong Python mới chen tin vào ĐÚNG luồng nhạc đang chạy mà không mở lại
++phiên; ffmpeg thứ hai chỉ giải mã tin, không trộn):
++- Nhạc hạ ``HA_DB`` dB bằng phần mềm (không đổi âm lượng loa) trong lúc tin
++  nói, rồi về mức cũ — cả hai chiều đều ramp tuyến tính ``RAMP_KHUNG``
++  khung (~150 ms) để không nghe «cụp» khi vào/ra tin.
++- Tin cộng ở mức đầy đủ; tổng kẹp trong [-32768, 32767] nên biên độ tổng
++  không bao giờ vượt 0 dBFS.
++- Tin được bơm nền vào hàng đợi có trần (``HANG_DOI_TOI_DA`` khúc): bộ trộn
++  chỉ lấy những gì đã có sẵn, KHÔNG BAO GIỜ chờ tin mà làm khựng nhạc —
++  tin chậm/chưa tới thì khúc đó chỉ có nhạc (đang hạ), tin lỗi thì nhạc
++  tiếp tục ở mức cũ. Vào/ra tin vì vậy ≤ một khúc ffmpeg (~128 ms) + ramp
++  150 ms ≈ 278 ms ở mức bộ trộn (chưa tính thời gian tổng hợp TTS,
++  ffmpeg mở nguồn, và bộ đệm ~2 giây của loa — những thứ này cũng đúng
++  với mọi đường AirPlay khác).
++
++Hợp đồng nguồn: giống ``airplay.tao_nguon`` — factory không tham số trả về
++async iterator PCM16 LE 44,1 kHz stereo. Bộ trộn là một factory như vậy
++(``tron.nguon(nhac_factory)``) nên ``PhienAirPlay`` dùng thẳng mà không
++đổi nhịp gửi gói của nó."""
++
++from __future__ import annotations
++
++import array
++import asyncio
++import contextlib
++import logging
++from collections.abc import AsyncIterator, Callable
++
++_LOGGER = logging.getLogger(__name__)
++
++SAMPLE_RATE = 44100
++#: Nhạc hạ ngần này dB trong lúc tin nói: đủ để lời rõ mà nhạc vẫn nghe nền.
++#: 12 dB ≈ hệ số biên độ 0,2512 (chuẩn ducking phát thanh thường dùng 10–15 dB).
++HA_DB = 12.0
++HE_SO_NHAC = 10.0 ** (-HA_DB / 20.0)
++#: Ramp vào/ra tin: 150 ms. Ngắn hơn thì nghe «cụp»; dài hơn thì tin vào chậm.
++RAMP_KHUNG = int(0.15 * SAMPLE_RATE)
++#: Trần hàng đợi tin: 32 khúc ffmpeg (~4 giây tiếng) ≈ 720 KB — bơm bị chặn
++#: khi đầy nên tin dài không phình bộ nhớ; nhạc không bao giờ chờ hàng đợi.
++HANG_DOI_TOI_DA = 32
++
++
++def _kep(v: float) -> int:
++    """Một mẫu về [-32768, 32767] (0 dBFS): kẹp cứng, không tràn số."""
++    return max(-32768, min(32767, int(round(v))))
++
++
++def tron_khung(nhac: bytes, tin: bytes | None, he_so_nhac: float) -> bytes:
++    """Cộng MỘT khúc nhạc với MỘT khúc tin (cùng độ dài hoặc tin ngắn hơn):
++    nhạc × ``he_so_nhac`` + tin ở mức đầy đủ, kẹp 0 dBFS. Khúc tin ngắn hơn
++    thì phần đuôi chỉ còn nhạc đã hạ. Byte lẻ cuối khúc (nửa khung) bị bỏ —
++    bên gọi (``TronTin``) giữ lại cho khúc sau nên ở đó không mất."""
++    khung = len(nhac) // 4
++    if khung == 0:
++        return b""
++    m = array.array("h")
++    m.frombytes(nhac[:khung * 4])
++    out = array.array("h", m)
++    if tin:
++        t = array.array("h")
++        t.frombytes(tin[:min(len(tin), khung * 4) // 2 * 2])
++        n = min(len(t), len(m))
++        for i in range(n):
++            out[i] = _kep(m[i] * he_so_nhac + t[i])
++        for i in range(n, len(m)):
++            out[i] = _kep(m[i] * he_so_nhac)
++    elif he_so_nhac != 1.0:
++        for i in range(len(m)):
++            out[i] = _kep(m[i] * he_so_nhac)
++    return out.tobytes()
++
++
++class TronTin:
++    """Bộ trộn gắn vào MỘT phiên nhạc AirPlay. ``nguon(nhac_factory)`` là
++    nguồn PCM mà ``PhienAirPlay`` kéo; ``chen_tin(tin_factory)`` chen một
++    tin vào luồng đang chạy và trả sự kiện báo khi tin xong (kể cả khi tin
++    lỗi hoặc bị tin mới thay — watcher nào cũng được báo, không kẹt)."""
++
++    def __init__(self) -> None:
++        self._hang_doi: asyncio.Queue[bytes] = asyncio.Queue(maxsize=HANG_DOI_TOI_DA)
++        self._dem_tin = bytearray()          # tin đã bơm nhưng chưa trộn
++        self._du = b""                       # byte lẻ cuối khúc nhạc, giữ sang khúc sau
++        self._he_so = 1.0                    # gain nhạc hiện tại
++        self._dich = 1.0                     # gain nhạc đang ramp tới
++        self._ramp_con = 0                   # số khung còn lại của ramp hiện tại
++        self._bom: asyncio.Task | None = None
++        self._tin_het = False                # bơm đã hết (hết tin hoặc lỗi)
++        self._kich_hoat = False              # đang có tin (hoặc đang ramp về mức cũ)
++        self._su_kien: asyncio.Event | None = None
++        self._dang_chay = False
++
++    @property
++    def dang_chay(self) -> bool:
++        """Luồng nhạc đang được kéo (bộ trộn còn sống để chen tin vào)."""
++        return self._dang_chay
++
++    @property
++    def tin_dang_phat(self) -> bool:
++        """Đang có tin trong luồng (kể cả đang ramp về mức cũ sau tin)."""
++        return self._kich_hoat
++
++    # ── nguồn nhạc (PhienAirPlay kéo) ───────────────────────────────────────
++
++    async def nguon(self, nhac_factory: Callable[[], AsyncIterator[bytes]]) -> AsyncIterator[bytes]:
++        """Async generator: nhạc đi qua, tin (nếu có) được trộn vào từng khúc.
++        Kết thúc/huỷ → dọn bơm tin, báo sự kiện tin (nếu còn) rồi đóng nguồn nhạc."""
++        self._dang_chay = True
++        nhac = None
++        try:
++            nhac = nhac_factory()
++            async for chunk in nhac:
++                yield self._tron_chunk(chunk)
++        finally:
++            self._dang_chay = False
++            await self._don_bom()
++            self._ket_thuc_tin()
++            aclose = getattr(nhac, "aclose", None) if nhac is not None else None
++            if aclose is not None:
++                with contextlib.suppress(Exception):
++                    await aclose()
++
++    # ── chen / huỷ tin (media_player gọi) ────────────────────────────────────
++
++    async def chen_tin(self, tin_factory: Callable[[], AsyncIterator[bytes]]) -> asyncio.Event | None:
++        """Chen một tin vào luồng đang chạy. Tin cũ (nếu có) bị thay: watcher
++        cũ được báo xong ngay. Chưa có luồng nhạc thì trả None (bên gọi về
++        đường tin thường)."""
++        if not self._dang_chay:
++            return None
++        await self._don_bom()
++        self._ket_thuc_tin()                 # tin cũ (nếu có) coi như xong: watcher cũ không kẹt
++        self._dem_tin.clear()
++        self._tin_het = False
++        self._kich_hoat = True
++        self._ramp_moi(HE_SO_NHAC)           # bắt đầu hạ nhạc (ramp 150 ms, không nhảy mức)
++        self._su_kien = asyncio.Event()
++        self._bom = asyncio.get_running_loop().create_task(self._bom_tin(tin_factory), name="r1 tron tin")
++        return self._su_kien
++
++    async def huy_tin(self) -> None:
++        """Huỷ tin đang chạy (hết hạn watcher / dừng): nhạc ramp về mức cũ
++        ở các khúc kế, watcher được báo khi mức đã về."""
++        await self._don_bom()
++        self._tin_het = True
++
++    # ── bơm tin nền ──────────────────────────────────────────────────────────
++
++    async def _bom_tin(self, tin_factory: Callable[[], AsyncIterator[bytes]]) -> None:
++        """Bơm PCM tin vào hàng đợi có trần. Lỗi (ffmpeg hỏng, nguồn chết)
++        KHÔNG ném lên nhạc: chỉ ghi nhật ký rồi đánh dấu hết tin — nhạc
++        tiếp tục ở mức cũ, đúng yêu cầu «tin lỗi không làm đứt nhạc»."""
++        tin = tin_factory()
++        try:
++            async for chunk in tin:
++                if chunk:
++                    await self._hang_doi.put(chunk)
++        except asyncio.CancelledError:
++            raise
++        except Exception as exc:  # noqa: BLE001 — mọi lỗi của nguồn tin đều chỉ làm tin im, không phá nhạc
++            _LOGGER.warning("tron_tin: nguồn tin lỗi (%s): nhạc phát tiếp", type(exc).__name__)
++        finally:
++            aclose = getattr(tin, "aclose", None)
++            if aclose is not None:
++                with contextlib.suppress(Exception):
++                    await aclose()
++            self._tin_het = True
++
++    async def _don_bom(self) -> None:
++        bom, self._bom = self._bom, None
++        if bom is not None and not bom.done():
++            bom.cancel()
++            with contextlib.suppress(asyncio.CancelledError, Exception):
++                await bom
++        while not self._hang_doi.empty():
++            self._hang_doi.get_nowait()
++
++    def _ket_thuc_tin(self) -> None:
++        ev, self._su_kien = self._su_kien, None
++        if ev is not None and not ev.is_set():
++            ev.set()
++
++    # ── trộn ──────────────────────────────────────────────────────────────────
++
++    def _ramp_moi(self, dich: float) -> None:
++        """Bắt đầu ramp tới ``dich`` (đủ 150 ms kể từ mức hiện tại). Đang ramp
++        cùng chiều thì giữ nguyên nhịp; đổi chiều thì ramp lại từ đầu."""
++        if self._dich != dich or self._ramp_con == 0:
++            self._dich, self._ramp_con = dich, RAMP_KHUNG
++
++    def _tron_chunk(self, chunk: bytes) -> bytes:
++        """Trộn MỘT khúc nhạc. Không có tin và nhạc đang ở mức đầy đủ thì
++        trả nguyên khúc (không copy, không tính toán) — các phiên AirPlay
++        không dùng trộn vì vậy không tốn thêm gì đáng kể."""
++        if self._du:
++            chunk = self._du + chunk
++        tong_khung = len(chunk) // 4
++        self._du = chunk[tong_khung * 4:]
++        if tong_khung == 0:
++            return b""
++        data = chunk[:tong_khung * 4]
++        if not self._kich_hoat and self._he_so == 1.0:
++            return data
++        while not self._hang_doi.empty():
++            self._dem_tin += self._hang_doi.get_nowait()
++        tin_khung = len(self._dem_tin) // 4
++        m = array.array("h")
++        m.frombytes(data)
++        out = array.array("h", m)            # phần còn lại giữ nguyên nhạc
++        t = array.array("h")
++        t.frombytes(self._dem_tin[:tin_khung * 4])
++        i = 0                                # khung đang xử lý
++        # A — còn tin: ramp xuống (nếu chưa hạ hẳn) rồi trộn ở mức đã hạ.
++        while i < tong_khung and i < tin_khung:
++            if self._he_so > HE_SO_NHAC:
++                n = min(tin_khung - i, tong_khung - i, self._ramp_con or RAMP_KHUNG)
++                for j in range(n):
++                    g = self._he_so
++                    out[2 * (i + j)] = _kep(m[2 * (i + j)] * g + t[2 * (i + j)])
++                    out[2 * (i + j) + 1] = _kep(m[2 * (i + j) + 1] * g + t[2 * (i + j) + 1])
++                    self._buoc_ramp()
++                i += n
++            else:
++                n = min(tin_khung - i, tong_khung - i)
++                for j in range(n):
++                    out[2 * (i + j)] = _kep(m[2 * (i + j)] * HE_SO_NHAC + t[2 * (i + j)])
++                    out[2 * (i + j) + 1] = _kep(m[2 * (i + j) + 1] * HE_SO_NHAC + t[2 * (i + j) + 1])
++                i += n
++        da_tron = min(tin_khung, tong_khung)
++        del self._dem_tin[:da_tron * 4]
++        # B — tin đã HẾT thật (bơm xong, không còn byte nào) thì ramp nhạc về
++        # mức cũ ngay trong khúc này. Tin chỉ cạn tạm thời (bơm còn chạy) thì
++        # KHÔNG ramp lên — nhạc giữ mức đã hạ cho tới khi tin tới tiếp, tránh
++        # nhấp nhô mức khi ffmpeg tin chậm.
++        if self._tin_het and not self._dem_tin and self._he_so < 1.0:
++            self._ramp_moi(1.0)
++            n = min(tong_khung - i, self._ramp_con or RAMP_KHUNG)
++            for j in range(n):
++                g = self._he_so
++                out[2 * (i + j)] = _kep(m[2 * (i + j)] * g)
++                out[2 * (i + j) + 1] = _kep(m[2 * (i + j) + 1] * g)
++                self._buoc_ramp()
++            i += n
++        # C — phần còn lại: nhạc ở mức hiện tại (đã về 1,0 thì chính là data gốc).
++        if self._tin_het and not self._dem_tin and self._hang_doi.empty() and self._he_so == 1.0:
++            self._kich_hoat = False
++            self._ket_thuc_tin()
++        return out.tobytes()
++
++    def _buoc_ramp(self) -> None:
++        """Một khung ramp: gain tiến về đích theo số khung còn lại; hết ramp
++        thì gắn đúng đích (tránh sai số float tích luỹ)."""
++        if self._ramp_con > 0:
++            self._he_so += (self._dich - self._he_so) / self._ramp_con
++            self._ramp_con -= 1
++            if self._ramp_con == 0:
++                self._he_so = self._dich
+diff --git a/docs/CAI-DAT-CHI-TIET.md b/docs/CAI-DAT-CHI-TIET.md
+index c329478..5fdace4 100644
+--- a/docs/CAI-DAT-CHI-TIET.md
++++ b/docs/CAI-DAT-CHI-TIET.md
+@@ -96,6 +96,7 @@ Hai chế độ, **bạn chọn một** (ô «Chế độ đóng ADB» ở tuỳ
+ | Lần khởi động lại cuối | sensor | Lúc HA gửi lệnh khởi động lại gần nhất (nhớ qua khởi động lại HA); thuộc tính `ly_do`, `ket_qua`, `ke_tiep` (lượt lịch kế tiếp), `dang_hoan` | chẩn đoán |
+ | Đường phát | select | Đường phát nhạc và tin ra loa: chỉ DLNA (mặc định) / DLNA trước, hỏng thì AirPlay / AirPlay trước, hỏng thì DLNA / chỉ AirPlay. Cùng tuỳ chọn `duong_phat` của hộp tuỳ chọn | cấu hình |
+ | Tin báo đi đường ngược với nhạc | switch | Cùng tuỳ chọn `tts_song_song_airplay`: nhạc AirPlay thì tin báo đi DLNA, nhạc DLNA thì tin báo đi AirPlay; nhạc không dừng, lỗi thì rơi về đường thường (tạm dừng nhạc, phát tin, khôi phục). Mặc định TẮT (chưa đo trên loa thật xem loa có trộn được hai đường) | cấu hình |
++| Trộn tin báo vào luồng nhạc (một đường AirPlay) | switch | Cùng tuỳ chọn `tron_tin_airplay` (NV307): nhạc đang ở AirPlay thì tin báo trộn vào chính luồng PCM của phiên nhạc (một phiên RAOP duy nhất, nhạc hạ 12 dB bằng phần mềm, không tạm dừng/khôi phục, không đổi URI); bật cùng đường ngược thì đường trộn THẮNG. Mặc định TẮT (chưa đo trên loa thật độ trễ/méo khi trộn) | cấu hình |
+ | Hạ nhạc nền khi loa nói | switch | Cùng tuỳ chọn `ha_nhac_xuong`: nhạc nhỏ đi trong lúc tin song song phát rồi trả đúng mức cũ. Mặc định TẮT | cấu hình |
+ | Cổng AirPlay | number | Cùng tuỳ chọn `airplay_port`: cổng AirPlay (RAOP) của loa, 1–65535, mặc định 5012; đổi nếu AirPlay không nối được sau khi loa khởi động lại | cấu hình |
+ | Số nấc hạ nhạc | number | Cùng tuỳ chọn `ha_nhac_nac`: 1–14 nấc (thang 0–15 của loa), mặc định 5 | cấu hình |
+diff --git a/tests/test_nv307_tron_tin.py b/tests/test_nv307_tron_tin.py
+new file mode 100644
+index 0000000..cf39293
+--- /dev/null
++++ b/tests/test_nv307_tron_tin.py
+@@ -0,0 +1,362 @@
++"""NV307 — phát nhạc và TTS trên CÙNG MỘT ĐƯỜNG: trộn tin báo vào luồng nhạc AirPlay trong tích hợp.
++
++Một phiên RAOP duy nhất: nhạc đang phát qua AirPlay thì tin báo được giải mã
++thành luồng PCM thứ hai (một tiến trình ffmpeg thêm) rồi CỘNG vào luồng PCM
++đang gửi — nhạc tự hạ 12 dB bằng phần mềm (KHÔNG đổi âm lượng loa), không
++tạm dừng, không đổi URI, không next bài. Hết tin, nhạc về mức cũ mượt
++(ramp 150 ms). Tin lỗi không làm đứt nhạc.
++
++Hai tầng test:
++- Tầng trộn (không cần HA): cộng mẫu có kẹp biên độ, ramp lên/xuống,
++  nhạc liên tục không mất khúc nào, tin lỗi không đứt nhạc, hàng đợi có trần.
++- Tầng thực thể (renderer DLNA giả + RAOP giả + nguồn giả khúc NHỎ để bộ
++  trộn kịp trộn tin ngay trong lúc test — nguồn NV287 trả một khúc khổng lồ
++  nên _phat phải phát hết khúc đó mới kéo khúc kế): tin trộn thì không mở
++  phiên RAOP thứ hai, không đụng DLNA, không FLUSH/TEARDOWN phiên nhạc;
++  công tắc TẮT thì hành vi cũ không đổi; nhạc DLNA vẫn đi NV287 như cũ.
++CHƯA thử trên loa thật."""
++
++import array
++import asyncio
++
++import pytest
++from pytest_homeassistant_custom_component.common import MockConfigEntry
++
++from custom_components.r1_speaker import media_player as r1_mp
++from custom_components.r1_speaker import tron_tin as tt_mod
++from custom_components.r1_speaker.const import DOMAIN
++from custom_components.r1_speaker.tron_tin import TronTin, tron_khung
++
++from .test_nv287_giu_nhac import (LOA, MUSIC, TTS, cho, cho_state, dmr,  # noqa: F401
++                                  raop, them)
++
++KHUNG = 352  # khung/gói RAOP
++
++
++def pcm(gia_tri, so_khung):
++    """PCM16 LE stereo: mọi mẫu cùng một giá trị (đo gain/biên độ cho dễ)."""
++    return array.array("h", [gia_tri] * (so_khung * 2)).tobytes()
++
++
++def mau_dau(chunk, khung=1):
++    """Giá trị mẫu (kênh trái) của ``khung`` khung đầu tiên trong một khúc PCM."""
++    a = array.array("h")
++    a.frombytes(chunk[:khung * 4])
++    return list(a[::2])
++
++
++# ── Tầng trộn: hàm thuần ─────────────────────────────────────────────────────
++
++def test_tron_khung_cong_co_kep_bien_do():
++    nhac = pcm(20000, 10)
++    tin = pcm(20000, 10)
++    ra = tron_khung(nhac, tin, 1.0)
++    assert mau_dau(ra, 10) == [32767] * 10            # 20000 + 20000 = 40000 → kẹp 0 dBFS
++    ra = tron_khung(nhac, tin, 0.5)
++    assert mau_dau(ra, 10) == [30000] * 10             # 20000 × 0,5 + 20000
++    a = array.array("h")
++    a.frombytes(ra)
++    assert max(a) <= 32767 and min(a) >= -32768        # không mẫu nào vượt 0 dBFS
++
++
++def test_tron_khung_tin_ngan_hon_thi_duoi_chi_nhac_da_ha():
++    nhac = pcm(10000, 10)
++    tin = pcm(8000, 4)
++    ra = tron_khung(nhac, tin, 0.25)
++    assert mau_dau(ra, 10) == [10500] * 4 + [2500] * 6  # 4 khung có tin, 6 khung sau chỉ nhạc đã hạ
++
++
++def test_tron_khung_khong_tin_tra_nguyen_nhac_da_ha():
++    nhac = pcm(10000, 10)
++    assert tron_khung(nhac, None, 0.25) == pcm(2500, 10)
++    assert tron_khung(nhac, b"", 1.0) == nhac
++
++
++def test_tron_khung_bo_byte_le_cuoi():
++    nhac = pcm(10000, 2) + b"\x01\x02"                  # thừa 2 byte (nửa khung)
++    ra = tron_khung(nhac, None, 1.0)
++    assert ra == pcm(10000, 2)
++
++
++# ── Tầng trộn: bộ trộn bất đồng bộ ───────────────────────────────────────────
++
++async def _chay(tron, nhac_chunks, tin_chunks=None):
++    """Kéo bộ trộn: trả danh sách khúc ra. ``tin_chunks`` None = không chen tin."""
++    async def nhac_gen():
++        for c in nhac_chunks:
++            yield c
++
++    gen = tron.nguon(lambda: nhac_gen())
++    ra = []
++    ev = None
++    if tin_chunks is not None:
++        async def tin_gen():
++            for c in tin_chunks:
++                yield c
++
++        ra.append(await gen.__anext__())               # khúc nhạc đầu (chưa có tin): vẫn tính vào luồng ra
++        ev = await tron.chen_tin(lambda: tin_gen())
++        await asyncio.sleep(0)                         # cho bơm tin chạy, nạp hàng đợi
++    async for chunk in gen:
++        ra.append(chunk)
++    return ra, ev
++
++
++async def test_tron_nhac_lien_tuc_khong_mat_khuc_khi_co_tin():
++    tron = TronTin()
++    nhac = [pcm(10000, 20000) for _ in range(6)]
++    tin = [pcm(8000, 100)]
++    ra, ev = await _chay(tron, nhac, tin)
++    assert len(ra) == 6                                # đúng 6 khúc vào = 6 khúc ra, không mất/không thêm
++    assert mau_dau(ra[0], 1) == [10000]                 # trước tin: nhạc nguyên mức
++    assert mau_dau(ra[1], 1) == [18000]                 # khúc có tin: 10000 × 1,0 + 8000 ở khung đầu
++    assert mau_dau(ra[-1], 1) == [10000]                # sau tin: nhạc về mức cũ
++    assert ev is not None and ev.is_set()               # tin xong, watcher được báo
++
++
++async def test_tron_ramp_xuong_len_muot_khong_nhay():
++    tron = TronTin()
++    nhac = [pcm(10000, 20000), pcm(10000, 20000), pcm(10000, 20000)]
++    tin = [pcm(0, 20000)]                               # tin im lặng: chỉ đo gain nhạc
++    ra, ev = await _chay(tron, nhac, tin)
++    assert mau_dau(ra[0], 1) == [10000]                 # khúc trước tin: nhạc nguyên mức
++    g1 = mau_dau(ra[1], 20000)
++    assert g1[0] == 10000                               # khung đầu tiên có tin vẫn mức đầy đủ
++    assert g1[tt_mod.RAMP_KHUNG] == 2512                # hết ramp 150 ms: đúng -12 dB (10000 × 0,2512)
++    assert all(g1[i] >= g1[i + 1] for i in range(tt_mod.RAMP_KHUNG))   # giảm đơn điệu, không nhảy
++    g2 = mau_dau(ra[2], 20000)
++    assert g2[0] == 2512 and g2[tt_mod.RAMP_KHUNG] == 10000  # ramp về mức cũ rồi đứng yên
++    assert ev is not None and ev.is_set()
++
++
++async def test_tron_vao_ra_duoi_300_ms_o_muc_tron():
++    """Vào/ra tin ≤ ~300 ms ở mức bộ trộn: tin có mặt ngay trong khúc nhạc kế
++    (không đợi hết khúc) + ramp 150 ms → tối đa một khúc ffmpeg (~128 ms) + ramp."""
++    assert (tt_mod.RAMP_KHUNG + 5632) / 44100 <= 0.3    # ramp 150 ms + khúc ffmpeg 22528 byte
++    tron = TronTin()
++    nhac = [pcm(10000, 100), pcm(10000, 100)]
++    tin = [pcm(8000, 100)]
++    ra, _ = await _chay(tron, nhac, tin)
++    assert mau_dau(ra[1], 1) == [10000 + 8000]           # khúc kế đã có tin ở mức đầy đủ ngay khung đầu
++
++
++async def test_tron_tin_loi_khong_dut_nhac():
++    tron = TronTin()
++
++    async def nhac_gen():
++        for _ in range(3):
++            yield pcm(10000, 20000)
++
++    gen = tron.nguon(lambda: nhac_gen())
++    await gen.__anext__()
++
++    async def tin_loi():
++        yield pcm(8000, 10)
++        raise RuntimeError("ffmpeg giả lỗi")
++
++    ev = await tron.chen_tin(lambda: tin_loi())
++    await asyncio.sleep(0)
++    ra = [await gen.__anext__(), await gen.__anext__()]
++    await gen.aclose()
++    assert mau_dau(ra[-1], 1) == [10000]                 # nhạc về mức cũ, không mất khúc
++    assert ev is not None and ev.is_set()               # tin lỗi vẫn báo xong, không kẹt
++
++
++async def test_tron_tin_moi_thay_tin_cu_khong_chong():
++    tron = TronTin()
++
++    async def nhac_gen():
++        for _ in range(6):
++            yield pcm(10000, 100)
++
++    gen = tron.nguon(lambda: nhac_gen())
++    await gen.__anext__()
++
++    async def tin_cu():
++        for _ in range(10):
++            yield pcm(8000, 100)
++
++    async def tin_moi():
++        for _ in range(10):
++            yield pcm(-8000, 100)
++
++    ev_cu = await tron.chen_tin(lambda: tin_cu())
++    await asyncio.sleep(0)
++    await gen.__anext__()
++    ev_moi = await tron.chen_tin(lambda: tin_moi())
++    await asyncio.sleep(0)
++    ra = await gen.__anext__()
++    await gen.aclose()
++    assert ev_cu.is_set()                               # tin cũ bị thay thì watcher cũ cũng được báo
++    assert mau_dau(ra, 1)[0] < 10000                     # khúc này trộn tin MỚI (âm), không phải tin cũ
++    assert ev_moi is not None
++
++
++async def test_tron_hang_doi_co_tran_khong_ro_bo_nho():
++    tron = TronTin()
++
++    async def tin_dai():
++        for _ in range(200):
++            yield pcm(8000, 100)
++
++    async def nhac_gen():
++        yield pcm(10000, 100)
++
++    gen = tron.nguon(lambda: nhac_gen())
++    await gen.__anext__()
++    await tron.chen_tin(lambda: tin_dai())
++    await asyncio.sleep(0)
++    await asyncio.sleep(0)
++    assert tron._hang_doi.qsize() <= tt_mod.HANG_DOI_TOI_DA
++    await gen.aclose()
++    assert tron._bom is None or tron._bom.done()        # bơm đã dọn, không rò tác vụ
++
++
++async def test_tron_chen_tin_khi_chua_co_luong_tra_none():
++    tron = TronTin()
++
++    async def tin_gen():
++        yield pcm(8000, 100)
++
++    assert await tron.chen_tin(lambda: tin_gen()) is None
++
++
++async def test_tron_byte_le_duoc_giu_sang_khuc_sau():
++    tron = TronTin()
++    nhac = [pcm(10000, 2) + b"\x07\x08", pcm(20000, 2)]
++    ra, _ = await _chay(tron, nhac)
++    assert ra[0] == pcm(10000, 2)
++    a = array.array("h")
++    a.frombytes(ra[1])
++    assert list(a) == [7 + 8 * 256, 20000, 20000, 20000]  # 2 byte lẻ + khúc sau thành đúng 2 khung
++
++
++# ── Tầng thực thể: nguồn giả khúc nhỏ ────────────────────────────────────────
++
++class NguonNho:
++    """Như Nguon của NV287 nhưng trả từng khúc nhỏ (8 gói/khúc ≈ 64 ms) để
++    bộ trộn kịp trộn tin ngay trong lúc test, thay vì chờ hết khúc nhạc dài."""
++
++    def __init__(self):
++        self.goi: list[tuple[str, float]] = []
++        self.so_goi: dict[str, int] = {}
++        self.loi: set[str] = set()
++
++    def __call__(self, url, bat_dau=0.0, ffmpeg=None):
++        self.goi.append((url, bat_dau))
++
++        async def gen():
++            if url in self.loi:
++                raise RuntimeError("ffmpeg giả lỗi")
++            con = self.so_goi.get(url, 400)
++            while con > 0:
++                n = min(con, 8)
++                con -= n
++                yield array.array("h", [1] * (KHUNG * 2 * n)).tobytes()
++
++        return gen
++
++
++@pytest.fixture
++def nguon_nho(monkeypatch):
++    n = NguonNho()
++    monkeypatch.setattr(r1_mp, "tao_nguon", n)
++    return n
++
++
++def _player(hass):
++    return hass.data["entity_components"]["media_player"].get_entity(LOA)
++
++
++def _ghi_trang_thai(hass):
++    ds = []
++
++    def nghe(ev):
++        st = ev.data.get("new_state")
++        if st is not None and ev.data.get("entity_id") == LOA:
++            ds.append((st.state, st.attributes.get("idle_reason")))
++
++    hass.bus.async_listen("state_changed", nghe)
++    return ds
++
++
++async def _nhac_airplay(hass, r1, raop, nguon_nho, **tuy_chon):
++    nguon_nho.so_goi[MUSIC] = 4000                      # nhạc dài: không tự hết trong lúc test
++    nguon_nho.so_goi[TTS] = 40
++    e = await them(hass, r1, raop, "airplay", **tuy_chon)
++    await hass.services.async_call("media_player", "play_media", {
++        "entity_id": LOA, "media_content_id": MUSIC, "media_content_type": "music"}, blocking=True)
++    await cho_state(hass, "playing")
++    assert _player(hass)._duong == "airplay"
++    return e
++
++
++async def _phat_tin(hass):
++    await hass.services.async_call("media_player", "play_media", {
++        "entity_id": LOA, "media_content_id": TTS, "media_content_type": "music", "announce": True},
++        blocking=True)
++
++
++async def test_nhac_airplay_tin_tron_mot_duong_khong_dung_phien(hass, r1, dmr, raop, nguon_nho):
++    await _nhac_airplay(hass, r1, raop, nguon_nho, tron_tin_airplay=True, tts_song_song_airplay=True)
++    ds = _ghi_trang_thai(hass)
++    phuong_thuc_truoc = list(raop.phuong_thuc())
++    await _phat_tin(hass)
++    p = _player(hass)
++    await cho(hass, lambda: p.coordinator.talk.announce_seq >= 1)
++    await hass.async_block_till_done()
++    assert [u for u, _ in nguon_nho.goi] == [MUSIC, TTS]  # tin chỉ giải mã một lần để trộn, nhạc không phát lại
++    assert raop.phuong_thuc() == phuong_thuc_truoc         # MỘT phiên RAOP: không RECORD mới, không FLUSH/TEARDOWN
++    assert "FLUSH" not in raop.phuong_thuc() and "TEARDOWN" not in raop.phuong_thuc()
++    assert dmr.called("SetAVTransportURI") == []           # tin KHÔNG đi DLNA (thắng đường ngược NV303)
++    assert hass.states.get(LOA).state == "playing" and hass.states.get(LOA).attributes["duong_phat"] == "airplay"
++    assert all(s == "playing" and r is None for s, r in ds), ds   # không idle, không idle_reason
++
++
++async def test_tron_tat_thi_tin_di_duong_nguoc_nhu_nv303(hass, r1, dmr, raop, nguon_nho):
++    await _nhac_airplay(hass, r1, raop, nguon_nho, tts_song_song_airplay=True)  # tron mặc định TẮT
++    await _phat_tin(hass)
++    await cho(hass, lambda: dmr.transport_state == "PLAYING")
++    assert [a["CurrentURI"] for a in dmr.called("SetAVTransportURI")] == [TTS]
++    assert [u for u, _ in nguon_nho.goi] == [MUSIC]       # tin đi DLNA nên không giải mã qua AirPlay
++
++
++async def test_tron_bat_nhac_dlna_van_di_nv287_khong_tron(hass, r1, dmr, raop, nguon_nho):
++    nguon_nho.so_goi[TTS] = 20
++    await them(hass, r1, raop, "dlna", tron_tin_airplay=True, tts_song_song_airplay=True)
++    await hass.services.async_call("media_player", "play_media", {
++        "entity_id": LOA, "media_content_id": MUSIC, "media_content_type": "music"}, blocking=True)
++    await cho_state(hass, "playing")
++    await _phat_tin(hass)
++    await cho(hass, lambda: "RECORD" in raop.phuong_thuc())
++    assert [a["CurrentURI"] for a in dmr.called("SetAVTransportURI")] == [MUSIC]   # NV287: tin AirPlay song song
++    assert _player(hass)._tron is None                     # nhạc DLNA thì không có bộ trộn nào
++
++
++async def test_tron_tin_loi_nhac_khong_dut_khong_phat_lai(hass, r1, dmr, raop, nguon_nho):
++    nguon_nho.loi = {TTS}
++    await _nhac_airplay(hass, r1, raop, nguon_nho, tron_tin_airplay=True)
++    phuong_thuc_truoc = list(raop.phuong_thuc())
++    await _phat_tin(hass)
++    p = _player(hass)
++    await cho(hass, lambda: p.coordinator.talk.announce_seq >= 1)
++    await hass.async_block_till_done()
++    assert [u for u, _ in nguon_nho.goi] == [MUSIC, TTS]   # tin lỗi chỉ thử một lần, nhạc KHÔNG phát lại
++    assert raop.phuong_thuc() == phuong_thuc_truoc
++    assert dmr.called("SetAVTransportURI") == []
++    assert hass.states.get(LOA).state == "playing"
++
++
++async def test_cong_tac_tron_mac_dinh_tat_va_ghi_tuy_chon(hass, r1, raop, nguon_nho):
++    from homeassistant.helpers import entity_registry as er
++    e = await them(hass, r1, raop, "airplay")
++    kq = [x.entity_id for x in er.async_get(hass).entities.values()
++          if x.platform == DOMAIN and x.domain == "switch" and x.translation_key == "tron_tin"]
++    assert len(kq) == 1
++    sw = kq[0]
++    assert hass.states.get(sw).state == "off"              # mặc định TẮT
++    await hass.services.async_call("switch", "turn_on", {"entity_id": sw}, blocking=True)
++    assert e.options.get("tron_tin_airplay") is True
++    assert hass.states.get(sw).state == "on"
++    await hass.services.async_call("switch", "turn_off", {"entity_id": sw}, blocking=True)
++    assert "tron_tin_airplay" not in e.options             # về mặc định thì khoá biến mất như các công tắc khác
+diff --git a/tests/test_tuy_chon.py b/tests/test_tuy_chon.py
+index 77367e4..4a6f4ee 100644
+--- a/tests/test_tuy_chon.py
++++ b/tests/test_tuy_chon.py
+@@ -56,7 +56,8 @@ async def test_form_co_du_truong(hass, r1):
+     # Form chính chỉ còn thứ người dùng biết; khoá/cổng nghe mic tự cấp, mục chết đã gỡ khỏi form.
+     # NV287 thêm 3 trường tuỳ chọn (tin song song + ducking) — mặc định đều TẮT nên hành vi cũ giữ nguyên.
+     # NV292 thêm 2 trường tuỳ chọn kênh đàm thoại (tên kênh + kiểu) — mặc định: không vào kênh nào.
+-    assert khoa == {"host", "port", "ha_url", "adb_server", "adb_mode", "adb_tu_dong_dong", "phim_ma", "phim_nguon", "duong_phat", "airplay_port", "tts_song_song_airplay", "ha_nhac_xuong", "ha_nhac_nac", "kenh", "kenh_kieu", "khoi_dong_lai_bat", "khoi_dong_lai_gio", "khoi_dong_lai_ngay", "khoi_dong_lai_khi_treo", "rotate_intercom_key", "ghep_lai_apk", "nang_cao"}
++    # NV307 thêm 1 trường tuỳ chọn trộn tin vào luồng nhạc AirPlay — mặc định TẮT.
++    assert khoa == {"host", "port", "ha_url", "adb_server", "adb_mode", "adb_tu_dong_dong", "phim_ma", "phim_nguon", "duong_phat", "airplay_port", "tts_song_song_airplay", "ha_nhac_xuong", "ha_nhac_nac", "tron_tin_airplay", "kenh", "kenh_kieu", "khoi_dong_lai_bat", "khoi_dong_lai_gio", "khoi_dong_lai_ngay", "khoi_dong_lai_khi_treo", "rotate_intercom_key", "ghep_lai_apk", "nang_cao"}
+     macdinh = {str(k): k.default() for k in res["data_schema"].schema
+                if k.default is not vol.UNDEFINED}
+     assert macdinh["host"] == "127.0.0.1" and macdinh["port"] == r1.port
