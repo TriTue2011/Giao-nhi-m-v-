@@ -1,0 +1,465 @@
+diff --git a/docs/DESIGN.md b/docs/DESIGN.md
+new file mode 100644
+index 0000000..b79bdd5
+--- /dev/null
++++ b/docs/DESIGN.md
+@@ -0,0 +1,296 @@
++---
++name: web2api
++description: Giao diện quản trị cổng AI chuẩn OpenAI — nền giấy ấm, mực đen, một điểm teal.
++colors:
++  bg: "#F6F5F2"
++  topbar: "#FBFAF8"
++  card: "#FFFFFF"
++  ink: "#181816"
++  mute: "#66645F"
++  line: "#E4E2DC"
++  line-strong: "#C9C6BE"
++  acc: "#0F766E"
++  accsoft: "#E2F0ED"
++  ok-ink: "#0B5A53"
++  ok-bg: "#E2F0ED"
++  ok-dot: "#16A34A"
++  err-ink: "#8A1C12"
++  err-bg: "#FDECEA"
++  err-dot: "#B42318"
++  warn-ink: "#6B4E00"
++  warn-bg: "#FDF6E3"
++  warn-dot: "#D97706"
++  info-ink: "#1D4E89"
++  info-bg: "#E6EEF8"
++  code-bg: "#1F1E1B"
++  code-ink: "#F2F0EA"
++typography:
++  # display: token .tieu-de trong khung.css, hiện không trang nào dùng (xem mục Kiểu chữ).
++  display:
++    fontFamily: "Newsreader, Georgia, serif"
++    fontSize: "38px"
++    fontWeight: 400
++    lineHeight: 1.1
++    letterSpacing: "-0.02em"
++  body:
++    fontFamily: "'Be Vietnam Pro', system-ui, sans-serif"
++    fontSize: "14px"
++    fontWeight: 400
++    lineHeight: 1.5
++  label:
++    fontFamily: "'Be Vietnam Pro', system-ui, sans-serif"
++    fontSize: "12px"
++    fontWeight: 600
++    letterSpacing: "0.04em"
++  mono:
++    fontFamily: "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace"
++    fontSize: "12.5px"
++rounded:
++  card: "18px"
++  card-inner: "14px"
++  control: "22px"
++  chip: "20px"
++  input: "10px"
++  badge: "11px"
++  alert: "12px"
++spacing:
++  page: "24px 32px 56px"
++  page-phone: "20px 16px 40px"
++  card: "20px 22px"
++  card-inner: "14px 16px"
++  section-gap: "20px"
++components:
++  button-primary:
++    backgroundColor: "{colors.ink}"
++    textColor: "{colors.card}"
++    rounded: "{rounded.control}"
++    padding: "0 18px"
++    height: "44px"
++  button-secondary:
++    backgroundColor: "{colors.card}"
++    textColor: "{colors.ink}"
++    rounded: "{rounded.control}"
++    padding: "0 18px"
++    height: "44px"
++  chip:
++    backgroundColor: "{colors.card}"
++    textColor: "{colors.ink}"
++    rounded: "{rounded.chip}"
++    padding: "0 14px"
++    height: "40px"
++  chip-selected:
++    backgroundColor: "{colors.ink}"
++    textColor: "{colors.card}"
++    rounded: "{rounded.chip}"
++    padding: "0 14px"
++    height: "40px"
++  input:
++    backgroundColor: "{colors.bg}"
++    textColor: "{colors.ink}"
++    rounded: "{rounded.input}"
++    padding: "10px 12px"
++    height: "44px"
++  card:
++    backgroundColor: "{colors.card}"
++    textColor: "{colors.ink}"
++    rounded: "{rounded.card}"
++    padding: "{spacing.card}"
++---
++
++# Hệ thống thiết kế web2api
++
++Tài liệu này mô tả hệ thống thiết kế **HIỆN CÓ** của giao diện quản trị web2api
++(đo từ mã nguồn tại web2api main `8ed35ab`: `web/khung.css`, các trang
++`web/*.dc.html`, `web/khung.js`, `web/support.js`). Nó ghi lại những gì đang
++chạy, không phải những gì nên đổi — mọi thay đổi thuộc giai đoạn 3 của NV294
++và phải đối chiếu với tài liệu này trước khi sửa, để không sửa lùi phần đang
++đúng. Xem thêm `docs/KIEM-GIAO-DIEN-NV294.md` (bảng kiểm giai đoạn 2) và
++`docs/PRODUCT.md` (người dùng, mục tiêu).
++
++> Lưu ý nguồn: kiểu chung sống ở `web/khung.css` (208 dòng); mỗi trang
++> `.dc.html` thêm một khối `<style>` riêng trong `<helmet>`. Hai token trong
++> `khung.css` hiện **không trang nào dùng**: `.tieu-de` (tiêu đề 38px) và
++> `.nhan-tren` (nhãn nhỏ trên tiêu đề) — xem mục Kiểu chữ và bảng kiểm.
++
++## Nguồn sự thật về hình thức
++
++- Bản demo thiết kế (`web2api-thiet-ke/project/`, theo
++  `inbox/QUY-TAC-GIAO-DIEN-W2A.md` của repo giao việc): nền, thẻ, chip, nút,
++  thanh trên/dưới của web2api chép từ demo.
++- Quy tắc giao diện do chủ máy chốt 03/11 (QUY-TAC-GIAO-DIEN-W2A.md):
++  trang theo ý định, chỉ hiện mục cần; thông tin kết nối/bí mật luôn ẩn,
++  bấm mới mở sửa, bí mật chỉ ghi đè; tiếng Việt có dấu đầy đủ; không thêm
++  thư viện ngoài; không id kỹ thuật hiện cho người dùng.
++
++## Màu sắc
++
++Nền giấy ấm, mực gần đen, một điểm xanh ngọc (teal). Màu chỉ lên dữ liệu,
++trạng thái và điểm nhấn nhỏ — không lên nền lớn, không lên nút chính.
++
++- **Nền giấy** `#F6F5F2` — nền toàn trang (`.goc`, `--bg`).
++- **Nền thanh trên** `#FBFAF8` — thanh trên và đầu bảng, sáng hơn nền một bậc.
++- **Thẻ trắng** `#FFFFFF` — mọi thẻ, bảng, menu nổi (`--card`).
++- **Mực** `#181816` — chữ chính, nút chính, chip đang chọn (`--ink`).
++- **Chữ phụ** `#66645F` — chữ phụ, nhãn, đường dẫn phụ (`--mute`).
++- **Viền** `#E4E2DC` — viền thẻ, ô nhập, hàng bảng (`--line`); viền phụ
++  `#CFCCC4`/`#C9C6BE` cho đường kẻ mạnh hơn và viền ô khi focus.
++- **Nhấn teal** `#0F766E` — viền focus, liên kết trong markdown, nhãn nhỏ,
++  mục đang chọn ở thanh dưới (`--acc`); nền nhạt của nó `#E2F0ED`
++  (`--accsoft`) dùng cho huy hiệu và báo tốt.
++- **Trạng thái** (luôn cặp nền nhạt + chữ đậm cùng họ):
++  tốt `#0B5A53` trên `#E2F0ED`; lỗi `#8A1C12` trên `#FDECEA`
++  (chấm đỏ `#B42318`); cảnh báo `#6B4E00` trên `#FDF6E3`
++  (chấm vàng `#D97706`); thông tin `#1D4E89` trên `#E6EEF8`;
++  ổn `#16A34A` (chấm trạng thái chung).
++- **Khối mã** nền `#1F1E1B`, chữ `#F2F0EA`.
++
++**Tương phản đã đo** (tỷ lệ WCAG, nền sáng): mực trên nền giấy 16,31:1;
++chữ phụ trên nền giấy 5,42:1, trên thẻ trắng 5,91:1; teal trên nền giấy
++5,02:1, trên thẻ trắng 5,47:1; các cặp huy hiệu/báo 6,89–8,14:1.
++Tất cả đều đạt AA cho chữ thường. Viền `#E4E2DC` trên nền giấy chỉ
++1,19:1 — đó là viền trang trí, không mang chữ, nên chấp nhận được.
++
++**Quy tắc Một Điểm Teal.** Teal không bao giờ tô nút chính hay nền lớn.
++Nút chính tô màu mực; teal chỉ xuất hiện ở viền focus, liên kết, nhãn nhỏ
++và mục đang chọn ở thanh dưới. Một màn hình có teal ở đúng những chỗ đó
++thì nhìn đã đủ «của web2api».
++
++**Quy tắc Mực Làm Chính.** Nút hành động chính luôn nền mực `#181816`,
++chữ trắng. Không có nút chính màu teal, không có nút chính màu trạng thái
++(trừ nút nguy hiểm viền đỏ `#E2A59D`, chữ `#8A1C12`).
++
++## Kiểu chữ
++
++Hai họ chữ, mỗi họ một việc; họ thứ ba chỉ dành cho mã và mã nhận dạng.
++
++- **Chữ nội dung: Be Vietnam Pro** (400/500/600), nạp từ Google Fonts,
++  dự phòng `system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif`.
++  CSP của lõi cho phép `font-src https:` nên phông này nạp được; không thêm
++  họ chữ mới khi chưa có lý do.
++- **Chữ hiển thị: Newsreader** (opsz 6..72, 400/500), dự phòng
++  `Georgia, 'Times New Roman', serif`. Chỉ dùng cho: tên web ở thanh trên
++  (24px), tiêu đề lớn, và con số ở ô gọn khu (26px). Không dùng Newsreader
++  cho đoạn văn bản dài.
++- **Chữ mã: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace**
++  (12,5px) cho mã nhận dạng, khoá, khối mã.
++
++**Thang chữ đang chạy** (không phải thang lý tưởng — thang lý tưởng thuộc
++giai đoạn 3):
++
++- Tiêu đề trang: **không thống nhất**. Trang Hệ thống dùng `h1` ẩn
++  (`.an-chu`); Đăng nhập và Thiết lập dùng `h1` kiểu nhãn mục 20px;
++  Studio dùng tiêu đề chào 46px căn giữa, Newsreader. Token `.tieu-de`
++  38px/1.1/-0.02em tồn tại trong `khung.css` nhưng không trang nào dùng.
++- Tiêu đề mục: nhãn mục 12px, đậm 600, IN HOA, giãn chữ .04em
++  (`.nhan-muc`); đầu bảng 12px, đậm 600, IN HOA, giãn .06em
++  (`.bang-tb-dau`).
++- Nội dung: 14px, cao dòng 1.5; chữ phụ 13px; ghi chú 12px.
++- Con số: ô gọn khu 26px Newsreader; số trong bảng và thẻ chưa dùng
++  `font-variant-numeric: tabular-nums` (chỉ trang AI — ngoài phạm vi NV294
++  — mới dùng), nên số có thể nhảy ngang khi cập nhật.
++- Chữ nhỏ nhất: 10px ở nhãn thanh dưới (máy tính để bàn; cảm ứng đã nâng
++  lên 12px), 11px rải rác (vai người dùng, nhãn ngôn ngữ khối mã).
++
++## Bố cục
++
++- **Khung trang** (`main.pg`): rộng toàn khung, căn giữa, đệm
++  24px trên / 32px hai bên / 56px dưới, khoảng cách giữa các khối 20px;
++  ở mốc điện thoại: đệm 20px / 16px / 40px, khoảng cách 16px.
++- **Thanh trên** (`.tb`): cao 60px, đệm hai bên 24px, dính trên cùng;
++  biến thể Hệ thống (`.tb-ht`) nền xanh nhạt `#EAF3F0`, cho phép xuống
++  dòng. Thanh dưới điện thoại (`.bn`) chỉ hiện ở mốc điện thoại.
++- **Mốc điện thoại của demo: 1023px** — dưới mốc này thanh trên gọn lại,
++  thanh tab trên ẩn, thanh dưới hiện. Các mốc phụ: 640px (làn xếp một
++  cột), 560px (lưới form và bảng khóa–giá trị xếp một cột), 480px (thanh
++  trên gọn hơn). Quy tắc cảm ứng (`pointer:coarse`) tách riêng: mục bấm
++  tối thiểu 44×44px, ô nhập chữ ép 16px để iOS không tự zoom.
++- **Lưới**: không có lưới 12 cột chung. Trang dùng flex/grid theo từng
++  khối: lưới form 2 cột → 1 cột dưới 560px; lưới ô khu tự điền
++  (`minmax(230px, 1fr)`); bảng khóa–giá trị 9em/1fr → 1 cột dưới 560px;
++  làn nhóm 150px/1fr → 1 cột dưới 640px.
++- **Một lề trái, một lề phải**: nội dung thẻ và tiêu đề thẳng một lề;
++  hàng bảng bẻ dòng thay vì tràn ngang; bảng markdown cuộn trong khung
++  riêng (`.md-bang`) chứ không banh trang.
++
++## Nổi và sâu
++
++Phẳng theo mặc định. Thẻ và bảng tách nhau bằng viền 1px, không bằng bóng.
++Bóng chỉ xuất hiện ở thứ thực sự nổi: bảng xổ (`.menu-xo`:
++`0 12px 32px rgba(24,24,22,0.14)`) và bảng xổ thanh dưới (`.bn-menu`:
++`0 -6px 24px rgba(24,24,22,0.16)`). Không có bóng ở thẻ đang nằm yên,
++không có hiệu ứng kính, không có gradient nền (grep toàn `web/` = 0).
++
++## Hình dạng
++
++Họ mềm, bo tròn lớn, điều khiển dạng viên thuốc:
++
++- Thẻ ngoài 18px (`.the`), thẻ con 14px (`.the-con`), bảng 14px
++  (`.bang-tb`), menu nổi 14px.
++- Nút 22px (`.nut`), nút nhỏ 20px (`.nut-nho`), chip 20px (`.chip`),
++  huy hiệu 11px (`.huy`), nút quay lại 20px.
++- Ô nhập 10px (`.o`), báo 12px (`.bao`), khối mã 12px, mã nội dòng 5px.
++- Quy tắc: thẻ ngoài luôn bo lớn hơn thẻ con bên trong (18 > 14);
++  điều khiển bấm luôn viên thuốc, không bo 8–12px nửa vời.
++
++## Thành phần
++
++- **Nút** (`.nut`): cao tối thiểu 44px, đệm ngang 18px, viền
++  `#CFCCC4`, nền trắng, chữ mực đậm 500; nút chính (`.nut-chinh`) nền
++  mực, chữ trắng; nút nguy (`.nut-nguy`) viền đỏ nhạt, chữ đỏ đậm;
++  nút nhỏ (`.nut-nho`) cao 40px; nút mờ khi `disabled` (opacity .55).
++  Trên cảm ứng mọi nút ép tối thiểu 44×44px.
++- **Chip** (`.chip`): cao 40px, đệm ngang 14px, viền `#E4E2DC`, nền
++  trắng; đang chọn thì nền mực, chữ trắng; chip có số đếm mờ 70%.
++- **Ô nhập** (`.o`): cao tối thiểu 44px, đệm 10px/12px, viền
++  `#E4E2DC`, nền `#F6F5F2`; khi focus nền trắng, viền `#C9C6BE`.
++  Nhãn (`.truong label`) 13px đậm 500, nằm trên ô, cách ô 6px.
++  Không dùng placeholder thay nhãn.
++- **Thẻ** (`.the`): nền trắng, viền `#E4E2DC`, bo 18px, đệm 20px/22px,
++  khoảng cách trong 14px. Thẻ con (`.the-con`) bo 14px, đệm 14px/16px.
++- **Bảng dạng thẻ** (`.bang-tb`): bo 14px, đầu bảng nền `#FBFAF8`,
++  chữ 12px IN HOA; mỗi dòng cao tối thiểu 48px, đệm 10px/16px, viền
++  trên 1px; dòng trống (`.bang-tb-rong`) chỉ có chữ phụ.
++- **Huy hiệu** (`.huy`): cao tối thiểu 22px, đệm ngang 9px, bo 11px,
++  chữ 12px đậm 600; luôn cặp nền nhạt + chữ đậm cùng họ (xanh, xám, đỏ,
++  vàng, lam).
++- **Báo** (`.bao`): đệm 10px/14px, bo 12px; lỗi/vàng/tốt theo cặp màu
++  trạng thái; báo chờ chỉ có chữ phụ, không màu.
++- **Trạng thái trống** (`.rong`): đệm 24px/16px, viền đứt `#C9C6BE`,
++  bo 14px, chữ phụ căn giữa. Trang chưa có khung trống riêng thì dùng
++  câu chữ phụ («chưa có…») trong khối.
++- **Điều hướng**: thanh trên (logo + tên web Newsreader 24px + tab viên
++  thuốc; tab đang xem nền `#EFEDE8`, chữ mực đậm 500); thanh dưới
++  điện thoại (mỗi mục tối thiểu 52px, chữ 10px trên máy tính / 12px
++  trên cảm ứng, mục đang xem màu teal); bảng xổ vai trò `menu`.
++- **Markdown câu trả lời** (`.md`): tiêu đề 15–20px đậm 600; liên kết
++  màu teal, gạch dưới cách 2px; khối mã nền `#F3F1EC`, viền `#E4E2DC`,
++  bo 12px; bảng cuộn ngang trong khung.
++- **Focus**: mọi phần tử bấm/nhập được đều có viền focus 2px teal
++  `#0F766E`, cách 2px (`:focus-visible`).
++
++## Nên và không nên
++
++Nên:
++
++- **Nên** giữ nút chính màu mực, teal chỉ ở focus/liên kết/nhãn/mục
++  đang chọn.
++- **Nên** giữ thẻ trắng viền `#E4E2DC` trên nền giấy `#F6F5F2`,
++  không thêm bóng cho thẻ đang nằm yên.
++- **Nên** viết tiếng Việt có dấu đầy đủ, câu thường cho nhãn và tiêu đề
++  mục mới; chỉ giữ IN HOA ở nhãn mục và đầu bảng hiện có.
++- **Nên** giữ mọi mục bấm tối thiểu 44px trên cảm ứng và ô nhập chữ
++  16px để iOS không tự zoom.
++- **Nên** giữ bí mật luôn ẩn, bấm mới mở sửa, bí mật chỉ ghi đè —
++  không bao giờ trả bí mật về giao diện.
++
++Không nên:
++
++- **Không** thêm gradient, bóng thẻ, hiệu ứng kính, emoji trang trí —
++  hiện không có, giữ như vậy.
++- **Không** thêm thư viện ngoài hay họ chữ mới (CSP chỉ cho phép
++  `font-src https:` cho phông; CSS/JS thuần).
++- **Không** đổi hành vi, id phần tử hay văn bản mà test đang khẳng định.
++- **Không** dùng `.tieu-de` hay `.nhan-tren` như thể chúng đang sống —
++  chúng là token chết, chờ giai đoạn 3 quyết định dùng lại hay dọn.
++- **Không** hiện id kỹ thuật, bước thừa hay trang «Thiết bị» chung
++  (theo QUY-TAC-GIAO-DIEN-W2A.md).
+diff --git a/docs/PRODUCT.md b/docs/PRODUCT.md
+new file mode 100644
+index 0000000..8ce14fe
+--- /dev/null
++++ b/docs/PRODUCT.md
+@@ -0,0 +1,157 @@
++# Sản phẩm web2api
++
++<!-- impeccable:product-schema 1 -->
++
++Tài liệu này ghi lại sự thật bền về sản phẩm web2api để mọi màn hình sau
++nhất quán: người dùng là ai, sản phẩm làm gì, và những ràng buộc nào không
++được phá. Nó không chứa công thức hình thức — hình thức nằm ở
++`docs/DESIGN.md`; bảng kiểm hiện trạng nằm ở
++`docs/KIEM-GIAO-DIEN-NV294.md`. Nguồn: `README.md`, `web/*.dc.html`,
++`inbox/QUY-TAC-GIAO-DIEN-W2A.md` (repo giao việc, chủ máy chốt 03/11/2026),
++và đặc tả NV294. Những gì chưa chốt được đánh dấu **(chưa chốt)** — không
++được coi là quyết định.
++
++## Platform
++
++web
++
++## Users
++
++- **Người dùng chính: một chủ máy.** Người sở hữu và vận hành web2api tại
++  nhà, dùng tiếng Việt, không nhất thiết rành kỹ thuật. Công việc của chủ
++  máy: cài và quản lý module, thêm tài khoản AI, cấp khoá khách, xem phiên
++  đăng nhập, kiểm soát thiết bị nhà, nghe nhạc/xem nội dung qua loa và
++  tivi. Dùng cả máy tính và điện thoại.
++- **Người dùng phụ: thành viên gia đình** (vai trò `user`): dùng các ứng
++  dụng khách chuẩn OpenAI và một phần giao diện, không có quyền quản trị
++  (không tạo/xoá tài khoản, không cấp khoá, không xem bí mật).
++- **Khách qua API**: ứng dụng khách (OpenAI SDK, curl, Home Assistant)
++  gọi vào bằng khoá khách có phạm vi, không dùng giao diện web.
++
++## Product Purpose
++
++web2api là cổng AI chuẩn OpenAI chạy trong một container Docker nhỏ gọn,
++dành cho cá nhân và gia đình muốn hợp nhất nhiều nguồn AI (Google Gemini,
++Meta Muse…) vào các ứng dụng chuẩn OpenAI. Lõi đóng vai trò «phiên dịch
++viên» trung lập: không chứa sẵn mã của nhà cung cấp nào; mọi nguồn AI là
++các module độc lập, cài thêm lúc chạy từ git, không cần dựng lại ảnh
++Docker hay khởi động lại dịch vụ.
++
++Thành công nghĩa là: chủ máy tự cài, tự nối, tự kiểm soát được mọi thứ
++từ giao diện web bằng tiếng Việt — không cần gõ lệnh, không cần dán giá
++trị kỹ thuật mà hệ thống tự đo được.
++
++## Positioning
++
++Điểm khác biệt không đối thủ nào sao chép đúng được: **lõi trung lập +
++module nạp nóng**. Lõi không mang tên nhà cung cấp; module đến từ git của
++chủ máy hoặc fork, được coi là đã tin; gỡ module thì tab của nó biến mất
++khỏi giao diện. Các cổng khác đóng gói sẵn nhà cung cấp; web2api thì trung
++lập và mở rộng lúc chạy.
++
++## Operating Context
++
++- **Chạy ở đâu**: một máy chủ trong nhà (container Docker), giao diện web
++  mở bằng trình duyệt máy tính hoặc điện thoại; module từ xa có thể chạy
++  ở máy khác.
++- **Luồng việc chính**: Thiết lập lần đầu (tạo admin) → Đăng nhập →
++  Studio (trò chuyện với AI) → Hệ thống: Module (cài/gỡ module), Tài
++  khoản AI, Bảo mật & người dùng (tài khoản, khoá khách, 2FA, sao lưu),
++  Phiên tài khoản, Tích hợp & công cụ, Trợ giúp → các khu Nhà, Đời sống,
++  Tác phẩm (tab hiện khi có module đúng loại được cài).
++- **Thanh chính**: Studio · Tác phẩm ▾ · Nhà ▾ · Đời sống ▾ … Hệ thống
++  (theo demo; tab «Module» = «Tiện ích» của demo, chủ máy nói đã ổn,
++  không đổi).
++- **Đăng nhập AI**: tự động trong từng module (mật khẩu/TOTP đã lưu,
++  dùng lại hồ sơ trình duyệt); gặp CAPTCHA, xác minh điện thoại, tài
++  khoản bị khoá thì dừng ở trạng thái cần người, không vượt.
++- **Xem trình duyệt đăng nhập**: qua noVNC (vé một lần, phiên xem),
++  có mật khẩu xem riêng đặt trong «Bảo mật & người dùng».
++- **Thiết bị nhà**: loa, tivi, router MikroTik, AdGuard — quản lý qua
++  module, theo quyền và hàng chờ phê duyệt hành động rủi ro.
++
++## Capabilities and Constraints
++
++- **Cổng chuẩn OpenAI**: `/v1/models`, `/v1/chat/completions` (stream),
++  ảnh, video, âm thanh, nhúng, xếp hạng; combo nhiều nguồn với cầu chì
++  và tự hạ bậc; xoay khoá API khi gặp 429/hạn mức.
++- **Giao diện quản trị tích hợp** (thư mục `web/`): các trang `.dc.html`
++  chạy bằng runtime `support.js` (dc-lite: `<x-dc>`, `<sc-if>`,
++  `<sc-for>`, `{{…}}`) và logic `web/khung.js`; CSS/JS thuần, không
++  framework, không thư viện ngoài mới.
++- **Đa người dùng & phân quyền**: hai vai trò `admin` và `user`; mật
++  khẩu băm scrypt; khoá chống brute-force hai tầng; phiên web cookie
++  `HttpOnly`, `SameSite=Strict`, tự bật `Secure` + tiền tố `__Host-`
++  khi qua HTTPS; chống CSRF.
++- **Khoá khách có phạm vi**: tiền tố `w2a_`, xoay không gián đoạn
++  (ân hạn khoá cũ mặc định 7 ngày); khoá do web2api cấp cho thứ gọi vào
++  được tạo ở «Bảo mật & người dùng», hiện một lần.
++- **Bí mật**: kết nối ra ngoài nằm trong chip «Cài đặt» của chính module
++  (luôn ẩn sau khi cài, bấm mới mở sửa, bí mật chỉ ghi đè, không trả lại
++  qua API); nhật ký chống sửa lén (chuỗi băm SHA-256) và tự che khoá/bí
++  mật trong thông báo lỗi và nhật ký.
++- **Sao lưu & khôi phục**: xuất cấu hình mã hoá AES-256-GCM, kiểm chứng
++  toàn vẹn khi khôi phục, tự hoàn tác nếu lỗi ghi.
++- **Ngôn ngữ**: toàn bộ giao diện tiếng Việt có dấu đầy đủ; mọi ô nhập
++  có mô tả «điền gì, lấy ở đâu» bằng tiếng thường.
++- **Ràng buộc cứng cho mọi sửa giao diện**: không đổi hành vi, id phần
++  tử hay văn bản mà test đang khẳng định; không thêm phụ thuộc mới;
++  không thêm thư viện ngoài (CSP chỉ cho phép `font-src https:` cho
++  phông chữ); `README.md` có trần 415 dòng — tài liệu thiết kế mới nằm
++  ở `docs/`, không dồn vào README.
++- **(Chưa chốt)** Phạm vi chế độ tối: hiện chỉ một khối làn ở trang Hệ
++  thống có biến thể tối, còn lại chỉ có sáng — chủ máy chưa chốt có làm
++  tối hệ thống hay không.
++- **(Chưa chốt)** Thang tiêu đề thống nhất: hiện mỗi trang một kiểu
++  (xem `docs/DESIGN.md`) — giai đoạn 3 mới chốt thang chung.
++- **(Chưa chốt)** Mốc điện thoại: demo dùng 1023px; nghiệm thu NV294
++  chụp 375px và 1280px — chưa chốt có giữ mốc 1023px hay chuyển sang
++  lưới 375/768/1280.
++
++## Brand Commitments
++
++- **Tên**: web2api. **Dấu**: logo SVG nét mảnh + tên web bằng Newsreader
++  24px ở thanh trên (chưa có tài khoản người dùng thì giữ chỗ avatar
++  36px để bố cục không lệch).
++- **Giọng**: tiếng Việt thường, trực tiếp, nói rõ việc cần làm; không
++  thuật ngữ kỹ thuật lộ ra ngoài trừ khi không còn cách khác; không id
++  kỹ thuật hiện cho người dùng.
++- **Nguồn hình thức ràng buộc**: bản demo thiết kế (nền giấy ấm, thẻ
++  trắng, chip viên thuốc, nút mực) và quy tắc giao diện QUY-TAC-GIAO-DIEN-W2A.md.
++  Demo là nguồn sự thật cho bố cục, chữ, chip, nút, màu.
++
++## Evidence on Hand
++
++- Mã giao diện: `web/khung.css` (kiểu chung), `web/khung.js` (logic
++  khung, điều hướng), `web/support.js` (runtime dc-lite),
++  `web/*.dc.html` (13 trang + trang định tuyến `web/index.html`).
++- Hệ thống thiết kế đã trích: `docs/DESIGN.md`.
++- Bảng kiểm hiện trạng: `docs/KIEM-GIAO-DIEN-NV294.md`.
++- Tài liệu sản phẩm: `README.md` (tính năng, API, phân quyền),
++  `docs/CHUAN-MODULE.md`, `docs/CHUAN-BAO-MAT-MODULE.md`.
++- **Thiếu và không được bịa**: ảnh chụp màn hình thật (sáng/tối,
++  375px/1280px) — máy làm NV294 không có Chrome thật nên giai đoạn 1+2
++  chỉ kiểm bằng mã tĩnh; ảnh thuộc giai đoạn 3 khi có Chrome.
++
++## Product Principles
++
++1. **Lõi trung lập, module độc lập.** Lõi không mang tên nhà cung cấp;
++   module đến và đi lúc chạy, giao diện hiện/mất theo module.
++2. **Một chủ máy kiểm soát được nhà mình.** Mọi việc quản trị làm được
++   từ giao diện web, bằng tiếng Việt thường, không cần gõ lệnh.
++3. **Trang theo ý định, chỉ hiện mục cần.** Không trang chung chung,
++   không bước thừa, không id kỹ thuật, không rườm rà.
++4. **Bí mật không bao giờ quay lại.** Kết nối ra ngoài ẩn sau khi cài
++   và chỉ ghi đè; khoá do web2api cấp hiện một lần; nhật ký tự che bí mật.
++5. **Hành động nguy hiểm xác nhận một lần, lúc gọi.** Không phân loại
++   rủi ro rườm rà, không bắt xác nhận lặp; module từ nguồn của chủ máy
++   là module đã tin.
++
++## Accessibility & Inclusion
++
++- Đã đo được từ mã: viền focus 2px teal rõ trên mọi phần tử bấm/nhập
++  (`:focus-visible`); mục bấm tối thiểu 44×44px trên cảm ứng; ô nhập
++  chữ 16px để iOS không tự zoom; tương phản chữ đạt AA (xem bảng số đo
++  ở `docs/DESIGN.md`); mọi trang có `h1` (có trang ẩn bằng `.an-chu`).
++- Chưa có chuẩn nào được chốt riêng (không tuyên bố đạt WCAG ở mức
++  nào); kiểm bằng trình duyệt thật thuộc giai đoạn 3.
