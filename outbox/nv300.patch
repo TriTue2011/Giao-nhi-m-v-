@@ -1,0 +1,1557 @@
+diff --git a/app/cong_mcp_cong_cu.py b/app/cong_mcp_cong_cu.py
+index e575fb8..c171242 100644
+--- a/app/cong_mcp_cong_cu.py
++++ b/app/cong_mcp_cong_cu.py
+@@ -20,6 +20,7 @@ hoãn captcha, kênh TOTP đều nằm trong chính module đó, không ở file
+ from __future__ import annotations
+ 
+ import asyncio
++import inspect
+ import logging
+ import math
+ import os
+@@ -451,7 +452,20 @@ async def _thu_khoi_phuc_module(so: Any, tk_id: str, module_id: str) -> dict | N
+         return None
+     ban_ghi = kho_tai_khoan.tim_theo_id(tk_id)
+     email = (ban_ghi.get("email") or "") if isinstance(ban_ghi, dict) else ""
+-    kq = await ham(tk_id, email, nghi_t1_giay=0.0)
++    # NV300: truyền cách của tài khoản (nếu module nhận) để nó chọn đường
++    # cach khac; module khong nhan thi giu loi goi cu.
++    tham_so = {}
++    try:
++        chu_ky = inspect.signature(ham)
++    except (TypeError, ValueError):
++        chu_ky = None
++    if chu_ky is not None and "cach_dang_nhap" in chu_ky.parameters:
++        tham_so["cach_dang_nhap"] = kho_tai_khoan.cach_dang_nhap_cua(ban_ghi) \
++            if isinstance(ban_ghi, dict) else ""
++    if chu_ky is not None and kho_tai_khoan.TRUONG_HO_SO in chu_ky.parameters:
++        tham_so[kho_tai_khoan.TRUONG_HO_SO] = kho_tai_khoan.ho_so_cua(ban_ghi) \
++            if isinstance(ban_ghi, dict) else ""
++    kq = await ham(tk_id, email, nghi_t1_giay=0.0, **tham_so)
+     if isinstance(kq, dict):
+         return kq
+     return {
+diff --git a/app/kho_tai_khoan.py b/app/kho_tai_khoan.py
+index cb5cdae..6a74acd 100644
+--- a/app/kho_tai_khoan.py
++++ b/app/kho_tai_khoan.py
+@@ -561,6 +561,77 @@ def kiem_dang_nhap_bang(dang_nhap_bang) -> str:
+     return s
+ 
+ 
++#: NV300: cách đăng nhập của TỪNG tài khoản đã lưu — ho_so = qua hồ sơ
++#: đã đăng nhập (tái dùng hồ sơ, không nhập mật khẩu); email = email +
++#: mật khẩu (+ TOTP nếu có) qua trình duyệt. "" = chưa khai.
++#: Giá trị đọc từ bảng dữ liệu (du_lieu/phan_loai_ai.json, mục
++#: cach_dang_nhap) như NV223 — KHÔNG gõ cứng tên phương thức vào mã lõi
++#: (quy tắc ghi trong _ghi_chu của bảng, cổng test_loi_khong_mang_dac_thu).
++_CACH_DANG_NHAP_BANG = _BANG_PHAN_LOAI_AI.get("cach_dang_nhap") or {}
++CACH_HO_SO = _CACH_DANG_NHAP_BANG.get("ho_so", "")
++CACH_EMAIL = _CACH_DANG_NHAP_BANG.get("email", "")
++#: Tên trường id hồ sơ trong bản ghi/API (đọc từ bảng dữ liệu — mã lõi
++#: không gõ cứng tên trường, cùng quy tắc như giá trị cách ở trên).
++TRUONG_HO_SO = _CACH_DANG_NHAP_BANG.get("truong_ho_so", "")
++CACH_DANG_NHAP_CHO_PHEP = tuple(
++    v for v in (CACH_HO_SO, CACH_EMAIL) if v)
++
++
++def kiem_cach_dang_nhap(cach_dang_nhap) -> str:
++    """Kiểm trường «cách đăng nhập» (NV300): None → "" (chưa khai)."""
++    if cach_dang_nhap is None:
++        return ""
++    if isinstance(cach_dang_nhap, bool) or not isinstance(cach_dang_nhap, str):
++        raise LoiKhoTaiKhoan("invalid_value")
++    s = cach_dang_nhap.strip().lower()
++    if s not in ("", *CACH_DANG_NHAP_CHO_PHEP):
++        raise LoiKhoTaiKhoan("invalid_value")
++    return s
++
++
++def kiem_ho_so(ho_so) -> str:
++    """Kiểm id hồ sơ đã lưu (NV300): None → "" (chưa chọn)."""
++    if ho_so is None:
++        return ""
++    if isinstance(ho_so, bool) or not isinstance(ho_so, str):
++        raise LoiKhoTaiKhoan("invalid_value")
++    _kiem_ky_tu(ho_so, TRUONG_HO_SO)
++    s = ho_so.strip()
++    if len(s) > DOI_DAI_MODULE_ID:
++        raise LoiKhoTaiKhoan("invalid_value")
++    return s
++
++
++def cach_dang_nhap_cua(ban_ghi: dict, mac_dinh: str = "") -> str:
++    """Cách đăng nhập HIỆU LỰC của một bản ghi (NV300).
++
++    Giá trị đã ghi thắng; chưa ghi thì suy từ dữ liệu cũ: có mật khẩu →
++    «email»; không có gì → mac_dinh (module giữ hành vi cũ của nó).
++
++    CỐ TÌNH không suy từ NV223: ``dang_nhap_bang`` qua tài khoản lưu là
++    «đăng nhập HỘ bằng bí mật của tài khoản hồ sơ» (vẫn đi đường mật
++    khẩu — NV271 A2/C3), KHÁC với cach hồ sơ của NV300 là «tái dùng
++    hồ sơ đã đăng nhập, không cần mật khẩu». Trộn hai thứ sẽ phá
++    đường đăng nhập hộ.
++    """
++    if not isinstance(ban_ghi, dict):
++        return mac_dinh
++    v = ban_ghi.get("cach_dang_nhap")
++    if isinstance(v, str) and v.strip().lower() in CACH_DANG_NHAP_CHO_PHEP:
++        return v.strip().lower()
++    if ban_ghi.get("bi_mat") or ban_ghi.get("mat_khau"):
++        return "email"
++    return mac_dinh
++
++
++def ho_so_cua(ban_ghi: dict) -> str:
++    """Id hồ sơ đã lưu của một bản ghi (NV300); chưa chọn → ""."""
++    if not isinstance(ban_ghi, dict):
++        return ""
++    v = ban_ghi.get(TRUONG_HO_SO)
++    return v if isinstance(v, str) else ""
++
++
+ def kiem_tai_khoan_dnh_id(tai_khoan_dnh_id) -> str:
+     """Kiểm id bản ghi tài khoản dùng để đăng nhập hộ (NV223, đổi tên NV262).
+ 
+@@ -820,6 +891,10 @@ def _doc() -> dict:
+         for truong in ("loai_tai_khoan", "dich_dung"):
+             if truong in ban_ghi and not isinstance(ban_ghi[truong], str):
+                 raise LoiKhoTaiKhoan("kho_hong")
++        # Trường NV300 (tuỳ chọn, bản ghi cũ không có): có thì phải là chuỗi.
++        for truong in ("cach_dang_nhap", TRUONG_HO_SO):
++            if truong in ban_ghi and not isinstance(ban_ghi[truong], str):
++                raise LoiKhoTaiKhoan("kho_hong")
+         # Trường NV224 (tuỳ chọn, bản ghi cũ không có): danh sách chuỗi.
+         if "dung_cho" in ban_ghi:
+             dc = ban_ghi["dung_cho"]
+@@ -1229,6 +1304,9 @@ def _ban_cong_khai_goc(ban_ghi: dict, ket_qua_dang_nhap: dict | None = None) ->
+             "loai_tai_khoan": "",
+             "dich_dung": "",
+             "dung_cho": [],
++            # NV300: bản ghi nhập không có cách đăng nhập theo tài khoản.
++            "cach_dang_nhap": "",
++            TRUONG_HO_SO: "",
+             # NV232: bản ghi nhập không có mô hình đường dùng.
+             "trang_thai_duong": {},
+             "module_id": "",
+@@ -1262,6 +1340,10 @@ def _ban_cong_khai_goc(ban_ghi: dict, ket_qua_dang_nhap: dict | None = None) ->
+         # đoạn chuyển để giao diện cũ/ứng dụng khác không vỡ.
+         "dang_nhap_bang": ban_ghi.get("dang_nhap_bang", ""),
+         TRUONG_TAI_KHOAN_DNH_ID: lay_tai_khoan_dnh_id(ban_ghi),
++        # NV300: cách đăng nhập HIỆU LỰC theo từng tài khoản (đã suy từ dữ
++        # liệu cũ khi chưa ghi) + hồ sơ đã chọn (không bí mật).
++        "cach_dang_nhap": cach_dang_nhap_cua(ban_ghi),
++        TRUONG_HO_SO: ho_so_cua(ban_ghi),
+         **{bd: lay_tai_khoan_dnh_id(ban_ghi) for bd in BI_DANH_CU_TAI_KHOAN_DNH},
+         # NV258: địa chỉ (CHE một phần — email/URL), kiểu bí mật + cờ «đã có»
+         # bí mật. KHÔNG BAO GIỜ trả bí mật thô (bi_mat/mat_khau/totp_secret).
+@@ -1301,7 +1383,8 @@ def luu_tai_khoan(email, mat_khau, totp_secret=None, nhan="",
+                   trang_thai=None, id=None, module_id=None, nhom=None,
+                   bac_goi=None, loai_tai_khoan=None, dich_dung=None, dang_nhap_bang=None,
+                   tai_khoan_dnh_id=None, dung_cho=None,
+-                  dia_chi=None, bi_mat=None, kieu_bi_mat=None) -> dict:
++                  dia_chi=None, bi_mat=None, kieu_bi_mat=None,
++                  cach_dang_nhap=None, ho_so=None) -> dict:
+     """Lưu mới hoặc cập nhật theo email hoặc id (trùng email → cập nhật, không trùng lặp).
+ 
+     `trang_thai`: None → giữ nguyên cũ (mặc định bật); "" hoặc "tam_dung"
+@@ -1327,6 +1410,11 @@ def luu_tai_khoan(email, mat_khau, totp_secret=None, nhan="",
+     tương thích ngược. Kiểu khoa_api/token/cookie KHÔNG bắt buộc email
+     (lưu được một khoá API đơn lẻ, id theo bí mật). `bi_mat=None` → giữ bí
+     mật cũ (cập nhật không đổi khoá).
++    `cach_dang_nhap`/`ho_so` (NV300): None → giữ nguyên cũ; "" hoặc
++    giá trị hợp lệ → đặt mới. Chế độ hồ sơ KHÔNG bắt buộc mật khẩu (tái
++    dùng hồ sơ đã đăng nhập) nhưng bắt buộc `ho_so`; thiếu → không
++    lưu dở. Bản ghi cũ chưa có trường vẫn đọc được qua suy luận ở
++    ``cach_dang_nhap_cua`` (không cần di chuyển dữ liệu).
+     Trả bản công khai. Kho hỏng → ném ``LoiKhoTaiKhoan`` (không lưu dở).
+     """
+     totp = kiem_totp_secret(totp_secret)
+@@ -1380,8 +1468,21 @@ def luu_tai_khoan(email, mat_khau, totp_secret=None, nhan="",
+                 id_ = ma_tai_khoan(email_chuan)
+             cu = du_lieu.get(id_) if id_ else None
+ 
++        # NV300: cách đăng nhập theo từng tài khoản — None → giữ nguyên cũ;
++        # "" / giá trị hợp lệ → đặt mới. Kiểm chéo sau hợp nhất: hồ sơ mà
++        # thiếu hồ sơ → không lưu dở (mẫu NV223).
++        cach_moi = cu.get("cach_dang_nhap", "") if cu else ""
++        if cach_dang_nhap is not None:
++            cach_moi = kiem_cach_dang_nhap(cach_dang_nhap)
++        ho_so_moi = cu.get(TRUONG_HO_SO, "") if cu else ""
++        if ho_so is not None:
++            ho_so_moi = kiem_ho_so(ho_so)
++        if cach_moi == CACH_HO_SO and not ho_so_moi:
++            raise LoiKhoTaiKhoan("invalid_value")
+         # NV258: bí mật — bi_mat mới (đường mới) thắng; không truyền gì và
+         # đang cập nhật → giữ bí mật cũ; đường cũ (mat_khau) luôn là mật khẩu.
++        # NV300: bản ghi hồ sơ mới được phép không có mật khẩu (tái dùng hồ
++        # sơ đã đăng nhập, không nhập mật khẩu).
+         if bi_mat is not None:
+             bi_mat_moi = kiem_bi_mat(bi_mat)
+         elif mat_khau is not None:
+@@ -1389,6 +1490,8 @@ def luu_tai_khoan(email, mat_khau, totp_secret=None, nhan="",
+             kieu_moi = "mat_khau"
+         elif cu:
+             bi_mat_moi = cu.get("bi_mat") or cu.get("mat_khau", "")
++        elif cach_moi == CACH_HO_SO:
++            bi_mat_moi = ""
+         else:
+             raise LoiKhoTaiKhoan("invalid_value")
+         if kieu_moi == "mat_khau":
+@@ -1516,6 +1619,9 @@ def luu_tai_khoan(email, mat_khau, totp_secret=None, nhan="",
+             # NV262: luôn ghi tên mới; bản ghi cũ mang khoá cũ được chuyển
+             # êm sang tên mới ở lần cập nhật (khoá cũ bị loại khỏi bản lưu).
+             TRUONG_TAI_KHOAN_DNH_ID: tk_dnh_moi,
++            # NV300: cách đăng nhập theo từng tài khoản + hồ sơ đã chọn.
++            "cach_dang_nhap": cach_moi,
++            TRUONG_HO_SO: ho_so_moi,
+             "dung_cho": dung_cho_moi,
+             "trang_thai_duong": tt_duong_moi,
+             "cap_nhat": int(time.time()),
+diff --git a/app/so_module.py b/app/so_module.py
+index 0246a6c..019d9e6 100644
+--- a/app/so_module.py
++++ b/app/so_module.py
+@@ -24,7 +24,7 @@ import shutil
+ import sys
+ from pathlib import Path
+ 
+-from app import he_thong, kho, nhat_ky, phien
++from app import he_thong, kho, kho_tai_khoan, nhat_ky, phien
+ from app.kham_pha import (ID_HOP_LE, LoiNap, ModuleKhamPha, doc_manifest, giao_dien_cua, go_ma, nap_ma, quet, van_tay)
+ from app.quyen_module import bam_diff, cac_muc_chuan, diff_quyen
+ 
+@@ -427,6 +427,17 @@ class SoModule:
+                             "nhom": nhom,
+                             # NV297: tab + mục trên thanh chính (khai trong manifest, hoặc suy từ cấu trúc) — module từ xa không có.
+                             "giao_dien": None if tu_xa else giao_dien_cua(man)}
++            # NV300: cách đăng nhập module hỗ trợ theo từng tài khoản — lấy
++            # từ khai báo lớp nếu có, không thì suy từ cấu trúc. Giá trị suy
++            # lấy từ hằng bảng dữ liệu (không gõ cứng vào mã lõi).
++            cach_ho_tro = getattr(nguon_hs, "CACH_DANG_NHAP_HO_TRO", None)
++            if not isinstance(cach_ho_tro, (list, tuple)):
++                cach_ho_tro = []
++                if dn:
++                    cach_ho_tro.append(kho_tai_khoan.CACH_EMAIL)
++                if td:
++                    cach_ho_tro.append(kho_tai_khoan.CACH_HO_SO)
++            muc_mod["cach_dang_nhap_ho_tro"] = list(cach_ho_tro)
+             # NV289: module khai đường riêng cho dịch vụ ngoài gọi vào (manifest `duong_module`): khoá cho nó do lõi
+             # tự sinh ở Bảo mật & người dùng (phạm vi `tich_hop@<id>`), không có ô nhập khoá. Chỉ thêm khi có.
+             if isinstance(man.get("duong_module"), dict):
+diff --git a/app/tai_khoan_hang_loat.py b/app/tai_khoan_hang_loat.py
+index 2f1b3d7..6d1d594 100644
+--- a/app/tai_khoan_hang_loat.py
++++ b/app/tai_khoan_hang_loat.py
+@@ -176,7 +176,7 @@ class DongDaTach:
+ 
+     dong: int
+     email: str
+-    loai: str  # "mat_khau" | "cookie" | "dang_nhap_lai"
++    loai: str  # "mat_khau" | "cookie" | "dang_nhap_lai" | cach ho so (NV300)
+     mat_khau: BiMatTam | None = None
+     totp: BiMatTam | None = None
+     cookie: BiMatTam | None = None
+diff --git a/app/tuyen.py b/app/tuyen.py
+index fe264b4..9c0f647 100644
+--- a/app/tuyen.py
++++ b/app/tuyen.py
+@@ -2493,6 +2493,24 @@ def _chuoi_tuy_chon(than: dict, ten: str) -> str | None:
+     return kiem_bien.kiem_chuoi(than.get(ten), cho_phep_none=True, ten_truong=ten)
+ 
+ 
++def _cach_va_ho_so(muc: dict) -> tuple:
++    """``(cach_dang_nhap, ho_so)`` từ một mục body (NV300).
++
++    Vắng/null → None (giữ nguyên cũ ở tầng kho); sai kiểu → 400.
++    Chế độ hồ sơ mà hồ sơ không phải bản ghi đã lưu → invalid_value
++    (không lưu dở); kiểm tồn tại ở đây, tầng kho chỉ kiểm khác rỗng.
++    """
++    cach = _chuoi_tuy_chon(muc, "cach_dang_nhap")
++    ho_so = _chuoi_tuy_chon(muc, kho_tai_khoan_mod.TRUONG_HO_SO) \
++        or _chuoi_tuy_chon(muc, "ho_so")
++    if cach is not None \
++            and cach.strip().lower() == kho_tai_khoan_mod.CACH_HO_SO \
++            and ho_so:
++        if kho_tai_khoan_mod.tim_theo_id(ho_so) is None:
++            raise kho_tai_khoan_mod.LoiKhoTaiKhoan("invalid_value")
++    return cach, ho_so
++
++
+ def _tai_khoan_dnh_id_tuy_chon(than: dict) -> str | None:
+     """Id tài khoản đăng nhập hộ (NV262): chấp nhận CẢ HAI tên trường, tên
+     mới ưu tiên (đọc từ kho — không chép cứng tên trong mã lõi); vắng/null
+@@ -4276,6 +4294,7 @@ async def luu_tai_khoan_da_luu(request: Request):
+                     mid, nhom = _module_va_nhom(muc)
+                     bi_mat_moi, kieu_moi, la_khoa = _bi_mat_moi(muc)
+                     mat_khau_muc = None if la_khoa else muc.get("mat_khau")
++                    cach_muc, ho_so_muc = _cach_va_ho_so(muc)
+                     bk = kho_tai_khoan_mod.luu_tai_khoan(
+                         muc.get("email"), mat_khau_muc,
+                         muc.get("totp_secret"), muc.get("nhan", ""),
+@@ -4289,7 +4308,8 @@ async def luu_tai_khoan_da_luu(request: Request):
+                         tai_khoan_dnh_id=_tai_khoan_dnh_id_tuy_chon(muc),
+                         dung_cho=_dung_cho_tuy_chon(muc),
+                         dia_chi=_chuoi_tuy_chon(muc, "dia_chi"),
+-                        bi_mat=bi_mat_moi, kieu_bi_mat=kieu_moi)
++                        bi_mat=bi_mat_moi, kieu_bi_mat=kieu_moi,
++                        cach_dang_nhap=cach_muc, ho_so=ho_so_muc)
+                     luu.append(bk)
+                 except kho_tai_khoan_mod.LoiKhoTaiKhoan as e:
+                     if e.ma == "kho_hong":
+@@ -4303,6 +4323,15 @@ async def luu_tai_khoan_da_luu(request: Request):
+         tai_id = _chuoi_tuy_chon(than, "id")
+         email_val = _chuoi_tuy_chon(than, "email")
+         bi_mat_moi, kieu_moi, la_khoa = _bi_mat_moi(than)
++        cach_them, ho_so_them = _cach_va_ho_so(than)
++        # NV300: chế độ hồ sơ lấy email từ hồ sơ đã chọn khi không
++        # nhập email riêng (bản ghi dịch vụ mang email của tài khoản hồ sơ).
++        if cach_them is not None \
++                and cach_them.strip().lower() == kho_tai_khoan_mod.CACH_HO_SO \
++                and not email_val and ho_so_them:
++            ban_ghi_hs = kho_tai_khoan_mod.tim_theo_id(ho_so_them)
++            if ban_ghi_hs is not None:
++                email_val = ban_ghi_hs.get("email", "") or ""
+         # NV258: bản ghi khoá API/token/cookie không bắt buộc email; các
+         # trường hợp còn lại giữ yêu cầu cũ (email hoặc id + mật khẩu).
+         if not tai_id and not email_val and not la_khoa:
+@@ -4310,7 +4339,11 @@ async def luu_tai_khoan_da_luu(request: Request):
+         mid, nhom = _module_va_nhom(than)
+         # NV258: bí mật qua trường mới «bi_mat» cũng được chấp nhận cho mọi
+         # kiểu (kể cả mat_khau); chỉ khi không có bi_mat mới bắt buộc mat_khau.
+-        if la_khoa or bi_mat_moi is not None:
++        # NV300: chế độ hồ sơ không bắt buộc mật khẩu (tái dùng hồ sơ).
++        if la_khoa or bi_mat_moi is not None \
++                or (cach_them is not None
++                    and cach_them.strip().lower()
++                    == kho_tai_khoan_mod.CACH_HO_SO):
+             mat_khau_yeu_cau = None
+         else:
+             mat_khau_yeu_cau = _chuoi_bat_buoc(than, "mat_khau")
+@@ -4329,7 +4362,8 @@ async def luu_tai_khoan_da_luu(request: Request):
+             tai_khoan_dnh_id=_tai_khoan_dnh_id_tuy_chon(than),
+             dung_cho=_dung_cho_tuy_chon(than),
+             dia_chi=_chuoi_tuy_chon(than, "dia_chi"),
+-            bi_mat=bi_mat_moi, kieu_bi_mat=kieu_moi)
++            bi_mat=bi_mat_moi, kieu_bi_mat=kieu_moi,
++            cach_dang_nhap=cach_them, ho_so=ho_so_them)
+         # Nhật ký: chỉ ghi định danh đã che — KHÔNG bao giờ ghi bí mật.
+         dinh_danh_che = bk.get("email_che") or bk.get("dia_chi_che") or "…"
+         nhat_ky_mod.ghi(
+@@ -4534,13 +4568,22 @@ async def dang_nhap_tai_khoan_da_luu_noi_bo(so, id: str, module_id: str, kiem_tr
+     if ban_ghi is not None and ban_ghi.get("trang_thai") == kho_tai_khoan_mod.TRANG_THAI_TAM_DUNG:
+         raise LoiOpenAI(403, "Tài khoản đã tạm dừng; bật lại mới đăng nhập được.",
+                         code="tam_dung")
+-    try:
+-        bi_mat = kho_tai_khoan_mod.lay_bi_mat_dang_nhap(id)
+-    except kho_tai_khoan_mod.LoiKhoTaiKhoan as e:
+-        raise _loi_kho_tai_khoan(e) from None
+-    if bi_mat is None:
+-        raise LoiOpenAI(404, "Không tìm thấy tài khoản đã lưu.", code="khong_tim_thay")
+-    mat_khau, totp = bi_mat
++    # NV300: cách theo từng tài khoản — hồ sơ thì KHÔNG cần bí mật (tái
++    # dùng hồ sơ đã đăng nhập); email thì vẫn cần mật khẩu như cũ.
++    cach_hieu_luc = kho_tai_khoan_mod.cach_dang_nhap_cua(ban_ghi) \
++        if ban_ghi else ""
++    ho_so_hieu_luc = kho_tai_khoan_mod.ho_so_cua(ban_ghi) \
++        if ban_ghi else ""
++    if cach_hieu_luc == kho_tai_khoan_mod.CACH_HO_SO:
++        mat_khau, totp = None, None
++    else:
++        try:
++            bi_mat = kho_tai_khoan_mod.lay_bi_mat_dang_nhap(id)
++        except kho_tai_khoan_mod.LoiKhoTaiKhoan as e:
++            raise _loi_kho_tai_khoan(e) from None
++        if bi_mat is None:
++            raise LoiOpenAI(404, "Không tìm thấy tài khoản đã lưu.", code="khong_tim_thay")
++        mat_khau, totp = bi_mat
+     email = ban_ghi["email"] if ban_ghi else ""
+     # NV274: module CHƯA chạy mà có khả năng đăng nhập (vd chưa có cookie nên chưa nạp) vẫn đăng nhập được qua thể
+     # hiện tạm — cùng nguyên tắc với đường dán hàng loạt (`the_hien_cho_dang_nhap`). Trước đây chỉ nhìn `dang_chay`
+@@ -4548,12 +4591,19 @@ async def dang_nhap_tai_khoan_da_luu_noi_bo(so, id: str, module_id: str, kiem_tr
+     mod = so.the_hien_cho_dang_nhap(module_id)
+     ham = getattr(mod, "dang_nhap", None) if mod is not None else None
+     if not callable(ham):
+-        mat_khau.xoa()
++        if mat_khau is not None:
++            mat_khau.xoa()
+         if totp is not None:
+             totp.xoa()
+         raise LoiOpenAI(502, "Module chưa triển khai đăng nhập.", code="chua_ho_tro")
+     dong = tai_khoan_hang_loat_mod.DongDaTach(
+-        dong=0, email=email, loai="mat_khau", mat_khau=mat_khau, totp=totp)
++        dong=0, email=email,
++        loai=cach_hieu_luc
++        if cach_hieu_luc == kho_tai_khoan_mod.CACH_HO_SO else "mat_khau",
++        mat_khau=mat_khau, totp=totp)
++    # NV300: module chọn đường theo cách của tài khoản (không đoán).
++    dong.cach_dang_nhap = cach_hieu_luc
++    setattr(dong, kho_tai_khoan_mod.TRUONG_HO_SO, ho_so_hieu_luc)
+     # NV248 — cờ «Kiểm tra lại» tường minh từ giao diện: người dùng bấm lại
+     # nút đăng nhập sau khi nhận «cần người» (không đoán từ lịch sử).
+     dong.kiem_tra_lai = kiem_tra_lai
+diff --git a/docs/CHUAN-MODULE.md b/docs/CHUAN-MODULE.md
+index 83460c5..39bf3c6 100644
+--- a/docs/CHUAN-MODULE.md
++++ b/docs/CHUAN-MODULE.md
+@@ -589,3 +589,19 @@ Hợp đồng chung vẫn là «module không có route»: module KHÔNG tự g
+   Thiếu khoá → 401; khoá hợp lệ nhưng module không được phép (hoặc là khoá quản trị/«*») → 403.
+ - **Chỉ nhận nguồn LAN**: qua đường hầm hoặc proxy mà lõi không tin (`WEB2API_TRUST_PROXY`) thì bị chặn.
+ - Không tên nhà cung cấp trong lõi: lõi chỉ chuyển tiếp `(mã, headers, nội dung)` và kiểm xác thực.
++
++## 16. Cách đăng nhập theo từng tài khoản (NV300)
++
++Cách đăng nhập (`cach_dang_nhap` ∈ `google` | `email`) là thuộc tính của **từng tài khoản đã lưu** (`app/kho_tai_khoan.py`),
++không còn là cài đặt chung của module (giá trị cũ của grok-web vẫn đọc ngược làm mặc định cho tài khoản chưa có cách riêng).
++
++- Module web khai các cách mình hỗ trợ bằng thuộc tính lớp `CACH_DANG_NHAP_HO_TRO` (vd grok-web, chatgpt-web,
++  gemini-web: `("google", "email")`; claude-web tạm thời chỉ `("google",)`; muse2api chỉ `("google",)` vì không có
++  form mật khẩu). Không khai thì lõi suy từ cấu trúc (`dang_nhap` → email, `tai_dung_ho_so` → google) để hiện
++  ở `GET /api/tinh-nang` (`cach_dang_nhap_ho_tro` từng module).
++- `khoi_phuc_tu_dong(..., cach_dang_nhap=None, ho_so_google=None)` và `dang_nhap()` chọn đường theo cách của
++  tài khoản: google → tái dùng hồ sơ đã đăng nhập (không cần mật khẩu), email → đường mật khẩu cũ. Lõi chỉ truyền
++  hai tham số này khi chữ ký module nhận (tương thích module khác).
++- **Không trộn với NV223**: `dang_nhap_bang` qua tài khoản lưu là «đăng nhập HỘ bằng bí mật của tài khoản Google»
++  (vẫn đi đường mật khẩu), khác với cach `google` là «tái dùng hồ sơ, không cần mật khẩu».
++- Thang T0–T3 áp cho cả hai cách; CAPTCHA/Cloudflare/xác minh vẫn dừng ở `can_nguoi`, không vượt.
+diff --git a/du_lieu/phan_loai_ai.json b/du_lieu/phan_loai_ai.json
+index ea32114..2374887 100644
+--- a/du_lieu/phan_loai_ai.json
++++ b/du_lieu/phan_loai_ai.json
+@@ -23,6 +23,12 @@
+       }
+     ]
+   },
++  "cach_dang_nhap": {
++    "_ghi_chu": "NV300: cách đăng nhập theo từng tài khoản. Giá trị sống ở ĐÂY (dữ liệu) như NV223, lõi chỉ đọc qua hằng (không gõ cứng vào mã nguồn). ho_so = tái dùng hồ sơ đã đăng nhập (không cần mật khẩu); email = đường mật khẩu. truong_ho_so = tên trường id hồ sơ trong bản ghi/API (lõi dùng hằng, không gõ cứng tên trường).",
++    "ho_so": "google",
++    "email": "email",
++    "truong_ho_so": "ho_so_google"
++  },
+   "tai_khoan_dnh": {
+     "_ghi_chu": "NV262: tên trường id bản ghi tài khoản dùng để đăng nhập hộ. Lõi dùng tên CHUNG (không nêu nhà cung cấp); tên khoá cũ nằm ở đây (bi_danh_cu) để lõi đọc lúc import — tương thích ngược với bản ghi thật đã lưu từ NV223 mà không chép cứng tên cũ trong mã. Giá trị dang_nhap_bang của bản ghi cũ nằm ở mục dang_nhap_bang (gia_tri_cu dưới đây chỉ để ghi nhận, lõi so sánh qua hằng đọc từ dữ liệu).",
+     "ten_moi": "tai_khoan_dnh_id",
+diff --git a/modules/chatgpt-web/module.py b/modules/chatgpt-web/module.py
+index 019db91..8fc6334 100644
+--- a/modules/chatgpt-web/module.py
++++ b/modules/chatgpt-web/module.py
+@@ -340,6 +340,9 @@ def _muc_tu_limits_progress(lp) -> list[dict] | None:
+ class Module:
+     """Lớp Module theo hợp đồng app/kham_pha.py."""
+ 
++    #: NV300: cách đăng nhập module này hỗ trợ theo từng tài khoản.
++    CACH_DANG_NHAP_HO_TRO = ("google", "email")
++
+     def __init__(self, manifest: dict):
+         self.manifest = manifest
+         self.tien_to = manifest.get("tien_to", TIEN_TO)
+@@ -814,7 +817,9 @@ class Module:
+ 
+     async def khoi_phuc_tu_dong(self, khoa: str, email: str = "",
+                                 mat_khau=None, totp=None, trinh_duyet=None,
+-                                nghi_t1_giay: float = 0.0) -> KetQuaKhoiPhuc:
++                                nghi_t1_giay: float = 0.0,
++                                cach_dang_nhap=None,
++                                ho_so_google=None) -> KetQuaKhoiPhuc:
+         """Thang T0-T3 ĐẦY ĐỦ, tự chứa trong module này. Gọi trực tiếp cũng chạy.
+ 
+         - T0: lam_moi_phien(khoa) — chỉ kiểm, không bịa refresh endpoint.
+@@ -857,15 +862,25 @@ class Module:
+                 bay_gio = time.time()
+                 if bay_gio < getattr(self, "_captcha_den_het", 0.0):  # chặn cả khoá vừa gặp captcha: thử lại ngay chỉ thêm một lần gặp captcha
+                     return KetQuaKhoiPhuc(False, tang="T2", ma_loi="captcha_hoan")
++                # NV300: cách theo từng tài khoản — google thì tái dùng hồ
++                # sơ, không cần mật khẩu; không truyền cách thì giữ đường
++                # mật khẩu như cũ.
++                cach = cach_dang_nhap \
++                    if cach_dang_nhap in ("google", "email") else "email"
+                 if mat_khau_dung is None:
+                     mat_khau_dung = self.mat_khau_da_luu(khoa) or self.mat_khau_da_luu(email)
+-                if mat_khau_dung is None:
++                if mat_khau_dung is None and cach != "google":
+                     return KetQuaKhoiPhuc(False, tang="T2", ma_loi="thieu_mat_khau")
+                 if totp_dung is None:
+                     totp_dung = self.totp_da_luu(khoa) or self.totp_da_luu(email)
+                 td = trinh_duyet if trinh_duyet is not None else await self._lay_trinh_duyet_module()
+                 self._trinh_duyet_da_dung = td
+-                kq2 = await self._dang_nhap_bang_trinh_duyet(email, mat_khau_dung, td, totp=totp_dung)
++                if cach == "google":
++                    if td is None:
++                        return KetQuaKhoiPhuc(False, tang="T2", ma_loi="trinh_duyet_none")
++                    kq2 = await self.tai_dung_ho_so(ho_so_google or "", td)
++                else:
++                    kq2 = await self._dang_nhap_bang_trinh_duyet(email, mat_khau_dung, td, totp=totp_dung)
+                 self._lan_t2[khoa] = time.time()
+                 if not kq2.thanh_cong:
+                     ma = kq2.ma_loi or "loi_module"
+@@ -1012,7 +1027,17 @@ class Module:
+         """Hợp đồng NV67: cookie → kiểm; mat_khau → trình duyệt; dang_nhap_lai →
+         mật khẩu đã lưu. BiMatTam luôn bị xoá sau khi dùng (kể cả lỗi)."""
+         loai = tai_khoan.loai
++        # NV300: lần gọi mang cách tường minh (đường lõi gắn từ bản ghi) thì
++        # đổi đường tương ứng: google → tái dùng hồ sơ, không đòi mật khẩu.
++        if loai in ("mat_khau", "dang_nhap_lai") \
++                and getattr(tai_khoan, "cach_dang_nhap", "") == "google":
++            loai = "google"
+         try:
++            if loai == "google":
++                td = await self._lay_trinh_duyet_module()
++                self._trinh_duyet_da_dung = td
++                return await self.tai_dung_ho_so(
++                    getattr(tai_khoan, "ho_so_google", "") or "", td)
+             if loai == "cookie":
+                 token = tai_khoan.cookie.lay() if tai_khoan.cookie else ""
+                 if not token:
+diff --git a/modules/claude-web/module.py b/modules/claude-web/module.py
+index 2d88e55..9cd5997 100644
+--- a/modules/claude-web/module.py
++++ b/modules/claude-web/module.py
+@@ -179,6 +179,10 @@ _QUY_TAC_TIN_HIEU = [{'loai': 'cookie', 'mien': 'claude.ai', 'ten': 'sessionKey'
+ class Module:
+     """Module claude-web: nap / cai / models / chat / suc_khoe / dung."""
+ 
++    #: NV300 (bổ sung 03/11): Claude TẠM THỜI chỉ đăng nhập qua Google —
++    #: đường email chưa hỗ trợ, giao diện ẩn/vô hiệu chip Email.
++    CACH_DANG_NHAP_HO_TRO = ("google",)
++
+     def __init__(self, manifest: dict):
+         self.manifest = manifest or {}
+         self._tien_to = str(self.manifest.get("tien_to") or "clw")
+@@ -411,9 +415,21 @@ class Module:
+ 
+     async def dang_nhap(self, tai_khoan: DongDaTach) -> KetQuaDangNhap:
+         """Hợp đồng NV67: cookie → kiểm; mat_khau → trình duyệt; dang_nhap_lai →
+-        mật khẩu đã lưu. BiMatTam luôn bị xoá sau khi dùng (kể cả lỗi)."""
++        mật khẩu đã lưu. BiMatTam luôn bị xoá sau khi dùng (kể cả lỗi).
++        NV300 (bổ sung 03/11): lần gọi từ đường lõi mang cach_dang_nhap
++        (tài khoản đã lưu) thì luôn đi đường Google — Claude tạm thời chỉ
++        Google; gọi trực tiếp không kèm cách giữ hành vi cũ."""
+         loai = tai_khoan.loai
++        if loai in ("mat_khau", "dang_nhap_lai") \
++                and getattr(tai_khoan, "cach_dang_nhap", "") != "":
++            loai = "google"
+         try:
++            if loai == "google":
++                tao = self._tao_trinh_duyet
++                td = tao() if callable(tao) else None
++                self._trinh_duyet_da_dung = td
++                return await self.tai_dung_ho_so(
++                    getattr(tai_khoan, "ho_so_google", "") or "", td)
+             if loai == "cookie":
+                 cookie_tho = tai_khoan.cookie.lay() if tai_khoan.cookie else ""
+                 if not cookie_tho:
+@@ -883,7 +899,9 @@ class Module:
+ 
+     async def khoi_phuc_tu_dong(self, khoa: str, email: str = "",
+                                 mat_khau=None, totp=None, trinh_duyet=None,
+-                                nghi_t1_giay: float = 0.0) -> KetQuaKhoiPhuc:
++                                nghi_t1_giay: float = 0.0,
++                                cach_dang_nhap=None,
++                                ho_so_google=None) -> KetQuaKhoiPhuc:
+         """Thang T0-T3 ĐẦY ĐỦ, tự chứa trong module này. Gọi trực tiếp cũng chạy.
+ 
+         - T0: lam_moi_phien(khoa) — chỉ kiểm bằng GET /api/organizations,
+@@ -931,16 +949,29 @@ class Module:
+                 bay_gio = time.time()
+                 if bay_gio < getattr(self, "_captcha_den_het", 0.0):  # chặn cả khoá vừa gặp captcha: thử lại ngay chỉ thêm một lần gặp captcha
+                     return KetQuaKhoiPhuc(False, tang="T2", ma_loi="captcha_hoan")
+-                if mat_khau_dung is None:
+-                    mat_khau_dung = self.mat_khau_da_luu(khoa) or self.mat_khau_da_luu(email)
+-                if mat_khau_dung is None:
+-                    return KetQuaKhoiPhuc(False, tang="T2", ma_loi="thieu_mat_khau")
+-                if totp_dung is None:
+-                    totp_dung = self.totp_da_luu(khoa) or self.totp_da_luu(email)
+-                td = trinh_duyet if trinh_duyet is not None else await self._lay_trinh_duyet_module()
+-                self._trinh_duyet_da_dung = td
+-                kq2 = await self._dang_nhap_bang_trinh_duyet(
+-                    email, mat_khau_dung, td, totp=totp_dung, khoi_phuc=True)
++                # NV300 (bổ sung 03/11, tinh chỉnh sau test NV_module_claude):
++                # Claude TẠM THỜI chỉ Google — nhưng chỉ ÉP khi lần gọi mang
++                # cách tường minh (khác rỗng), bất kể giá trị (kể cả
++                # "email": tài khoản Claude luôn google). Không mang cách
++                # (tài khoản cũ, gọi trực tiếp) thì giữ đường mật khẩu cũ
++                # để không phá hành vi cũ và test đường mật khẩu.
++                if cach_dang_nhap:
++                    td = trinh_duyet if trinh_duyet is not None else await self._lay_trinh_duyet_module()
++                    self._trinh_duyet_da_dung = td
++                    if td is None:
++                        return KetQuaKhoiPhuc(False, tang="T2", ma_loi="trinh_duyet_none")
++                    kq2 = await self.tai_dung_ho_so(ho_so_google or "", td)
++                else:
++                    if mat_khau_dung is None:
++                        mat_khau_dung = self.mat_khau_da_luu(khoa) or self.mat_khau_da_luu(email)
++                    if mat_khau_dung is None:
++                        return KetQuaKhoiPhuc(False, tang="T2", ma_loi="thieu_mat_khau")
++                    if totp_dung is None:
++                        totp_dung = self.totp_da_luu(khoa) or self.totp_da_luu(email)
++                    td = trinh_duyet if trinh_duyet is not None else await self._lay_trinh_duyet_module()
++                    self._trinh_duyet_da_dung = td
++                    kq2 = await self._dang_nhap_bang_trinh_duyet(
++                        email, mat_khau_dung, td, totp=totp_dung, khoi_phuc=True)
+                 self._lan_t2[khoa] = time.time()
+                 if not kq2.thanh_cong:
+                     ma = kq2.ma_loi or "loi_module"
+diff --git a/modules/gemini-web/module.py b/modules/gemini-web/module.py
+index a6b3764..66cf10a 100644
+--- a/modules/gemini-web/module.py
++++ b/modules/gemini-web/module.py
+@@ -156,6 +156,9 @@ _QUY_TAC_TIN_HIEU = [{'loai': 'cookie', 'mien': 'google.com', 'ten': '__Secure-1
+ class Module:
+     """Lớp Module theo hợp đồng app/kham_pha.py."""
+ 
++    #: NV300: cách đăng nhập module này hỗ trợ theo từng tài khoản.
++    CACH_DANG_NHAP_HO_TRO = ("google", "email")
++
+     def __init__(self, manifest: dict):
+         self.manifest = manifest
+         self.tien_to = manifest.get("tien_to", TIEN_TO)
+@@ -416,7 +419,9 @@ class Module:
+ 
+     async def khoi_phuc_tu_dong(self, khoa: str, email: str = "",
+                                 mat_khau=None, totp=None, trinh_duyet=None,
+-                                nghi_t1_giay: float = 0.0) -> KetQuaKhoiPhuc:
++                                nghi_t1_giay: float = 0.0,
++                                cach_dang_nhap=None,
++                                ho_so_google=None) -> KetQuaKhoiPhuc:
+         """Thang T0-T3 ĐẦY ĐỦ, tự chứa trong module này. Gọi trực tiếp cũng chạy.
+ 
+         - T0: lam_moi_phien(khoa) — chỉ kiểm, không bịa refresh endpoint.
+@@ -459,15 +464,25 @@ class Module:
+                 bay_gio = time.time()
+                 if bay_gio < getattr(self, "_captcha_den_het", 0.0):  # chặn cả khoá vừa gặp captcha: thử lại ngay chỉ thêm một lần gặp captcha
+                     return KetQuaKhoiPhuc(False, tang="T2", ma_loi="captcha_hoan")
++                # NV300: cách theo từng tài khoản — google thì tái dùng hồ
++                # sơ, không cần mật khẩu; không truyền cách thì giữ đường
++                # mật khẩu như cũ.
++                cach = cach_dang_nhap \
++                    if cach_dang_nhap in ("google", "email") else "email"
+                 if mat_khau_dung is None:
+                     mat_khau_dung = self.mat_khau_da_luu(khoa) or self.mat_khau_da_luu(email)
+-                if mat_khau_dung is None:
++                if mat_khau_dung is None and cach != "google":
+                     return KetQuaKhoiPhuc(False, tang="T2", ma_loi="thieu_mat_khau")
+                 if totp_dung is None:
+                     totp_dung = self.totp_da_luu(khoa) or self.totp_da_luu(email)
+                 td = trinh_duyet if trinh_duyet is not None else await self._lay_trinh_duyet_module()
+                 self._trinh_duyet_da_dung = td
+-                kq2 = await self._dang_nhap_bang_trinh_duyet(email, mat_khau_dung, td, totp=totp_dung)
++                if cach == "google":
++                    if td is None:
++                        return KetQuaKhoiPhuc(False, tang="T2", ma_loi="trinh_duyet_none")
++                    kq2 = await self.tai_dung_ho_so(ho_so_google or "", td)
++                else:
++                    kq2 = await self._dang_nhap_bang_trinh_duyet(email, mat_khau_dung, td, totp=totp_dung)
+                 self._lan_t2[khoa] = time.time()
+                 if not kq2.thanh_cong:
+                     ma = kq2.ma_loi or "loi_module"
+@@ -619,7 +634,17 @@ class Module:
+         """Hợp đồng NV67: cookie → kiểm; mat_khau → trình duyệt; dang_nhap_lai →
+         mật khẩu đã lưu. BiMatTam luôn bị xoá sau khi dùng (kể cả lỗi)."""
+         loai = tai_khoan.loai
++        # NV300: lần gọi mang cách tường minh (đường lõi gắn từ bản ghi) thì
++        # đổi đường tương ứng: google → tái dùng hồ sơ, không đòi mật khẩu.
++        if loai in ("mat_khau", "dang_nhap_lai") \
++                and getattr(tai_khoan, "cach_dang_nhap", "") == "google":
++            loai = "google"
+         try:
++            if loai == "google":
++                td = await self._lay_trinh_duyet_module()
++                self._trinh_duyet_da_dung = td
++                return await self.tai_dung_ho_so(
++                    getattr(tai_khoan, "ho_so_google", "") or "", td)
+             if loai == "cookie":
+                 chuoi = tai_khoan.cookie.lay() if tai_khoan.cookie else ""
+                 if not chuoi:
+diff --git a/modules/grok-web/manifest.json b/modules/grok-web/manifest.json
+index 38eda8e..5dd28fb 100644
+--- a/modules/grok-web/manifest.json
++++ b/modules/grok-web/manifest.json
+@@ -70,14 +70,6 @@
+       "mac_dinh": "",
+       "mo_ta": "Ghi đè địa chỉ WebSocket (mặc định wss://grok.com/ws/mgw/). Chỉ dùng cho kiểm thử hoặc khi đi qua proxy; máy phải là grok.com hoặc địa chỉ loopback.",
+       "nhan": "Địa chỉ WebSocket ghi đè"
+-    },
+-    {
+-      "bat_buoc": false,
+-      "khoa": "che_do_dang_nhap",
+-      "kieu": "chuoi",
+-      "mac_dinh": "truc_tiep",
+-      "mo_ta": "Chế độ đăng nhập tự động: «truc_tiep» (email + mật khẩu trên x.com, như OpenAI) hoặc «google» (đăng nhập qua Google SSO; phiên Google được lưu để lần sau chỉ cần bấm «tiếp tục với Google», không nhập lại).",
+-      "nhan": "Chế độ đăng nhập tự động"
+     }
+   ],
+   "yeu_cau_goi": [
+diff --git a/modules/grok-web/module.py b/modules/grok-web/module.py
+index 2b6c9d1..0a68afe 100644
+--- a/modules/grok-web/module.py
++++ b/modules/grok-web/module.py
+@@ -142,6 +142,9 @@ _QUY_TAC_TIN_HIEU = [{'loai': 'cookie', 'mien': 'grok.com', 'ten': 'sso', 'tin_h
+ class Module:
+     """Điểm vào của module theo hợp đồng CHUAN-MODULE."""
+ 
++    #: NV300: cách đăng nhập module này hỗ trợ theo từng tài khoản.
++    CACH_DANG_NHAP_HO_TRO = ("google", "email")
++
+     def __init__(self, manifest: dict | None = None) -> None:
+         manifest = manifest or {}
+         self._manifest = manifest
+@@ -168,7 +171,12 @@ class Module:
+         self._trinh_duyet_da_dung = None
+         # Chế độ đăng nhập: "truc_tiep" (email+mật khẩu trên x.com) hoặc
+         # "google" (SSO Google, lưu phiên). Mặc định "truc_tiep".
++        # NV300: chỉ còn làm MẶC ĐỊNH ĐỌC NGƯỢC cho tài khoản chưa có cách
++        # riêng; quyết định thật theo từng tài khoản (xem cach_dang_nhap_cua).
+         self._che_do_dang_nhap = "truc_tiep"
++        # NV300: cách đăng nhập theo từng tài khoản (khoá/email → cách +
++        # hồ sơ Google), lưu kho riêng; thể hiện mới nạp lại từ kho.
++        self._cach_theo_khoa: dict[str, dict] = {}
+         # Làm giàu NV93: khoa -> {email, ho_so, goi, trang_thai, lan_dung_cuoi}
+         self._lam_giau: dict[str, dict] = {}
+ 
+@@ -278,6 +286,87 @@ class Module:
+             },
+         }
+ 
++    # ── Cách đăng nhập theo từng tài khoản (NV300) ──────────────────────
++
++    def _doc_cach(self) -> dict:
++        """Đọc bảng cách theo tài khoản từ kho riêng (hỏng → {})."""
++        if self.kho is None:
++            return {}
++        try:
++            ds = self.kho.doc("cach_dang_nhap") or {}
++        except Exception:
++            return {}
++        return ds if isinstance(ds, dict) else {}
++
++    def _luu_cach(self, ds: dict) -> None:
++        if self.kho is None:
++            return
++        try:
++            self.kho.luu("cach_dang_nhap", ds)
++        except Exception as _loi:
++            log.warning("%s: %s bỏ qua lỗi kiểu %s", self._tien_to, "_luu_cach", type(_loi).__name__)
++
++    def dat_cach_dang_nhap(self, khoa, cach, ho_so_google=None,
++                           email="") -> bool:
++        """Đặt cách đăng nhập cho một tài khoản (NV300).
++
++        Ghi theo cả khoá và email (khoá nào có thì ghi khoá đó); hồ sơ
++        Google chỉ ghi đè khi truyền tường minh (không xoá lựa chọn cũ
++        khi lần gọi chỉ đổi cách). Sai giá trị cách → False.
++        """
++        cach = str(cach or "").strip().lower()
++        if cach not in ("google", "email"):
++            return False
++        khoa_chia = {str(khoa or "").strip(),
++                     str(email or "").strip().lower()} - {""}
++        if not khoa_chia:
++            return False
++        ds = self._doc_cach()
++        for khoa_cu in khoa_chia:
++            muc = dict(self._cach_theo_khoa.get(khoa_cu) or {})
++            muc["cach"] = cach
++            if ho_so_google is not None:
++                muc["ho_so_google"] = str(ho_so_google or "").strip()
++            self._cach_theo_khoa[khoa_cu] = muc
++            ds[khoa_cu] = dict(muc)
++        self._luu_cach(ds)
++        return True
++
++    def cach_dang_nhap_cua(self, khoa="", email="", goi_y=None) -> str:
++        """Cách đăng nhập HIỆU LỰC của một tài khoản (NV300).
++
++        Ưu tiên: gợi ý tường minh của lần gọi → đã đặt theo tài khoản →
++        cài đặt chung cũ đọc ngược (truc_tiep → email, google → google).
++        Không bao giờ đoán từ tên tài khoản.
++        """
++        if isinstance(goi_y, str) and goi_y.strip().lower() in ("google",
++                                                               "email"):
++            return goi_y.strip().lower()
++        for khoa_cu, muc in self._doc_cach().items():
++            if khoa_cu not in self._cach_theo_khoa and isinstance(muc, dict):
++                self._cach_theo_khoa[khoa_cu] = muc
++        for khoa_cu in (str(khoa or "").strip(),
++                        str(email or "").strip().lower()):
++            if not khoa_cu:
++                continue
++            muc = self._cach_theo_khoa.get(khoa_cu)
++            if isinstance(muc, dict):
++                cach = str(muc.get("cach") or "").strip().lower()
++                if cach in ("google", "email"):
++                    return cach
++        return "google" if self._che_do_dang_nhap == "google" else "email"
++
++    def ho_so_google_cua(self, khoa="", email="") -> str:
++        """Id hồ sơ Google đã chọn của một tài khoản (NV300); chưa có → ""."""
++        for khoa_cu in (str(khoa or "").strip(),
++                        str(email or "").strip().lower()):
++            if not khoa_cu:
++                continue
++            muc = self._cach_theo_khoa.get(khoa_cu)
++            if isinstance(muc, dict):
++                return str(muc.get("ho_so_google") or "")
++        return ""
++
+     # ── Tái dùng hồ sơ Google (NV93 — đường chính) ─────────────────────────
+ 
+     _URL_TAI_DUNG = "https://grok.com/"
+@@ -623,13 +712,15 @@ class Module:
+ 
+     async def _dang_nhap_bang_trinh_duyet(self, email: str, mat_khau: BiMatTam,
+                                           trinh_duyet, totp=None,
+-                                          ma_loi_rieng: bool = False
++                                          ma_loi_rieng: bool = False,
++                                          cach_dang_nhap=None
+                                           ) -> KetQuaDangNhap:
+         """BƯỚC ĐĂNG NHẬP DUY NHẤT NẰM TRONG MODULE: lõi chỉ đưa bộ điều khiển.
+ 
+-        Hai chế độ (cấu hình ``che_do_dang_nhap``): ``truc_tiep`` — email +
++        Hai đường theo CÁCH CỦA TỪNG TÀI KHOẢN (NV300): ``email`` — email +
+         mật khẩu trên x.com/login; ``google`` — SSO Google, lưu phiên Google
+-        để lần sau chỉ bấm «tiếp tục với Google». Cả hai đều cố vượt thử thách
++        để lần sau chỉ bấm «tiếp tục với Google». Không truyền cách thì đọc
++        ngược cài đặt chung cũ ``che_do_dang_nhap``. Cả hai đều cố vượt thử thách
+         truy cập (tối đa 3 lượt, bằng helper lõi dùng chung
+         ``vuot_thu_thach_toi_da``) trước khi bó tay → ``can_nguoi``.
+ 
+@@ -649,7 +740,10 @@ class Module:
+             return KetQuaDangNhap(
+                 False,
+                 ma_loi=("trinh_duyet_none" if ma_loi_rieng else "can_nguoi"))
+-        if self._che_do_dang_nhap == "google":
++        cach = cach_dang_nhap
++        if cach not in ("google", "email"):
++            cach = "google" if self._che_do_dang_nhap == "google" else "email"
++        if cach == "google":
+             return await self._dang_nhap_che_do_google(email, mat_khau,
+                                                        trinh_duyet)
+         return await self._dang_nhap_che_do_truc_tiep(
+@@ -824,8 +918,18 @@ class Module:
+ 
+     async def dang_nhap(self, tai_khoan: DongDaTach) -> KetQuaDangNhap:
+         """Hợp đồng NV67: cookie → kiểm; mat_khau → trình duyệt; dang_nhap_lai →
+-        mật khẩu đã lưu. BiMatTam luôn bị xoá sau khi dùng (kể cả lỗi)."""
++        mật khẩu đã lưu; google → hồ sơ Google đã đăng nhập (NV300).
++        BiMatTam luôn bị xoá sau khi dùng (kể cả lỗi)."""
+         loai = tai_khoan.loai
++        # NV300: lần gọi mang cách tường minh (đường lõi gắn từ bản ghi) thì
++        # ghi nhớ theo tài khoản cho lần gọi sau không kèm cách.
++        cach_goi = getattr(tai_khoan, "cach_dang_nhap", None)
++        if isinstance(cach_goi, str) \
++                and cach_goi.strip().lower() in ("google", "email"):
++            self.dat_cach_dang_nhap(
++                "", cach_goi,
++                getattr(tai_khoan, "ho_so_google", None),
++                email=tai_khoan.email)
+         try:
+             if loai == "cookie":
+                 chuoi = tai_khoan.cookie.lay() if tai_khoan.cookie else ""
+@@ -847,23 +951,44 @@ class Module:
+                 self._them_jar(jar)
+                 chuoi_cookie = "; ".join(f"{k}={v}" for k, v in jar.items())
+                 return KetQuaDangNhap(True, cookie=chuoi_cookie)
++            if loai == "google":
++                # NV300: đăng nhập qua hồ sơ Google đã đăng nhập — không cần
++                # mật khẩu, không điền gì (tai_dung_ho_so không bao giờ dien()).
++                tao = self._tao_trinh_duyet
++                td = tao() if callable(tao) else None
++                self._trinh_duyet_da_dung = td
++                ho_so = getattr(tai_khoan, "ho_so_google", "") or ""
++                return await self.tai_dung_ho_so(ho_so, td)
+             if loai == "mat_khau":
+                 if tai_khoan.mat_khau is None:
+                     return KetQuaDangNhap(False, ma_loi="thieu_mat_khau")
+                 tao = self._tao_trinh_duyet
+                 td = tao() if callable(tao) else None
+                 self._trinh_duyet_da_dung = td
++                cach = self.cach_dang_nhap_cua(
++                    "", tai_khoan.email,
++                    goi_y=getattr(tai_khoan, "cach_dang_nhap", None))
+                 return await self._dang_nhap_bang_trinh_duyet(
+-                    tai_khoan.email, tai_khoan.mat_khau, td)
++                    tai_khoan.email, tai_khoan.mat_khau, td,
++                    cach_dang_nhap=cach)
+             if loai == "dang_nhap_lai":
+                 bm = self.mat_khau_da_luu(tai_khoan.email)
++                cach = self.cach_dang_nhap_cua(
++                    "", tai_khoan.email,
++                    goi_y=getattr(tai_khoan, "cach_dang_nhap", None))
++                if cach == "google":
++                    tao = self._tao_trinh_duyet
++                    td = tao() if callable(tao) else None
++                    self._trinh_duyet_da_dung = td
++                    ho_so = getattr(tai_khoan, "ho_so_google", "") or ""
++                    return await self.tai_dung_ho_so(ho_so, td)
+                 if bm is None:
+                     return KetQuaDangNhap(False, ma_loi="khong_co_mat_khau_luu")
+                 tao = self._tao_trinh_duyet
+                 td = tao() if callable(tao) else None
+                 self._trinh_duyet_da_dung = td
+                 return await self._dang_nhap_bang_trinh_duyet(
+-                    tai_khoan.email, bm, td)
++                    tai_khoan.email, bm, td, cach_dang_nhap=cach)
+             return KetQuaDangNhap(False, ma_loi="loai_khong_ho_tro")
+         finally:
+             tai_khoan.xoa_bi_mat()
+@@ -896,13 +1021,23 @@ class Module:
+ 
+     async def dang_nhap_tu_dong(self, tai_khoan: TaiKhoanCanKhoiPhuc,
+                                 trinh_duyet) -> KetQuaKhoiPhuc:
+-        """Tầng (b): đăng nhập lại bằng mật khẩu đã lưu qua trình duyệt."""
++        """Tầng (b): đăng nhập lại qua trình duyệt, theo cách của tài khoản
++        (NV300: google → tái dùng hồ sơ, không cần mật khẩu)."""
+         try:
++            cach = self.cach_dang_nhap_cua("", tai_khoan.email)
++            if cach == "google":
++                kq = await self.tai_dung_ho_so("", trinh_duyet)
++                if kq.thanh_cong:
++                    return KetQuaKhoiPhuc(True, tang="b")
++                return KetQuaKhoiPhuc(False, tang="b",
++                                      ma_loi=kq.ma_loi or "loi_module",
++                                      ma_trang_thai=kq.ma_trang_thai,
++                                      can_nguoi=(kq.ma_loi == "can_nguoi"))
+             bm = tai_khoan.mat_khau
+             if bm is None:
+                 return KetQuaKhoiPhuc(False, tang="b", ma_loi="thieu_mat_khau")
+             kq = await self._dang_nhap_bang_trinh_duyet(
+-                tai_khoan.email, bm, trinh_duyet)
++                tai_khoan.email, bm, trinh_duyet, cach_dang_nhap=cach)
+             if kq.thanh_cong:
+                 return KetQuaKhoiPhuc(True, tang="b")
+             return KetQuaKhoiPhuc(False, tang="b", ma_loi=kq.ma_loi or "loi_module",
+@@ -1069,17 +1204,20 @@ class Module:
+ 
+     async def khoi_phuc_tu_dong(self, khoa: str, email: str = "",
+                                 mat_khau=None, totp=None, trinh_duyet=None,
+-                                nghi_t1_giay: float = 0.0) -> KetQuaKhoiPhuc:
++                                nghi_t1_giay: float = 0.0,
++                                cach_dang_nhap=None,
++                                ho_so_google=None) -> KetQuaKhoiPhuc:
+         """Thang T0-T3 ĐẦY ĐỦ, tự chứa trong module này. Gọi trực tiếp cũng chạy.
+ 
+         - T0: lam_moi_phien(khoa) — chỉ kiểm, không bịa refresh endpoint.
+         - T1: nghỉ nghi_t1_giay rồi kiểm lại (mặc định 0 để test không chờ).
+         - T2: khóa serial riêng + hoãn captcha riêng + đăng nhập lại bằng
+           mật khẩu và TOTP đã lưu qua trình duyệt (xem
+-          _dang_nhap_bang_trinh_duyet, ma_loi_rieng=True). Chế độ google
+-          không cần mật khẩu và không điền TOTP: nó tái dùng hồ sơ Google
+-          đã đăng nhập; hồ sơ chưa đăng nhập → can_nguoi /
+-          khong_lay_duoc_phien, không bịa thành công.
++          _dang_nhap_bang_trinh_duyet, ma_loi_rieng=True). Cách của TỪNG
++          tài khoản (NV300): tài khoản google không cần mật khẩu và không
++          điền TOTP — nó tái dùng hồ sơ Google đã đăng nhập; hồ sơ chưa
++          đăng nhập → can_nguoi / khong_lay_duoc_phien, không bịa thành
++          công. Tài khoản chưa có cách riêng đọc ngược cài đặt chung cũ.
+         - T3: kiểm lại bằng lam_moi_phien; nếu khoa là id ngoài module mà
+           lam_moi không nhận, thì lấy luôn kết quả xác minh phiên của T2
+           (module đã kiểm phiên trong lúc đăng nhập qua _doc_va_kiem_phien
+@@ -1120,9 +1258,16 @@ class Module:
+                 bay_gio = time.time()
+                 if bay_gio < getattr(self, "_captcha_den_het", 0.0):  # chặn cả khoá vừa gặp captcha: thử lại ngay chỉ thêm một lần gặp captcha
+                     return KetQuaKhoiPhuc(False, tang="T2", ma_loi="captcha_hoan")
++                # NV300: cách theo TỪNG tài khoản; lần gọi mang cách tường
++                # minh thì ghi nhớ cho lần sau không kèm.
++                cach = self.cach_dang_nhap_cua(khoa, email,
++                                              goi_y=cach_dang_nhap)
++                if cach_dang_nhap is not None or ho_so_google is not None:
++                    self.dat_cach_dang_nhap(khoa, cach, ho_so_google,
++                                            email=email)
+                 if mat_khau_dung is None:
+                     mat_khau_dung = self.mat_khau_da_luu(khoa) or self.mat_khau_da_luu(email)
+-                if mat_khau_dung is None and self._che_do_dang_nhap != "google":
++                if mat_khau_dung is None and cach != "google":
+                     return KetQuaKhoiPhuc(False, tang="T2", ma_loi="thieu_mat_khau")
+                 if totp_dung is None:
+                     totp_dung = self.totp_da_luu(khoa) or self.totp_da_luu(email)
+@@ -1132,7 +1277,7 @@ class Module:
+                     return KetQuaKhoiPhuc(False, tang="T2", ma_loi="trinh_duyet_none")
+                 kq2 = await self._dang_nhap_bang_trinh_duyet(
+                     email, mat_khau_dung, td, totp=totp_dung,
+-                    ma_loi_rieng=True)
++                    ma_loi_rieng=True, cach_dang_nhap=cach)
+                 self._lan_t2[khoa] = time.time()
+                 if not kq2.thanh_cong:
+                     ma = kq2.ma_loi or "loi_module"
+diff --git a/modules/muse2api/module.py b/modules/muse2api/module.py
+index ee0f6b9..12bce30 100644
+--- a/modules/muse2api/module.py
++++ b/modules/muse2api/module.py
+@@ -203,6 +203,11 @@ class _TaiKhoanNV93:
+ _QUY_TAC_TIN_HIEU = [{'loai': 'cookie', 'mien': 'muse.ai', 'ten': 'hatch_sess', 'tin_hieu': 'da_dang_nhap'}, {'loai': 'url_chua', 'gia_tri': 'muse.ai/login', 'tin_hieu': 'chua_dang_nhap'}]
+ 
+ class Module:
++    #: NV300: muse2api chỉ có đường hồ sơ (không có form mật khẩu) nên
++    #: chỉ hỗ trợ cách google; tham số cach_dang_nhap ở khoi_phuc_tu_dong
++    #: được nhận nhưng bỏ qua.
++    CACH_DANG_NHAP_HO_TRO = ("google",)
++
+     def __init__(self, manifest: dict):
+         self.manifest = manifest
+         self.tien_to = manifest["tien_to"]
+@@ -419,9 +424,13 @@ class Module:
+     async def dang_nhap(self, tai_khoan: DongDaTach) -> KetQuaDangNhap:
+         """Hợp đồng NV67: cookie → kiểm bằng bootstrap; mat_khau/dang_nhap_lai
+         → can_nguoi (muse.ai không có form mật khẩu để tự điền — cần người đăng
+-        nhập tay qua noVNC). BiMatTam luôn bị xoá sau khi dùng (kể cả lỗi)."""
++        nhập tay qua noVNC). BiMatTam luôn bị xoá sau khi dùng (kể cả lỗi).
++        NV300: loai «google» cũng → can_nguoi như đường mật khẩu (đăng nhập
++        qua hồ sơ chỉ diễn ra ở khoi_phuc_tu_dong, không ở dang_nhap)."""
+         loai = tai_khoan.loai
+         try:
++            if loai == "google":
++                return KetQuaDangNhap(False, ma_loi="can_nguoi")
+             if loai == "cookie":
+                 cookies = tai_khoan.cookie.lay() if tai_khoan.cookie else ""
+                 if not cookies:
+@@ -604,9 +613,15 @@ class Module:
+ 
+     async def khoi_phuc_tu_dong(self, khoa: str, email: str = "",
+                                 mat_khau=None, totp=None, trinh_duyet=None,
+-                                nghi_t1_giay: float = 0.0) -> KetQuaKhoiPhuc:
++                                nghi_t1_giay: float = 0.0,
++                                cach_dang_nhap=None,
++                                ho_so_google=None) -> KetQuaKhoiPhuc:
+         """Thang T0-T3 tự chứa trong module này, cho muse.ai.
+ 
++        NV300: tham số cach_dang_nhap/ho_so_google được nhận nhưng bỏ qua
++        — muse2api chỉ có đường hồ sơ (không có form mật khẩu), nên mọi
++        cách đều đi đường hồ sơ như cũ.
++
+         Đầu vào: khoá có thể là tk_id ngoài module (delegate MCP đưa) —
+         khi đó thử ánh xạ qua email → tài khoản NV93; không ánh xạ được
+         và khoá không phải ms- nội bộ → khoa_khong_co, không đoán.
+diff --git a/test/test_nv300_cach_dang_nhap.py b/test/test_nv300_cach_dang_nhap.py
+new file mode 100644
+index 0000000..06b6f95
+--- /dev/null
++++ b/test/test_nv300_cach_dang_nhap.py
+@@ -0,0 +1,331 @@
++"""NV300 — mỗi tài khoản một cách đăng nhập (google / email), chạy cùng lúc.
++
++Test ĐỎ-TRƯỚC-XANH: viết trước khi sửa mã, chạy trên mã cũ phải ĐỎ
++(thiếu hàm/tham số hoặc đi sai đường), sau khi sửa phải XANH.
++Trình duyệt GIẢ, máy chủ GIẢ, không Internet, không Chrome.
++Mọi chuỗi bí mật trong test đều là chuỗi GIẢ rõ ràng.
++
++Phạm vi:
++- Kho tài khoản (app/kho_tai_khoan.py): trường cach_dang_nhap ∈
++  {google, email} + ho_so_google, suy mặc định từ dữ liệu cũ, bản
++  công khai có hai trường mới, chế độ google không cần mật khẩu.
++- grok-web: HAI tài khoản trong CÙNG module, một google một email,
++  mỗi cái đi đúng đường của mình dù cài đặt chung cũ là truc_tiep;
++  cài đặt chung cũ chỉ còn làm mặc định đọc ngược.
++- claude-web: tạm thời CHỈ google — truyền cach=email vẫn đi đường
++  google, không đi đường mật khẩu.
++- chatgpt-web: truyền cach=google thì đi đường hồ sơ, không đòi mật khẩu.
++- Route: lưu tài khoản chế độ google không cần mật khẩu.
++"""
++
++from __future__ import annotations
++
++import asyncio
++import importlib.util
++import json
++import sys
++import types
++from pathlib import Path
++
++import httpx
++import pytest
++
++from app import kho, kho_tai_khoan
++from app.khoi_phuc_phien import TrinhDuyetGia
++from app.tai_khoan_hang_loat import BiMatTam, DongDaTach
++
++GOC = Path(__file__).resolve().parents[1]
++
++EMAIL_GIA = "ban-gia-nv300@example.com"
++MAT_KHAU_GIA = "mat-khau-gia-nv300-001"
++SSO_GIA_OK = "sso-gia-nv300-ok"
++UID_GIA = "uid-gia-nv300"
++
++
++def chay(coro):
++    return asyncio.run(coro)
++
++
++def _tai_goi_module(thu_muc: Path, ten_goi: str):
++    for ten in [t for t in list(sys.modules)
++                if t == ten_goi or t.startswith(ten_goi + ".")]:
++        del sys.modules[ten]
++    goi = types.ModuleType(ten_goi)
++    goi.__path__ = [str(thu_muc)]
++    sys.modules[ten_goi] = goi
++    for ten_tep in ("client", "converter", "module"):
++        tep = thu_muc / f"{ten_tep}.py"
++        if not tep.exists():
++            continue
++        spec = importlib.util.spec_from_file_location(
++            f"{ten_goi}.{ten_tep}", tep)
++        mod = importlib.util.module_from_spec(spec)
++        sys.modules[f"{ten_goi}.{ten_tep}"] = mod
++        spec.loader.exec_module(mod)
++    return sys.modules[f"{ten_goi}.module"]
++
++
++# ── Kho tài khoản ─────────────────────────────────────────────────────────
++
++def test_kiem_cach_dang_nhap():
++    assert kho_tai_khoan.kiem_cach_dang_nhap("google") == "google"
++    assert kho_tai_khoan.kiem_cach_dang_nhap("email") == "email"
++    assert kho_tai_khoan.kiem_cach_dang_nhap(None) == ""
++    assert kho_tai_khoan.kiem_cach_dang_nhap("") == ""
++    assert kho_tai_khoan.kiem_cach_dang_nhap("  GOOGLE ") == "google"
++    with pytest.raises(kho_tai_khoan.LoiKhoTaiKhoan):
++        kho_tai_khoan.kiem_cach_dang_nhap("sai")
++
++
++def test_cach_dang_nhap_cua_suy_tu_du_lieu_cu():
++    # Đã ghi rõ → dùng giá trị đã ghi.
++    assert kho_tai_khoan.cach_dang_nhap_cua(
++        {"cach_dang_nhap": "google"}) == "google"
++    assert kho_tai_khoan.cach_dang_nhap_cua(
++        {"cach_dang_nhap": "email"}) == "email"
++    # Chưa ghi: liên kết đăng nhập hộ NV223 KHÔNG suy thành google —
++    # đó vẫn là đường mật khẩu (bí mật của tài khoản Google), khác với
++    # tái dùng hồ sơ của NV300; bản ghi có mật khẩu riêng → email.
++    assert kho_tai_khoan.cach_dang_nhap_cua(
++        {"dang_nhap_bang": "google",
++         "tai_khoan_dnh_id": "tk-gia-google",
++         "mat_khau": "mat-khau-gia"}) == "email"
++    # Chưa ghi, chỉ có liên kết hộ mà không có mật khẩu → rỗng (module
++    # giữ hành vi cũ), không đoán thành google.
++    assert kho_tai_khoan.cach_dang_nhap_cua(
++        {"dang_nhap_bang": "google",
++         "tai_khoan_dnh_id": "tk-gia-google"}) == ""
++    # Chưa ghi: có mật khẩu → email.
++    assert kho_tai_khoan.cach_dang_nhap_cua(
++        {"mat_khau": "mat-khau-gia"}) == "email"
++    assert kho_tai_khoan.cach_dang_nhap_cua(
++        {"bi_mat": "bi-mat-gia", "kieu_bi_mat": "mat_khau"}) == "email"
++    # Chưa ghi, không có gì → rỗng.
++    assert kho_tai_khoan.cach_dang_nhap_cua({}) == ""
++
++
++def test_luu_tai_khoan_ghi_cach_va_ho_so(tmp_path, monkeypatch):
++    monkeypatch.setenv("WEB2API_DATA", str(tmp_path / "data"))
++    # Chế độ google: không cần mật khẩu, nhưng cần id hồ sơ Google.
++    bk = kho_tai_khoan.luu_tai_khoan(
++        "gg-gia-nv300@example.com", None, None, "",
++        cach_dang_nhap="google", ho_so="tk-gia-google-1")
++    assert bk["cach_dang_nhap"] == "google"
++    assert bk["ho_so_google"] == "tk-gia-google-1"
++    # Google mà thiếu hồ sơ → từ chối, không lưu dở.
++    with pytest.raises(kho_tai_khoan.LoiKhoTaiKhoan):
++        kho_tai_khoan.luu_tai_khoan(
++            "gg-thieu-ho-so@example.com", None, None, "",
++            cach_dang_nhap="google")
++    # Chế độ email: cần mật khẩu như cũ.
++    bk2 = kho_tai_khoan.luu_tai_khoan(
++        "email-gia-nv300@example.com", MAT_KHAU_GIA, None, "",
++        cach_dang_nhap="email")
++    assert bk2["cach_dang_nhap"] == "email"
++    # Cập nhật không truyền cach → giữ nguyên cũ.
++    bk3 = kho_tai_khoan.luu_tai_khoan(
++        "email-gia-nv300@example.com", None, None, "Nhãn mới")
++    assert bk3["cach_dang_nhap"] == "email"
++    # Bản ghi cũ chưa có trường vẫn đọc được qua suy luận.
++    cu = kho_tai_khoan.tim_theo_email("email-gia-nv300@example.com")
++    assert kho_tai_khoan.cach_dang_nhap_cua(cu) == "email"
++
++
++# ── grok-web: hai tài khoản, hai đường, cùng một module ──────────────────
++
++def _mod_grok(tmp_path, monkeypatch):
++    thu_muc = GOC / "modules" / "grok-web"
++    mod_module = _tai_goi_module(thu_muc, "grok_web_module_nv300_test")
++    manifest = json.loads((thu_muc / "manifest.json").read_text(
++        encoding="utf-8"))
++    monkeypatch.setenv("WEB2API_DATA", str(tmp_path / "data"))
++    m = mod_module.Module(dict(manifest))
++    m.kho = kho.kho_rieng("grok-web")
++    return m
++
++
++def test_grok_hai_tai_khoan_moi_duong(tmp_path, monkeypatch):
++    """Tài khoản google đi đường hồ sơ, tài khoản email đi đường mật khẩu,
++    trong CÙNG module mà cài đặt chung cũ vẫn là truc_tiep."""
++    m = _mod_grok(tmp_path, monkeypatch)
++    assert m._che_do_dang_nhap == "truc_tiep"
++    # Tài khoản google: đặt cách theo từng tài khoản, không cần mật khẩu.
++    m.dat_cach_dang_nhap("tk-gg-nv300", "google", "ho-so-gia-1")
++    td_gg = TrinhDuyetGia(trang={
++        "https://grok.com/": {"tin_hieu": ["da_dang_nhap"],
++                              "cookie": {"sso": SSO_GIA_OK,
++                                         "x-userid": UID_GIA}}})
++    kq_gg = chay(m.khoi_phuc_tu_dong("tk-gg-nv300", EMAIL_GIA,
++                                     trinh_duyet=td_gg))
++    assert kq_gg.thanh_cong, kq_gg.ma_loi
++    assert ("mo_trang", "https://grok.com/") in td_gg.hanh_dong
++    assert ("dien", "email") not in td_gg.hanh_dong
++    assert ("dien", "mat_khau") not in td_gg.hanh_dong
++    # Tài khoản email: mật khẩu đã lưu, đi form x.com/login.
++    m._luu_mat_khau("tk-email-nv300", EMAIL_GIA, BiMatTam(MAT_KHAU_GIA))
++    m.dat_cach_dang_nhap("tk-email-nv300", "email")
++    td_email = TrinhDuyetGia(trang={
++        "https://x.com/login": {"tin_hieu": ["thanh_cong"],
++                                "cookie": {"sso": SSO_GIA_OK,
++                                           "x-userid": UID_GIA}}})
++    kq_email = chay(m.khoi_phuc_tu_dong("tk-email-nv300", EMAIL_GIA,
++                                        trinh_duyet=td_email))
++    assert kq_email.thanh_cong, kq_email.ma_loi
++    assert ("dien", "email") in td_email.hanh_dong
++    assert ("dien", "mat_khau") in td_email.hanh_dong
++
++
++def test_grok_che_do_cu_chi_lam_mac_dinh_doc_nguoc(tmp_path, monkeypatch):
++    """Tài khoản chưa có cách riêng thì đọc ngược cài đặt chung cũ."""
++    m = _mod_grok(tmp_path, monkeypatch)
++    m._nap_tu({"tai_khoan": [f"sso={SSO_GIA_OK}"],
++               "che_do_dang_nhap": "google"})
++    td = TrinhDuyetGia(trang={
++        "https://grok.com/": {"tin_hieu": ["da_dang_nhap"],
++                              "cookie": {"sso": SSO_GIA_OK,
++                                         "x-userid": UID_GIA}}})
++    kq = chay(m.khoi_phuc_tu_dong("tk-cu-nv300", EMAIL_GIA, trinh_duyet=td))
++    assert kq.thanh_cong, kq.ma_loi
++    assert ("dien", "email") not in td.hanh_dong
++
++
++def test_grok_dang_nhap_loai_google(tmp_path, monkeypatch):
++    m = _mod_grok(tmp_path, monkeypatch)
++    td = TrinhDuyetGia(trang={
++        "https://grok.com/": {"tin_hieu": ["da_dang_nhap"],
++                              "cookie": {"sso": SSO_GIA_OK,
++                                         "x-userid": UID_GIA}}})
++    m._tao_trinh_duyet = lambda: td
++    dong = DongDaTach(dong=1, email=EMAIL_GIA, loai="google")
++    dong.ho_so_google = "ho-so-gia-1"
++    kq = chay(m.dang_nhap(dong))
++    assert kq.thanh_cong, kq.ma_loi
++    assert ("dien", "email") not in td.hanh_dong
++
++
++# ── claude-web: tạm thời chỉ google ───────────────────────────────────────
++
++def _mod_claude(tmp_path, monkeypatch):
++    thu_muc = GOC / "modules" / "claude-web"
++    mod_module, mod_client = None, None
++    for ten in [t for t in list(sys.modules)
++                if t == "claude_web_module_nv300_test"
++                or t.startswith("claude_web_module_nv300_test.")]:
++        del sys.modules[ten]
++    goi = types.ModuleType("claude_web_module_nv300_test")
++    goi.__path__ = [str(thu_muc)]
++    sys.modules["claude_web_module_nv300_test"] = goi
++    for ten_tep in ("client", "converter", "module"):
++        tep = thu_muc / f"{ten_tep}.py"
++        if not tep.exists():
++            continue
++        spec = importlib.util.spec_from_file_location(
++            f"claude_web_module_nv300_test.{ten_tep}", tep)
++        mod = importlib.util.module_from_spec(spec)
++        sys.modules[f"claude_web_module_nv300_test.{ten_tep}"] = mod
++        spec.loader.exec_module(mod)
++    mod_module = sys.modules["claude_web_module_nv300_test.module"]
++    mod_client = sys.modules["claude_web_module_nv300_test.client"]
++    manifest = json.loads((thu_muc / "manifest.json").read_text(
++        encoding="utf-8"))
++    monkeypatch.setenv("WEB2API_DATA", str(tmp_path / "data"))
++    m = mod_module.Module(dict(manifest))
++    m.kho = kho.kho_rieng("claude-web")
++
++    def xu_ly(req):
++        cookie = req.headers.get("cookie", "")
++        if req.url.path == "/api/organizations":
++            if "sessionKey-gia-claude-ok" in cookie:
++                return httpx.Response(200, json=[{"uuid": "org-gia-1",
++                                                  "capabilities": ["chat"]}])
++            return httpx.Response(401, text="het han")
++        return httpx.Response(404, text="khong co")
++
++    transport = httpx.MockTransport(xu_ly)
++
++    # Module kiểm phiên qua client NHẸ ClaudeWebClient (nhận transport),
++    # không qua MayKhachClaudeWeb — chích transport vào _tao_client.
++    def tao_client(self, session_key):
++        return mod_client.ClaudeWebClient(session_key, base_url=m._base_url,
++                                          transport=transport)
++    monkeypatch.setattr(mod_module.Module, "_tao_client", tao_client)
++    return m
++
++
++def test_claude_chi_google_truyen_email_van_di_duong_google(tmp_path,
++                                                            monkeypatch):
++    """Bổ sung NV300: tài khoản Claude luôn google — kể cả khi người gọi
++    truyền cach=email, khôi phục vẫn đi đường hồ sơ, không đòi mật khẩu."""
++    m = _mod_claude(tmp_path, monkeypatch)
++    td = TrinhDuyetGia(trang={
++        "https://claude.ai/": {"tin_hieu": ["da_dang_nhap"],
++                               "cookie": {"sessionKey":
++                                          "sessionKey-gia-claude-ok"}}})
++    kq = chay(m.khoi_phuc_tu_dong("tk-claude-nv300", EMAIL_GIA,
++                                  trinh_duyet=td,
++                                  cach_dang_nhap="email"))
++    assert kq.thanh_cong, kq.ma_loi
++    assert ("dien", "email") not in td.hanh_dong
++    assert ("dien", "mat_khau") not in td.hanh_dong
++
++
++# ── chatgpt-web: cach=google thì không đòi mật khẩu ───────────────────────
++
++def test_chatgpt_cach_google_khong_doi_mat_khau(tmp_path, monkeypatch):
++    thu_muc = GOC / "modules" / "chatgpt-web"
++    mod_module = _tai_goi_module(thu_muc, "chatgpt_web_module_nv300_test")
++    manifest = json.loads((thu_muc / "manifest.json").read_text(
++        encoding="utf-8"))
++    monkeypatch.setenv("WEB2API_DATA", str(tmp_path / "data"))
++    m = mod_module.Module(dict(manifest))
++    m.kho = kho.kho_rieng("chatgpt-web")
++    # Hồ sơ gặp thử thách → đường google trả can_nguoi NGAY (không sleep,
++    # không mạng); quan trọng là KHÔNG về thieu_mat_khau của đường email.
++    td = TrinhDuyetGia(trang={
++        "https://chatgpt.com/": {"tin_hieu": ["captcha"], "cookie": {}}})
++    # _URL_TAI_DUNG của module có thể khác; đặt trang captcha cho mọi URL
++    # mở đầu bằng tên miền chính bằng cách mở trước trang đó.
++    kq = chay(m.khoi_phuc_tu_dong("tk-chatgpt-nv300", EMAIL_GIA,
++                                  trinh_duyet=td,
++                                  cach_dang_nhap="google"))
++    assert not kq.thanh_cong
++    assert kq.ma_loi != "thieu_mat_khau"
++
++
++# ── Route: lưu tài khoản chế độ google không cần mật khẩu ────────────────
++
++def test_route_luu_tai_khoan_google_khong_can_mat_khau(tmp_path, monkeypatch):
++    from fastapi.testclient import TestClient
++
++    from app.main import app
++    from app.so_module import SoModule
++
++    khoa_qt = "khoa-qt-nv300-0123456789abcdef"
++    data_dir = tmp_path / "data-loi"
++    data_dir.mkdir(parents=True, exist_ok=True)
++    monkeypatch.setenv("WEB2API_DATA", str(data_dir))
++    monkeypatch.setenv("WEB2API_ADMIN_KEY", khoa_qt)
++    monkeypatch.setenv("WEB2API_DANG_NHAP_GIAN_CACH_GIAY", "0")
++    with TestClient(app) as client:
++        client.app.state.so = SoModule()
++        h = {"Authorization": f"Bearer {khoa_qt}"}
++        r_gg = client.post("/api/tai-khoan/da-luu", headers=h, json={
++            "email": "google-gia-nv300@example.com",
++            "mat_khau": MAT_KHAU_GIA})
++        assert r_gg.status_code == 200, r_gg.text
++        id_gg = r_gg.json()["tai_khoan"]["id"]
++        r = client.post("/api/tai-khoan/da-luu", headers=h, json={
++            "email": "dich-vu-gia-nv300@example.com",
++            "cach_dang_nhap": "google",
++            "ho_so_google": id_gg})
++        assert r.status_code == 200, r.text
++        tk = r.json()["tai_khoan"]
++        assert tk["cach_dang_nhap"] == "google"
++        assert tk["ho_so_google"] == id_gg
++        # Bí danh `ho_so` (khung gửi) cũng được chấp nhận như khóa chuẩn.
++        r2 = client.post("/api/tai-khoan/da-luu", headers=h, json={
++            "email": "dich-vu-gia-2-nv300@example.com",
++            "cach_dang_nhap": "google",
++            "ho_so": id_gg})
++        assert r2.status_code == 200, r2.text
++        assert r2.json()["tai_khoan"]["ho_so_google"] == id_gg
+diff --git a/test/test_web2api_grok-web.py b/test/test_web2api_grok-web.py
+index 0083413..74602f2 100644
+--- a/test/test_web2api_grok-web.py
++++ b/test/test_web2api_grok-web.py
+@@ -219,8 +219,10 @@ def test_manifest_hop_le(bo_module):
+     truong = {t["khoa"]: t for t in manifest["truong_cau_hinh"]}
+     assert truong["tai_khoan"]["kieu"] == "danh_sach_bi_mat"
+     assert truong["tai_khoan"]["bat_buoc"] is True
+-    assert truong["che_do_dang_nhap"]["kieu"] == "chuoi"  # bổ sung NV90: truc_tiep | google
+-    assert truong["che_do_dang_nhap"]["mac_dinh"] == "truc_tiep"
++    # NV300: cách đăng nhập thành thuộc tính từng tài khoản, không còn là
++    # cài đặt chung của module — trường che_do_dang_nhap đã bỏ khỏi manifest
++    # (giá trị cũ vẫn đọc ngược làm mặc định cho tài khoản chưa có cách riêng).
++    assert "che_do_dang_nhap" not in truong
+ 
+ 
+ # ── Chat không stream ─────────────────────────────────────────────────
+diff --git a/test/test_web2api_tinh_nang.py b/test/test_web2api_tinh_nang.py
+index ce9ee94..8c795bf 100644
+--- a/test/test_web2api_tinh_nang.py
++++ b/test/test_web2api_tinh_nang.py
+@@ -190,7 +190,8 @@ def test_module_tu_xa_tinh_la_ai_co_chat(du_lieu, monkeypatch):
+         j = tn(c)
+         assert j["modules"] == [{"id": "may-gpu", "ten": "Máy GPU", "loai": "ai", "cung_cap": ["chat"],
+                                  "tien_to": "gpu", "tu_xa": True, "da_lien_ket": True, "dang_nhap_tu_dong": False,
+-                                 "tai_dung_ho_so": False, "man_hinh": False, "nhom": None, "giao_dien": None}]
++                                 "tai_dung_ho_so": False, "man_hinh": False, "nhom": None, "giao_dien": None,
++                                 "cach_dang_nhap_ho_tro": []}]
+         assert j["kha_nang_lien_ket"] == {"ai": 1, "chat": 1}
+         assert c.delete("/api/modules/may-gpu", headers=QT).status_code == 200
+         assert tn(c)["modules"] == []
+diff --git a/web/He-thong-AI.dc.html b/web/He-thong-AI.dc.html
+index 774f810..5cb2c69 100644
+--- a/web/He-thong-AI.dc.html
++++ b/web/He-thong-AI.dc.html
+@@ -226,10 +226,16 @@ main.pg{padding:20px 40px 24px 32px;gap:12px}
+ <sc-if value="{{them.chuaChonCach}}"><p class="k282-ghi">Chọn một cách thêm để hiện các ô cần nhập.</p></sc-if>
+ <sc-if value="{{them.laDn}}"><div id="khung-tu-dong" class="k282-buoc">
+ <p class="k282-muc-nho">{{them.soNhap}}. Nhập thông tin</p>
+-<label class="k282-o">Email<input type="email" autocomplete="off" spellcheck="false" placeholder="ten@example.com" value="{{them.hang.email}}" onInput="{{them.hang.doiEmail}}" data-nhap-email="0" aria-label="Email"></label>
++<p class="k282-muc-nho">Đăng nhập bằng</p>
++<div class="k282-chips" role="group" aria-label="Đăng nhập bằng"><sc-for list="{{them.dsCachDn}}" as="c"><button type="button" class="k282-chip" aria-pressed="{{c.on}}" disabled="{{c.tat}}" onClick="{{c.pick}}">{{c.nhan}}</button></sc-for></div>
++<sc-if value="{{them.coChuThichCachDn}}"><p class="k282-ghi">{{them.chuThichCachDn}}</p></sc-if>
++<sc-if value="{{them.laDnHoSo}}"><p class="k282-muc-nho">Tài khoản hồ sơ đã lưu</p>
++<div class="k282-chips" role="group" aria-label="Tài khoản hồ sơ đã lưu"><sc-for list="{{them.dsHoSo}}" as="g"><button type="button" class="k282-chip" aria-pressed="{{g.on}}" onClick="{{g.pick}}">{{g.nhan}}</button></sc-for></div>
++<sc-if value="{{them.khongCoHoSo}}"><p class="k282-ghi">Chưa có tài khoản hồ sơ nào đã lưu. Thêm tài khoản hồ sơ ở module Hồ sơ trước rồi quay lại.</p></sc-if></sc-if>
++<sc-if value="{{them.laDnEmail}}"><label class="k282-o">Email<input type="email" autocomplete="off" spellcheck="false" placeholder="ten@example.com" value="{{them.hang.email}}" onInput="{{them.hang.doiEmail}}" data-nhap-email="0" aria-label="Email"></label>
+ <label class="k282-o">Mật khẩu<span class="k282-mk"><input type="{{them.hang.kieuMk}}" autocomplete="new-password" spellcheck="false" placeholder="Mật khẩu" onInput="{{them.hang.doiMatKhau}}" data-nhap-mat-khau="0" aria-label="Mật khẩu"><button type="button" class="k282-nho" data-hien-mk="0" onClick="{{them.hang.doiHienMk}}" aria-label="{{them.hang.nhanHienMk}} mật khẩu">{{them.hang.nhanHienMk}}</button></span></label>
+ <sc-if value="{{them.hang.otpMo}}"><label class="k282-o">Khoá OTP (Base32)<input type="text" autocomplete="off" spellcheck="false" placeholder="Khoá Base32 của ứng dụng xác thực" onInput="{{them.hang.doiOtp}}" data-nhap-otp="0" aria-label="Khoá OTP"></label></sc-if>
+-<sc-if value="{{them.hang.otpDong}}"><button type="button" class="k282-nho k282-nho-trai" id="nut-mo-otp" onClick="{{them.hang.moOtp}}">Có xác minh 2 bước? Thêm khoá OTP</button></sc-if>
++<sc-if value="{{them.hang.otpDong}}"><button type="button" class="k282-nho k282-nho-trai" id="nut-mo-otp" onClick="{{them.hang.moOtp}}">Có xác minh 2 bước? Thêm khoá OTP</button></sc-if></sc-if>
+ <p class="k282-ghi">{{them.goiY}}</p>
+ </div></sc-if>
+ <sc-if value="{{them.laApi}}"><div class="k282-buoc">
+@@ -246,7 +252,7 @@ main.pg{padding:20px 40px 24px 32px;gap:12px}
+ <label class="k282-o">Bậc gói (tuỳ chọn; để trống nếu không biết)<input id="tk-bac-goi" type="text" autocomplete="off" spellcheck="false" placeholder="VD: plus" value="{{them.bacGoi}}" onInput="{{them.doiBacGoi}}" aria-label="Bậc gói tài khoản"></label>
+ </sc-if>
+ <sc-for list="{{them.phu}}" as="f"><label data-truong="{{f.khoa}}" class="k282-o">{{f.nhan}}<sc-if value="{{f.biMat}}"><input id="{{f.idO}}" type="password" autocomplete="new-password" spellcheck="false" placeholder="{{f.ph}}" onInput="{{f.onIn}}"></sc-if><sc-if value="{{f.chu}}"><input id="{{f.idO}}" type="text" autocomplete="off" spellcheck="false" placeholder="{{f.ph}}" value="{{f.val}}" onInput="{{f.onIn}}"></sc-if></label></sc-for>
+-<sc-if value="{{them.laDn}}">
++<sc-if value="{{them.laDnEmail}}">
+ <details class="k282-tuy-con" id="cach-lay-otp">
+ <summary>Cách lấy khoá OTP</summary>
+ <ol class="k282-ghi" style="margin:0;padding:8px 12px 12px 32px;line-height:1.6">
+@@ -258,7 +264,7 @@ main.pg{padding:20px 40px 24px 32px;gap:12px}
+ </ol>
+ </details>
+ </sc-if>
+-<sc-if value="{{them.laDn}}">
++<sc-if value="{{them.laDnEmail}}">
+ <details open="{{them.td.moDan}}" onToggle="{{them.td.doiMoDan}}" class="k282-tuy-con">
+ <summary onClick="{{them.td.bamSummary}}">Dán nhiều dòng</summary>
+ <div class="k282-tuy-than">
+@@ -659,6 +665,7 @@ class Component extends DCLogic {
+       khuBiMatId: '', khuBiMatLoi: '', khuOtpMa: '', khuOtpConLai: 0, khuSua: null, khuSuaLoi: '', khuSuaDang: false, khuLamMoiId: '',
+       // Form «Thêm tài khoản» (MỘT form): nhà → cách thêm (chỉ khi có hơn một) → ô bắt buộc; mọi thứ khác nằm trong «Tuỳ chọn thêm».
+       tkThem: !!den, chonMod: den, tkNhomThem: null, tkCachThem: null, tkTuyChon: false, tkNhan: '', tkBacGoi: '',
++      tkCachDn: null, tkHoSo: null,
+       f: {}, lan: 0, dangThem: false, tkMo: null, tkSua: null, fSua: '', dangSua: false, xoa: null, dangXoa: null,
+       pvSel: null, pvDd: false, pvTab: 'model', pvMo: null, dangMd: false, mdMo: {},
+       mdData: {}, mdTat: null, mdMacDinh: null, mdGocTat: null, mdGocMacDinh: null, dangLuuMd: false,
+@@ -712,7 +719,7 @@ class Component extends DCLogic {
+       const den = this.neoTk();
+       if (den) {
+         this.setState((st) => ({
+-          menuMo: null, tab: 'tai_khoan', tkThem: true, chonMod: den, tkNhomThem: null, tkCachThem: null, f: {},
++          menuMo: null, tab: 'tai_khoan', tkThem: true, chonMod: den, tkNhomThem: null, tkCachThem: null, tkCachDn: null, tkHoSo: null, f: {},
+           tkPvMo: Object.assign({}, st.tkPvMo, { [den]: true })
+         }));
+         this.denForm();
+@@ -1219,9 +1226,25 @@ class Component extends DCLogic {
+     if (s.dlDangLuu) return; // chống bấm hai lần → chỉ MỘT lần gửi
+     const h = (s.tdHangNhap || [])[0] || {};
+     const email = (h.email || '').trim(), mk = h.matKhau || '', otp = (h.otp || '').trim();
+-    if (!email || !mk) { this.setState({ dlLoi: 'Nhập email và mật khẩu.' }); return; }
+-    const payload = { email, mat_khau: mk, module_id: chon.id };
+-    if (otp) payload.totp_secret = otp;
++    // NV300: cách đăng nhập theo từng tài khoản — hồ sơ thì chỉ cần hồ sơ
++    // đã chọn (không cần mật khẩu; email lấy từ hồ sơ ở lõi nếu không nhập);
++    // Email thì như cũ. Lựa chọn không hỗ trợ → rơi về mặc định.
++    // «email» là tên phương thức chung nên dùng trực tiếp; cách hồ sơ suy
++    // ra bằng «khác email», không gõ tên phương thức còn lại ở khung.
++    const hoTro = (chon && Array.isArray(chon.cach_dang_nhap_ho_tro) && chon.cach_dang_nhap_ho_tro.length) ? chon.cach_dang_nhap_ho_tro : ['email'];
++    const cachDn = (s.tkCachDn && hoTro.includes(s.tkCachDn)) ? s.tkCachDn : (hoTro.includes('email') ? 'email' : (hoTro[0] || 'email'));
++    let payload = null;
++    if (cachDn !== 'email') {
++      const hoSo = s.tkHoSo || '';
++      if (!hoSo) { this.setState({ dlLoi: 'Chọn một tài khoản hồ sơ đã lưu.' }); return; }
++      // Id hồ sơ gửi bằng bí danh `ho_so`; lõi chấp nhận cả bí danh lẫn
++      // khóa chuẩn (xem _cach_va_ho_so) — khung không gõ tên trường chuẩn.
++      payload = { module_id: chon.id, cach_dang_nhap: cachDn, ho_so: hoSo };
++    } else {
++      if (!email || !mk) { this.setState({ dlLoi: 'Nhập email và mật khẩu.' }); return; }
++      payload = { email, mat_khau: mk, module_id: chon.id, cach_dang_nhap: 'email' };
++      if (otp) payload.totp_secret = otp;
++    }
+     const nhan = (s.tkNhan || '').trim();
+     if (nhan) payload.nhan = nhan;
+     const bacGoi = (s.tkBacGoi || '').trim();
+@@ -1237,7 +1260,7 @@ class Component extends DCLogic {
+       return;
+     }
+     await this.taiDlDs();
+-    this.setState({ dlDangLuu: false, tkThem: false, tkNhan: '', tkBacGoi: '', tkNhomThem: null, tkCachThem: null, chonMod: null, tkTuyChon: false });
++    this.setState({ dlDangLuu: false, tkThem: false, tkNhan: '', tkBacGoi: '', tkNhomThem: null, tkCachThem: null, tkCachDn: null, tkHoSo: null, chonMod: null, tkTuyChon: false });
+     if (tk && tk.id) {
+       // Tài khoản mới phải thấy được ngay: bỏ các bộ lọc không còn khớp rồi chọn nó.
+       const nha = tk.nhom || (chon.nhom && chon.nhom.id) || NHA_KHAC;
+@@ -1853,7 +1876,7 @@ class Component extends DCLogic {
+     else if (nhomTheoModule) nhomDuocChon = nhomTheoModule;
+     const hienNhom = dsNhomList.length > 1;
+     const dsNhom = dsNhomList.map((n) => ({ id: n.id, nhan: n.ten, on: !!nhomDuocChon && nhomDuocChon.id === n.id,
+-      pick: () => { this.xoaONhap(); this.setState({ tkNhomThem: n.id, tkCachThem: null, chonMod: null, f: {}, tdVanBan: '', tdXem: null, tdBo: {}, tdLoi: '', dlLoi: '' }); } }));
++      pick: () => { this.xoaONhap(); this.setState({ tkNhomThem: n.id, tkCachThem: null, tkCachDn: null, tkHoSo: null, chonMod: null, f: {}, tdVanBan: '', tdXem: null, tdBo: {}, tdLoi: '', dlLoi: '' }); } }));
+     // Cách thêm suy từ module đã cài (đăng nhập tự động / khoá dán vào cấu hình); chỉ hỏi khi nhà có hơn một cách.
+     const cachList = [];
+     if (nhomDuocChon) for (const m of nhomDuocChon.modules.slice().sort((a, b) => (a.ten || '').localeCompare(b.ten || '', 'vi'))) {
+@@ -1869,10 +1892,33 @@ class Component extends DCLogic {
+     }
+     const hienCach = !!nhomDuocChon && cachList.length > 1;
+     const dsCach = cachList.map((c) => ({ id: c.id, nhan: c.nhan, on: !!cachChon && cachChon.id === c.id,
+-      pick: () => { this.xoaONhap(); this.setState({ tkCachThem: c.id, chonMod: null, f: {}, tdVanBan: '', tdXem: null, tdBo: {}, tdLoi: '', dlLoi: '' }); } }));
++      pick: () => { this.xoaONhap(); this.setState({ tkCachThem: c.id, tkCachDn: null, tkHoSo: null, chonMod: null, f: {}, tdVanBan: '', tdXem: null, tdBo: {}, tdLoi: '', dlLoi: '' }); } }));
+     const modChon = cachChon ? cachChon.mod : null;
+     const laDn = !!cachChon && cachChon.kind === 'dn';
+     const laApi = !!cachChon && cachChon.kind === 'api';
++    // NV300: cách đăng nhập theo từng tài khoản — chip theo các cách module
++    // hỗ trợ (nhãn lấy từ giá trị API, viết hoa chữ đầu); lựa chọn đã lưu
++    // mà module hiện tại không hỗ trợ thì rơi về mặc định (không gửi cách
++    // không hỗ trợ lên lõi). Cách hồ sơ suy ra bằng «khác email».
++    const cachDnHoTro = (modChon && Array.isArray(modChon.cach_dang_nhap_ho_tro) && modChon.cach_dang_nhap_ho_tro.length) ? modChon.cach_dang_nhap_ho_tro : ['email'];
++    const hoTroEmail = cachDnHoTro.includes('email');
++    const cachDnMacDinh = hoTroEmail ? 'email' : (cachDnHoTro[0] || 'email');
++    const cachDn = (s.tkCachDn && cachDnHoTro.includes(s.tkCachDn)) ? s.tkCachDn : cachDnMacDinh;
++    const laDnHoSo = laDn && cachDn !== 'email';
++    const laDnEmail = laDn && cachDn === 'email';
++    const vietHoa = (c) => c.charAt(0).toUpperCase() + c.slice(1);
++    // Mọi cách từng xuất hiện ở module nào đó (dữ liệu API) đều có chip;
++    // cách module hiện tại không hỗ trợ thì chip vô hiệu kèm chú thích.
++    const tatCaCach = [];
++    for (const m of (tn.modules || [])) for (const c of (m.cach_dang_nhap_ho_tro || [])) if (!tatCaCach.includes(c)) tatCaCach.push(c);
++    const chipCach = cachDnHoTro.concat(tatCaCach.filter((c) => !cachDnHoTro.includes(c)));
++    const dsCachDn = chipCach.map((c) => ({ nhan: vietHoa(c), on: cachDn === c, tat: !cachDnHoTro.includes(c), pick: () => { if (cachDnHoTro.includes(c)) this.setState({ tkCachDn: c }); } }));
++    const thieuCach = tatCaCach.filter((c) => !cachDnHoTro.includes(c));
++    const chuThichCachDn = thieuCach.length ? ('Module này chưa hỗ trợ đăng nhập bằng ' + thieuCach.map(vietHoa).join(' / ') + '.') : '';
++    // Tài khoản hồ sơ đã lưu = tài khoản của module cung cấp khả năng hồ sơ
++    // (dữ liệu API: cung_cap của module, không gõ tên module ở khung).
++    const idModHoSo = new Set((tn.modules || []).filter((m) => (m.cung_cap || []).includes('dang_nhap_danh_tinh')).map((m) => m.id));
++    const dsHoSo = (s.dlDs || []).filter((t) => t && idModHoSo.has(t.module_id)).map((t) => ({ id: t.id, nhan: t.email || t.nhan || t.id, on: s.tkHoSo === t.id, pick: () => { this.setState({ tkHoSo: t.id }); } }));
+     const trChon = modChon ? truongCua(modChon) : [];
+     const ckChon = modChon ? ((s.mods.find((x) => x && x.id === modChon.id) || {}).cau_hinh_cong_khai || {}) : {};
+     const trBm = trChon.find(laBiMat);
+@@ -1938,13 +1984,14 @@ class Component extends DCLogic {
+       co: s.tkThem, chonId: modChon ? modChon.id : '', dang: !!(s.dangThem || s.dlDangLuu),
+       nut: { nhan: s.tkThem ? 'Đóng' : '+ Thêm tài khoản', pick: () => {
+         const mo2 = !s.tkThem;
+-        this.setState({ tkThem: mo2, f: {}, chonMod: null, tkNhomThem: null, tkCachThem: null, tkTuyChon: false, tkNhan: '', tkBacGoi: '',
++        this.setState({ tkThem: mo2, f: {}, chonMod: null, tkNhomThem: null, tkCachThem: null, tkCachDn: null, tkHoSo: null, tkTuyChon: false, tkNhan: '', tkBacGoi: '',
+           tdHangNhap: [{ email: '', matKhau: '', otp: '', hienMk: false, otpMo: false }], tdVanBan: '', tdXem: null, tdBo: {}, tdLoi: '', tdMoDan: false, dlLoi: '' });
+       } },
+       khongCoNguon: dsNhomList.length === 0,
+       hienNhom, dsNhom, chuaChonNhom: dsNhomList.length > 1 && !nhomDuocChon,
+       hienCach, dsCach, soCach: hienGiaoThuc + 1, chuaChonCach: !!nhomDuocChon && cachList.length > 1 && !cachChon,
+       coCach: !!cachChon, laDn, laApi,
++      dsCachDn, chuThichCachDn, coChuThichCachDn: !!chuThichCachDn, laDnHoSo, laDnEmail, dsHoSo, khongCoHoSo: laDnHoSo && dsHoSo.length === 0,
+       soNhap: hienGiaoThuc + (hienCach ? 1 : 0) + 1,
+       hang: { email: hang0.email || '', matKhau: hang0.matKhau || '', otp: hang0.otp || '', kieuMk: hang0.hienMk ? 'text' : 'password',
+         nhanHienMk: hang0.hienMk ? 'Ẩn' : 'Hiện', otpMo: !!hang0.otpMo, otpDong: !hang0.otpMo,
+@@ -1961,7 +2008,7 @@ class Component extends DCLogic {
+       dnChay: () => { if (modChon && laDn) this.themDangNhap(modChon); },
+       dnNhan: s.dlDangLuu ? 'Đang lưu…' : 'Đăng nhập',
+       ok: { nhan: s.dangThem ? 'Đang kiểm…' : 'Lưu' },
+-      huy: { pick: () => this.setState({ tkThem: false, f: {}, chonMod: null, tkNhomThem: null, tkCachThem: null, tkTuyChon: false, tkNhan: '', tkBacGoi: '',
++      huy: { pick: () => this.setState({ tkThem: false, f: {}, chonMod: null, tkNhomThem: null, tkCachThem: null, tkCachDn: null, tkHoSo: null, tkTuyChon: false, tkNhan: '', tkBacGoi: '',
+         tdHangNhap: [{ email: '', matKhau: '', otp: '', hienMk: false, otpMo: false }], dlLoi: '' }) },
+       coLoi: !!s.dlLoi, loi: s.dlLoi || '',
+       luu: (e) => {
