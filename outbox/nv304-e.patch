@@ -1,0 +1,385 @@
+diff --git a/modules/youtube/web/index.html b/modules/youtube/web/index.html
+index 64adacf..a0b5574 100644
+--- a/modules/youtube/web/index.html
++++ b/modules/youtube/web/index.html
+@@ -50,6 +50,23 @@
+   .nut-tron.nut-chinh { background: #181816; color: #fff; border-color: #181816; }
+   .nut-tron.nut-chinh:hover { background: #333; }
+   .nut-tron svg { width: 22px; height: 22px; display: block; }
++  /* NV304e — bám demo ANH-DUNG-Doi-song: ô tìm viên thuốc (tròn hai đầu,
++     nền nhạt), nút tìm tròn xám có kính lúp, nút Phát tròn đen lớn,
++     nút Dừng ô vuông đỏ nhỏ, chip dưới có biểu tượng. */
++  .o-tim-tron { border-radius: 999px; background: #f5f5f5; border-color: #e0e0e0; padding: 0 16px; }
++  .nut-tron.nut-xam { background: #888; color: #fff; border-color: #888; }
++  .nut-tron.nut-xam:hover { background: #666; }
++  .nut-tron.nut-lon { width: 56px; height: 56px; }
++  .nut-tron.nut-lon svg { width: 26px; height: 26px; }
++  .nut-vuong-do { flex: none; width: 40px; height: 40px; padding: 0; border-radius: 10px;
++         border: 1px solid #ddd; background: #fff; color: #B42318; cursor: pointer;
++         display: inline-flex; align-items: center; justify-content: center; }
++  .nut-vuong-do:hover { background: #fdf0ef; }
++  .nut-vuong-do:focus-visible { outline: 2px solid #B42318; outline-offset: 2px; }
++  .nut-vuong-do:disabled { opacity: .55; cursor: not-allowed; }
++  .nut-vuong-do svg { width: 18px; height: 18px; display: block; }
++  .thanh-chip-duoi svg { width: 16px; height: 16px; display: block; }
++  .thanh-chip-duoi .nut { display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
+   /* NV304a: nhúng trong tab Đời sống (?nhung=1) thì ẩn chrome của trang tab
+      (nút quay lại + tiêu đề) — Đời sống đã có tiêu đề và chip của nó. */
+   html.nhung .quay-lai, html.nhung .tieu-de-trang { display: none; }
+@@ -67,6 +84,9 @@
+     .thanh-tien-do { background: #444; }
+     .thanh-chip-duoi { background: #111; border-top-color: #333; }
+     .phien-dang-chon { background: #332f00; }
++    .o-tim-tron { background: #222; border-color: #444; }
++    .nut-vuong-do { background: #333; border-color: #555; }
++    .nut-vuong-do:hover { background: #442222; }
+   }
+ </style>
+ <script>if (new URLSearchParams(location.search).has('nhung')) document.documentElement.classList.add('nhung');</script>
+@@ -80,6 +100,13 @@
+   <p class="phu">Trình phát YouTube/Zing chạy thẳng trong web2api. Mọi lệnh đi qua
+     máy chủ (trình duyệt không giữ khoá nào). Mục nào chưa có thì ẩn — không có nút chết.</p>
+   <p class="bao bao-loi" id="loi-chung" role="alert" hidden></p>
++  <div class="bao bao-vang" id="hoi-xac-nhan" hidden>
++    <p id="hoi-xac-nhan-chu"></p>
++    <div class="hang-nut">
++      <button class="nut nut-chinh" id="nut-xac-nhan" type="button">Xác nhận</button>
++      <button class="nut" id="nut-thoi-xac-nhan" type="button">Thôi</button>
++    </div>
++  </div>
+ 
+ <section class="the" aria-labelledby="tieu-de-tim">
+     <h2 id="tieu-de-tim">Tìm kiếm</h2>
+@@ -90,9 +117,9 @@
+     </div>
+     <label for="o-tu-khoa">Từ khoá hoặc link bài, link playlist</label>
+     <div class="o-va-nut">
+-      <input class="o" id="o-tu-khoa" maxlength="2048" autocomplete="off"
++      <input class="o o-tim-tron" id="o-tu-khoa" maxlength="2048" autocomplete="off"
+              placeholder="Tên bài, ca sĩ… hoặc dán link YouTube">
+-      <button class="nut nut-chinh" id="nut-tim" type="button">Tìm</button>
++      <button class="nut-tron nut-xam" id="nut-tim" type="button" aria-label="Tìm" title="Tìm"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 19a8 8 0 1 0 0-16 8 8 0 0 0 0 16z M21 21l-4.3-4.3"></path></svg></button>
+     </div>
+     <p class="phu" id="ghi-chu-nguon">Tìm trên YouTube: gõ từ khoá hoặc dán link bài/playlist.</p>
+     <p class="bao bao-loi" id="loi-tim" role="alert" hidden></p>
+@@ -115,20 +142,19 @@
+     </div>
+     <p class="phu" id="thoi-gian" aria-live="off"></p>
+     <div class="hang-nut">
+-      <button class="nut" id="nut-truoc" type="button" disabled>⏮ Bài trước</button>
+-      <button class="nut nut-chinh" id="nut-phat-tam-dung" type="button" disabled>▶ Phát</button>
+-      <button class="nut" id="nut-sau" type="button" disabled>Bài kế ⏭</button>
+-      <button class="nut" id="nut-dung" type="button" disabled>⏹ Dừng hẳn</button>
++      <button class="nut-tron" id="nut-truoc" type="button" disabled aria-label="Bài trước" title="Bài trước"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 5v14 M19 5l-11 7 11 7z"></path></svg></button>
++      <button class="nut-tron nut-chinh nut-lon" id="nut-phat-tam-dung" type="button" disabled aria-label="Phát" title="Phát"><svg id="nut-phat-play" width="26" height="26" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5l11 7-11 7z"></path></svg><svg id="nut-phat-pause" width="26" height="26" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" hidden><path d="M7 5h4v14H7z M13 5h4v14h-4z"></path></svg></button>
++      <button class="nut-tron" id="nut-sau" type="button" disabled aria-label="Bài kế" title="Bài kế"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 5v14 M5 5l11 7-11 7z"></path></svg></button>
++      <button class="nut-vuong-do" id="nut-dung" type="button" disabled aria-label="Dừng hẳn" title="Dừng hẳn"><svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M6 6h12v12H6z"></path></svg></button>
+     </div>
+     <p><button class="nut nut-nho" id="nut-man-hinh" type="button"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 13A8 8 0 0 1 11 4a8 8 0 1 0 9 9z"></path></svg> Nghe khi tắt màn hình</button></p>
+     <p class="bao bao-vang" id="bao-man-hinh" hidden></p>
+-  </section>
+-
+-<section class="the" aria-labelledby="tieu-de-nhom">
++    <section aria-labelledby="tieu-de-nhom">
+     <h2 id="tieu-de-nhom">Nhóm đang phát — bấm để điều khiển</h2>
+     <p class="phu">Mỗi nhóm loa/tivi đang phát là một phiên riêng. Bấm một nhóm
+       để các nút ở trên điều khiển nhóm đó.</p>
+     <ul class="ds-kq" id="ds-nhom" aria-live="polite"></ul>
++    </section>
+   </section>
+     </div>
+     <div class="cot-phai">
+@@ -195,11 +221,11 @@
+   </section>
+ 
+   <nav class="thanh-chip-duoi" aria-label="Chuyển mục">
+-    <button class="nut nut-nho" type="button" data-cuon-toi="tieu-de-tim">Tìm kiếm</button>
+-    <button class="nut nut-nho" type="button" data-cuon-toi="tieu-de-playlist">Playlist (<span id="dem-playlist">0</span>)</button>
+-    <button class="nut nut-nho" type="button" data-cuon-toi="tieu-de-queue">Queue (<span id="dem-queue">0/0</span>)</button>
+-    <button class="nut nut-nho" type="button" data-cuon-toi="tieu-de-loa">Loa &amp; tivi</button>
+-    <button class="nut nut-nho" type="button" data-cuon-toi="tieu-de-cai-dat">Cài đặt</button>
++    <button class="nut nut-nho" type="button" data-cuon-toi="tieu-de-tim"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 19a8 8 0 1 0 0-16 8 8 0 0 0 0 16z M21 21l-4.3-4.3"></path></svg>Tìm kiếm</button>
++    <button class="nut nut-nho" type="button" data-cuon-toi="tieu-de-playlist"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 18V5l12-2v13 M9 18a3 3 0 1 1-6 0 3 3 0 0 1 6 0z M21 16a3 3 0 1 1-6 0 3 3 0 0 1 6 0z"></path></svg>Playlist (<span id="dem-playlist">0</span>)</button>
++    <button class="nut nut-nho" type="button" data-cuon-toi="tieu-de-queue"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18 M3 12h18 M3 18h10"></path></svg>Queue (<span id="dem-queue">0/0</span>)</button>
++    <button class="nut nut-nho" type="button" data-cuon-toi="tieu-de-loa"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 3h14v18H5z M12 8h.01 M12 17a3 3 0 1 0 0-6 3 3 0 0 0 0 6z"></path></svg>Loa &amp; tivi</button>
++    <button class="nut nut-nho" type="button" data-cuon-toi="tieu-de-cai-dat"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8z M12 2v3 M12 19v3 M2 12h3 M19 12h3"></path></svg>Cài đặt</button>
+   </nav>
+ </main>
+ </div>
+diff --git a/modules/youtube/web/trang.js b/modules/youtube/web/trang.js
+index b8bcdf4..2ca8dd9 100644
+--- a/modules/youtube/web/trang.js
++++ b/modules/youtube/web/trang.js
+@@ -68,6 +68,8 @@ async function goi(duong, than) {
+ /* ── trạng thái trang ─────────────────────────────────────────────── */
+ let thucTheXem = '';
+ let thucTheDieuKhien = '';
++let ruiRoXem = '';
++let ruiRoDieuKhien = '';
+ let phienHienTai = null;   // phiên đang hiển thị ở thẻ Đang phát
+ let cacPhien = [];
+ let phienChon = null;      // id phiên người dùng bấm ở «Nhóm đang phát»
+@@ -87,23 +89,70 @@ async function timThucThe() {
+   if (!xem || !dk) throw new Error('Chưa thấy thực thể YouTube — module có thể chưa chạy.');
+   thucTheXem = xem.id;
+   thucTheDieuKhien = dk.id;
++  ruiRoXem = xem.rui_ro || '';
++  ruiRoDieuKhien = dk.rui_ro || '';
+ }
+ 
+-async function hanhDongDoc(ten, thamSo) {
++/* NV304e — sửa 409: lõi trả 409 can_xac_nhan khi thực thể nguy hiểm mà
++   lệnh không kèm xac_nhan (NV298: hành động ghi nguy hiểm xác nhận MỘT
++   lần lúc gọi, trong chính tab module). Trang tab (NV301) gọi trực tiếp
++   không kèm xac_nhan nên ăn 409 trên server đã nâng rủi ro, lại còn
++   giấu mất thông điệp lỗi (chỉ hiện «HTTP 409»). Nay: (1) lệnh ghi mà
++   thực thể nguy hiểm thì hỏi xác nhận TRƯỚC khi gọi; (2) gặp 409
++   can_xac_nhan (rủi ro đổi sau khi trang đã tải) thì hỏi rồi gửi lại
++   kèm xac_nhan: true; (3) mọi lỗi khác hiện thông điệp của server thay
++   vì chỉ mã HTTP. Từ chối xác nhận thì không làm gì (trả daHuy để bên
++   gọi bỏ qua, không hiện lỗi). Lệnh đọc (xem) chỉ dùng đường (2), không
++   hỏi trước — quy tắc NV298 chỉ bắt xác nhận cho lệnh GHI. */
++function loiTuPhanHoi(kq) {
++  const du = kq.du || {};
++  const msg = (du.error && du.error.message) || du.loi || '';
++  if (msg) return msg;
++  return 'Không thực hiện được (HTTP ' + kq.r.status + ').';
++}
++function laCanXacNhan(kq) {
++  const du = kq.du || {};
++  return kq.r.status === 409 && du.error && du.error.code === 'can_xac_nhan';
++}
++function hoiXacNhan(chu) {
++  return new Promise((giai) => {
++    const hop = $('hoi-xac-nhan');
++    $('hoi-xac-nhan-chu').textContent = chu;
++    hop.hidden = false;
++    $('nut-xac-nhan').onclick = () => { hop.hidden = true; giai(true); };
++    $('nut-thoi-xac-nhan').onclick = () => { hop.hidden = true; giai(false); };
++  });
++}
++async function hanhDongDoc(ten, thamSo, xacNhan) {
+   await timThucThe();
+   const kq = await goi('api/thiet-bi/' + encodeURIComponent(thucTheXem) + '/hanh-dong',
+-    { hanh_dong: ten, tham_so: thamSo || {} });
+-  if (!kq.r.ok) throw new Error('Không thực hiện được (HTTP ' + kq.r.status + ').');
++    { hanh_dong: ten, tham_so: thamSo || {}, xac_nhan: !!xacNhan });
++  if (laCanXacNhan(kq)) {
++    const ok = await hoiXacNhan('Máy chủ yêu cầu xác nhận cho «' + ten + '» — bấm «Xác nhận» để thực hiện một lần.');
++    if (!ok) return { ok: true, daHuy: true };
++    return hanhDongDoc(ten, thamSo, true);
++  }
++  if (!kq.r.ok) throw new Error(loiTuPhanHoi(kq));
+   const du = kq.du || {};
+   if (du.ok === false) throw new Error(du.loi || 'Không thực hiện được.');
+   return du;
+ }
+ 
+-async function hanhDong(ten, thamSo) {
++async function hanhDong(ten, thamSo, xacNhan) {
+   await timThucThe();
++  if (!xacNhan && ruiRoDieuKhien === 'nguy_hiem') {
++    const ok = await hoiXacNhan('Hành động «' + ten + '» được đánh dấu nguy hiểm — bấm «Xác nhận» để thực hiện một lần.');
++    if (!ok) return { ok: true, daHuy: true };
++    return hanhDong(ten, thamSo, true);
++  }
+   const kq = await goi('api/thiet-bi/' + encodeURIComponent(thucTheDieuKhien) + '/hanh-dong',
+-    { hanh_dong: ten, tham_so: thamSo || {} });
+-  if (!kq.r.ok) throw new Error('Không thực hiện được (HTTP ' + kq.r.status + ').');
++    { hanh_dong: ten, tham_so: thamSo || {}, xac_nhan: !!xacNhan });
++  if (laCanXacNhan(kq)) {
++    const ok = await hoiXacNhan('Máy chủ yêu cầu xác nhận cho «' + ten + '» — bấm «Xác nhận» để thực hiện một lần.');
++    if (!ok) return { ok: true, daHuy: true };
++    return hanhDong(ten, thamSo, true);
++  }
++  if (!kq.r.ok) throw new Error(loiTuPhanHoi(kq));
+   const du = kq.du || {};
+   if (du.ok === false) throw new Error(du.loi || 'Không thực hiện được.');
+   return du;
+@@ -142,7 +191,9 @@ function veDangPhat() {
+     ten.textContent = 'Chưa có dữ liệu.';
+     kenh.hidden = true; trenLoa.hidden = true; chip.hidden = true;
+     anh.hidden = true;
+-    nutPhat.textContent = '▶ Phát'; nutPhat.disabled = true;
++    nutPhat.setAttribute('aria-label', 'Phát');
++    $('nut-phat-play').hidden = false; $('nut-phat-pause').hidden = true;
++    nutPhat.disabled = true;
+     nutTruoc.disabled = true; nutSau.disabled = true; nutDung.disabled = true;
+     $('thoi-gian').textContent = '';
+     $('tien-do').style.width = '0%';
+@@ -172,7 +223,10 @@ function veDangPhat() {
+   const dangPhat = phien.state === 'playing' || phien.status === 'playing';
+   const tamDung = phien.state === 'paused' || phien.status === 'paused';
+   nutPhat.disabled = false;
+-  nutPhat.textContent = dangPhat ? '⏸ Tạm dừng' : '▶ Phát';
++  nutPhat.setAttribute('aria-label', dangPhat ? 'Tạm dừng' : 'Phát');
++  nutPhat.title = dangPhat ? 'Tạm dừng' : 'Phát';
++  $('nut-phat-play').hidden = dangPhat;
++  $('nut-phat-pause').hidden = !dangPhat;
+   nutTruoc.disabled = false;
+   nutSau.disabled = false;
+   nutDung.disabled = !(dangPhat || tamDung);
+@@ -292,6 +346,7 @@ async function taiTrangThai() {
+       hanhDongDoc('trang_thai', {}),
+       hanhDongDoc('cac_phien', {}).catch(() => ({ cac_phien: [] })),
+     ]);
++    if (tt.daHuy) return;
+     cacPhien = nhom.cac_phien || [];
+     // Phiên đang hiển thị: phiên đã chọn (nếu còn sống), không thì phiên
+     // hiện tại của module.
+@@ -440,9 +495,11 @@ async function timKiem() {
+   hienLoi('loi-tim', '');
+   try {
+     const du = await hanhDongDoc('tim', { tu_khoa: tuKhoa, nguon: nguonTim, gioi_han: 20 });
++    if (du.daHuy) return;
+     const o = $('ds-ket-qua');
+     o.replaceChildren();
+     const ds = du.ket_qua || [];
++    $('tieu-de-ket-qua').textContent = 'Kết quả (' + ds.length + ' mục)';
+     if (!ds.length) o.append(el('li', 'phu', 'Không tìm thấy bài nào.'));
+     ds.forEach((muc) => o.append(nutKetQua(muc)));
+   } catch (e) {
+@@ -454,6 +511,7 @@ async function timKiem() {
+ async function taiPlaylist() {
+   try {
+     const du = await hanhDongDoc('danh_sach_playlist', {});
++    if (du.daHuy) return;
+     playlists = du.danh_sach || [];
+     $('dem-playlist').textContent = String(playlists.length);
+     const chon = $('o-playlist-nhan');
+diff --git a/test/test_module_youtube_nv304_e.py b/test/test_module_youtube_nv304_e.py
+new file mode 100644
+index 0000000..6bee2b5
+--- /dev/null
++++ b/test/test_module_youtube_nv304_e.py
+@@ -0,0 +1,130 @@
++"""NV304 mảnh (e) — bám demo + sửa 409 (xác nhận một lần lúc gọi).
++
++Kiểm tĩnh trang tab (không Chrome thật trên máy này): ô tìm tròn +
++nút tìm tròn có biểu tượng, nút vận chuyển tròn có biểu tượng, nhóm
++nằm trong thẻ Đang phát, chip dưới có biểu tượng, tiêu đề kết quả có
++số mục, và đường xác nhận xac_nhan cho thực thể nguy hiểm (NV298).
++"""
++
++from __future__ import annotations
++
++import pathlib
++from html.parser import HTMLParser
++
++GOC = pathlib.Path(__file__).resolve().parents[1]
++HTML = (GOC / "modules" / "youtube" / "web" / "index.html").read_text()
++JS = (GOC / "modules" / "youtube" / "web" / "trang.js").read_text()
++
++
++class _Cay(HTMLParser):
++    """Cây section/div thô: mỗi node (tag, attrs, con)."""
++
++    def __init__(self):
++        super().__init__()
++        self.goc = {"tag": "root", "attrs": {}, "con": []}
++        self.ngan = [self.goc]
++
++    def handle_starttag(self, tag, attrs):
++        node = {"tag": tag, "attrs": dict(attrs), "con": []}
++        self.ngan[-1]["con"].append(node)
++        if tag not in ("input", "img", "br", "meta", "link"):
++            self.ngan.append(node)
++
++    def handle_endtag(self, tag):
++        if len(self.ngan) > 1 and self.ngan[-1]["tag"] == tag:
++            self.ngan.pop()
++
++
++def _tim(node, dieu_kien):
++    if dieu_kien(node):
++        return node
++    for c in node["con"]:
++        kq = _tim(c, dieu_kien)
++        if kq is not None:
++            return kq
++    return None
++
++
++def _co_id(node, id_):
++    return _tim(node, lambda n: n["attrs"].get("id") == id_) is not None
++
++
++def _cay():
++    p = _Cay()
++    p.feed(HTML)
++    return p.goc
++
++
++def test_o_tim_tron_va_nut_tim_tron_co_bieu_tuong():
++    # Demo: ô tìm viên thuốc (tròn hai đầu) + nút tìm tròn xám có kính lúp.
++    assert "o-tim-tron" in HTML
++    assert "border-radius: 999px" in HTML
++    cay = _cay()
++    nut = _tim(cay, lambda n: n["attrs"].get("id") == "nut-tim")
++    assert nut is not None and "nut-tron" in nut["attrs"].get("class", "")
++    assert nut["attrs"].get("aria-label") == "Tìm"
++    assert _tim(nut, lambda n: n["tag"] == "svg") is not None
++    o_tim = _tim(cay, lambda n: n["attrs"].get("id") == "o-tu-khoa")
++    assert "o-tim-tron" in o_tim["attrs"].get("class", "")
++
++
++def test_nut_van_chuyen_tron_co_bieu_tuong_va_nhan():
++    cay = _cay()
++    # Demo: Phát là nút tròn đen LỚN; Trước/Kế là nút tròn thường.
++    for id_, nhan in (("nut-truoc", "Bài trước"), ("nut-phat-tam-dung", "Phát"),
++                      ("nut-sau", "Bài kế")):
++        nut = _tim(cay, lambda n, i=id_: n["attrs"].get("id") == i)
++        assert nut is not None, id_
++        assert "nut-tron" in nut["attrs"].get("class", ""), id_
++        assert nut["attrs"].get("aria-label") == nhan, id_
++        assert _tim(nut, lambda n: n["tag"] == "svg") is not None, id_
++    nut_phat = _tim(cay, lambda n: n["attrs"].get("id") == "nut-phat-tam-dung")
++    assert "nut-lon" in nut_phat["attrs"].get("class", "")
++    assert "nut-chinh" in nut_phat["attrs"].get("class", "")
++    # Demo: Dừng là ô vuông đỏ nhỏ (không tròn) — vẫn 40px, có biểu tượng.
++    nut_dung = _tim(cay, lambda n: n["attrs"].get("id") == "nut-dung")
++    assert nut_dung is not None
++    assert "nut-vuong-do" in nut_dung["attrs"].get("class", "")
++    assert nut_dung["attrs"].get("aria-label") == "Dừng hẳn"
++    assert _tim(nut_dung, lambda n: n["tag"] == "svg") is not None
++
++
++def test_nhom_nam_trong_the_dang_phat():
++    # Demo: thẻ đang phát chứa cả nhóm đang phát bên trong, không phải
++    # một thẻ riêng ngang hàng.
++    cay = _cay()
++    the_phat = _tim(cay, lambda n: n["tag"] == "section" and _co_id(n, "tieu-de-dang-phat"))
++    assert the_phat is not None
++    assert _co_id(the_phat, "tieu-de-nhom")
++
++
++def test_chip_duoi_co_bieu_tuong():
++    cay = _cay()
++    nav = _tim(cay, lambda n: n["tag"] == "nav"
++               and "thanh-chip-duoi" in n["attrs"].get("class", ""))
++    assert nav is not None
++    nut = [c for c in nav["con"] if c["tag"] == "button"]
++    assert len(nut) == 5
++    for b in nut:
++        assert _tim(b, lambda n: n["tag"] == "svg") is not None
++
++
++def test_tieu_de_ket_qua_co_so_muc():
++    # Demo: «Gợi ý cho bạn  8 mục» — trang thật: «Kết quả (N mục)».
++    assert "tieu-de-ket-qua" in JS and "mục" in JS
++
++
++def test_xac_nhan_mot_lan_khi_409_can_xac_nhan():
++    # NV298: thực thể nguy hiểm thì xác nhận MỘT lần lúc gọi; trang tab
++    # (NV301) gọi trực tiếp không kèm xac_nhan nên ăn 409 trên server
++    # đã nâng rủi ro — nay phải có đường xác nhận + gửi xac_nhan: true.
++    assert "hoi-xac-nhan" in HTML and "nut-xac-nhan" in HTML
++    assert "can_xac_nhan" in JS
++    assert "xac_nhan" in JS
++    # Lỗi phải hiện thông điệp của server (để phân biệt 409 can_xac_nhan
++    # với 409 queue_end), không chỉ «HTTP 409» trơ trọi.
++    assert "error" in JS and "message" in JS
++
++
++def test_khong_innerhtml():
++    assert ".innerHTML" not in JS
