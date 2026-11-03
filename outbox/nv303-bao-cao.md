@@ -52,5 +52,5 @@
 
 ## Xác minh nộp
 
-- `git ls-remote` sau khi đẩy: nhánh Giao `muse/nv303 = 043d445a47071084a38b1c5b218e7c8e82c83444`; Giao main lúc đẩy là `8e611363` (nhánh nộp tách từ main `8b00fce` lúc clone; main đã nhích lên `ac3d9350` rồi `8e611363` trong lúc làm — hai lần nhích đó chỉ sửa file trả lời, `inbox/NV303.md` đã đối chiếu lại và không đổi).
+- `git ls-remote` sau khi đẩy: nhánh Giao `muse/nv303 = 8529185768b75cd7e86313f54b16ff612eaa48ab` (commit nộp patch là `043d445a`, commit sau chỉ ghi mục xác minh này vào báo cáo); Giao main lúc đẩy là `8e611363` (nhánh nộp tách từ main `8b00fce` lúc clone; main đã nhích lên `ac3d9350` rồi `8e611363` trong lúc làm — hai lần nhích đó chỉ sửa file trả lời, `inbox/NV303.md` đã đối chiếu lại và không đổi).
 - Không force-push, không đẩy main, không đẩy trực tiếp lên repo loa.
