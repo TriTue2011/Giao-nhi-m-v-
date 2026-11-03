@@ -1,0 +1,770 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<title>Studio web2api</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600&family=Newsreader:opsz,wght@6..72,400;6..72,500&display=swap">
+<style>
+body{margin:0}
+button{font:inherit;cursor:pointer}
+a{color:inherit;text-decoration:none}
+textarea{font:inherit}
+.oNhap{container-type:inline-size}
+@container (max-width: 800px){.chu-an{display:none}}
+@container (max-width: 620px){.chu-an2{display:none}}
+.cuon{scrollbar-width:thin;scrollbar-color:#B9B6AE transparent}
+.cuon::-webkit-scrollbar{width:8px}
+.cuon::-webkit-scrollbar-thumb{background:#B9B6AE;border-radius:4px}
+textarea:focus{outline:none}
+button:focus-visible,a:focus-visible,textarea:focus-visible,select:focus-visible{outline:2px solid #0F766E;outline-offset:2px}
+.bn{display:none}
+.wmp{display:none}
+.ctxt{display:none}
+@media (max-width:1023px){
+.tb{min-height:52px !important;height:auto !important;padding:6px 14px !important;gap:10px !important}
+.tm{display:none !important}
+.wmd{display:none}.wmp{display:block}
+.ctxt{display:flex !important}
+.ctxb{display:none !important}
+.tao{display:none !important}
+.bn{display:flex !important;position:relative;z-index:20;flex:0 0 auto;align-items:stretch;border-top:1px solid #E4E2DC;background:#FBFAF8;padding:0 4px env(safe-area-inset-bottom,0px)}
+.bn > a,.bn > button{min-height:52px;justify-content:center}
+main.pg{padding:12px 16px 0 !important}
+}
+@media (pointer:coarse){input,select,textarea{font-size:16px !important}[role=menuitem]{min-height:44px !important}}
+</style>
+</helmet>
+<div style="--ink:#181816;--mute:#66645F;--line:#E4E2DC;--bg:#F6F5F2;--card:#FFFFFF;--acc:#0F766E;--accsoft:#E2F0ED;height:100vh;height:100dvh;min-height:560px;overflow-x:hidden;display:flex;flex-direction:column;flex-wrap:nowrap;background:var(--bg);color:var(--ink);font-family:'Be Vietnam Pro',system-ui,sans-serif;font-size:14px;line-height:1.5">
+
+<nav aria-label="Điều hướng chính" class="tb" style="{{navStyle}}">
+<div style="display:flex;align-items:center;gap:10px;flex:0 0 auto">
+<div style="width:30px;height:30px;border-radius:9px;background:var(--ink);color:#fff;display:flex;align-items:center;justify-content:center"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="{{logo}}"></path></svg></div>
+<div class="wmd" style="font-family:Newsreader,Georgia,serif;font-size:24px;font-weight:500;letter-spacing:-0.01em">web2api</div>
+<sc-if value="{{sinCtx}}" hint-placeholder-val="{{true}}"><div class="wmp" style="font-family:Newsreader,Georgia,serif;font-size:24px;font-weight:500;letter-spacing:-0.01em">web2api</div></sc-if>
+</div>
+<div class="tm" style="display:flex;align-items:center;gap:2px;flex:1 1 auto;min-width:0">
+<sc-for list="{{nav}}" as="n" hint-placeholder-count="6">
+<div style="position:relative;flex:0 0 auto;{{n.wst}}">
+<sc-if value="{{n.link}}" hint-placeholder-val="{{true}}"><a href="{{n.href}}" aria-label="{{n.label}}" onClick="{{n.dong}}" style="{{n.style}}"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="{{n.d}}"></path></svg><span>{{n.label}}</span></a></sc-if>
+<sc-if value="{{n.hasSub}}" hint-placeholder-val="{{false}}"><button type="button" aria-haspopup="menu" aria-expanded="{{n.open}}" onClick="{{n.toggle}}" style="{{n.btnStyle}}"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="{{n.d}}"></path></svg><span>{{n.label}}</span><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="{{n.chev}}"><path d="M6 9l6 6 6-6"></path></svg></button>
+<sc-if value="{{n.open}}" hint-placeholder-val="{{false}}">
+<div role="menu" aria-label="Mục trong {{n.label}}" style="position:absolute;top:calc(100% + 8px);left:50%;transform:translateX(-50%);z-index:30;width:200px;box-sizing:border-box;background:var(--card);border:1px solid var(--line);border-radius:14px;box-shadow:0 12px 32px rgba(24,24,22,0.14);padding:4px;display:flex;flex-direction:column;gap:1px">
+<sc-for list="{{n.subs}}" as="u" hint-placeholder-count="5">
+<sc-if value="{{u.ext}}" hint-placeholder-val="{{false}}"><a role="menuitem" href="{{u.href}}" onClick="{{u.pick}}" style="{{u.style}}"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="{{u.d}}"></path></svg><span>{{u.label}}</span><sc-if value="{{u.coBao}}" hint-placeholder-val="{{false}}"><span style="margin-left:auto;min-width:20px;height:20px;box-sizing:border-box;padding:0 6px;border-radius:10px;background:#B42318;color:#fff;font-size:12px;font-weight:600;display:flex;align-items:center;justify-content:center">{{u.bao}}</span></sc-if></a></sc-if>
+<sc-if value="{{u.inner}}" hint-placeholder-val="{{false}}"><button type="button" role="menuitem" aria-current="{{u.on}}" onClick="{{u.pick}}" style="{{u.style}}"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="{{u.d}}"></path></svg><span>{{u.label}}</span><sc-if value="{{u.coBao}}" hint-placeholder-val="{{false}}"><span style="margin-left:auto;min-width:20px;height:20px;box-sizing:border-box;padding:0 6px;border-radius:10px;background:#B42318;color:#fff;font-size:12px;font-weight:600;display:flex;align-items:center;justify-content:center">{{u.bao}}</span></sc-if></button></sc-if>
+</sc-for>
+</div>
+</sc-if></sc-if>
+</div>
+</sc-for>
+</div>
+<div class="acc" style="position:relative;flex:0 0 auto;margin-left:auto">
+<button type="button" aria-haspopup="menu" aria-expanded="{{accMo}}" aria-label="Tài khoản" onClick="{{accToggle}}" style="width:36px;height:36px;padding:0;border-radius:50%;border:0;background:var(--accsoft);color:#0B5A53;display:flex;align-items:center;justify-content:center;font:inherit;font-weight:600;cursor:pointer">C</button>
+<sc-if value="{{accMo}}" hint-placeholder-val="{{false}}">
+<div role="menu" aria-label="Tài khoản" style="position:absolute;top:calc(100% + 8px);right:0;z-index:30;width:248px;max-width:calc(100vw - 24px);box-sizing:border-box;background:var(--card);border:1px solid var(--line);border-radius:14px;box-shadow:0 12px 32px rgba(24,24,22,0.14);padding:6px;display:flex;flex-direction:column;gap:2px">
+<div style="display:flex;align-items:center;gap:12px;padding:10px 10px 12px">
+<div style="flex:0 0 auto;width:40px;height:40px;border-radius:50%;background:var(--accsoft);color:#0B5A53;display:flex;align-items:center;justify-content:center;font-weight:600;font-size:16px">C</div>
+<div style="display:flex;flex-direction:column;line-height:1.35;min-width:0"><span style="font-weight:600">Chủ nhà</span><span style="font-size:12px;color:var(--mute)">Quản trị viên</span></div>
+</div>
+<div style="height:1px;background:var(--line);margin:0 4px 4px"></div>
+<button type="button" role="menuitem" onClick="{{dangXuat}}" style="display:flex;align-items:center;gap:10px;width:100%;box-sizing:border-box;min-height:44px;padding:0 12px;border:0;border-radius:10px;background:transparent;color:#B42318;font:inherit;font-size:14px;font-weight:500;text-align:left;cursor:pointer"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 4H5v16h5 M15 8l4 4-4 4 M19 12H9"></path></svg>Đăng xuất</button>
+</div>
+</sc-if>
+</div>
+</nav>
+
+<main class="pg" style="flex:1 1 0;min-width:0;min-height:0;overflow-x:hidden;display:flex;flex-direction:column">
+<div style="display:flex;justify-content:flex-end;align-items:center;gap:12px;padding:16px 28px">
+<div style="display:flex;align-items:center;gap:8px;height:32px;padding:0 12px;border:1px solid var(--line);border-radius:16px;background:var(--card);font-size:13px;color:var(--mute)">
+<span style="width:8px;height:8px;border-radius:50%;background:#16A34A"></span>
+Mọi dịch vụ ổn
+</div>
+</div>
+
+<div style="flex:1 1 0;min-height:0;overflow-y:auto;width:100%;max-width:880px;box-sizing:border-box;margin:0 auto;padding:24px 24px 24px;display:flex;flex-direction:column;align-items:center;gap:24px">
+
+<sc-if value="{{noTurns}}" hint-placeholder-val="{{true}}">
+<h1 style="margin:12px 0 4px;font-family:Newsreader,Georgia,serif;font-weight:400;font-size:46px;line-height:1.1;letter-spacing:-0.02em;text-align:center;text-wrap:balance">Bạn muốn làm gì hôm nay?</h1>
+<div style="flex:8 1 0;min-height:24px;width:100%"></div>
+</sc-if>
+
+<sc-if value="{{hasTurns}}" hint-placeholder-val="{{false}}">
+<div style="flex:1 1 0;min-height:0;width:100%;position:relative;display:flex;flex-direction:column">
+<div class="cuon" style="flex:1 1 0;min-height:0;overflow-y:auto;display:flex;flex-direction:column-reverse;gap:28px;padding:0 60px 0 0" aria-live="polite">
+<div id="moi-nhat" style="height:1px;flex:0 0 1px"></div>
+<sc-for list="{{turns}}" as="t" hint-placeholder-count="1">
+<div style="display:flex;flex-direction:column;gap:16px">
+
+<div style="align-self:flex-end;max-width:85%;display:flex;flex-direction:column;align-items:flex-end;gap:4px">
+<div style="padding:12px 16px;border-radius:18px 18px 4px 18px;background:var(--ink);color:#fff;text-wrap:pretty">{{t.userLine}}</div>
+<div style="font-size:12px;color:var(--mute)">{{t.meta}}</div>
+</div>
+
+<div style="display:flex;gap:12px;align-items:flex-start">
+<div style="flex:0 0 32px;width:32px;height:32px;border-radius:10px;background:var(--accsoft);color:#0B5A53;display:flex;align-items:center;justify-content:center">
+<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="{{logo}}"></path></svg>
+</div>
+<div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:12px">
+
+<sc-if value="{{t.isChat}}" hint-placeholder-val="{{false}}">
+<div style="display:flex;flex-direction:column;gap:12px">
+<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:13px;color:var(--mute)">
+<span>Đã dùng tiện ích</span>
+<span style="display:inline-flex;align-items:center;gap:6px;height:28px;padding:0 10px;border-radius:14px;background:var(--card);border:1px solid var(--line);color:var(--ink)">
+<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="{{iSearch}}"></path></svg>Tra cứu Việt Nam</span>
+</div>
+<div style="text-wrap:pretty">[Câu trả lời của AI hiện ở đây, từng chữ một khi đang viết. Có thể gồm đoạn văn, danh sách và bảng.]</div>
+<div style="display:flex;flex-wrap:wrap;gap:6px">
+<span style="padding:3px 10px;border-radius:12px;background:var(--card);border:1px solid var(--line);font-size:12px;color:var(--mute)">[nguồn 1]</span>
+<span style="padding:3px 10px;border-radius:12px;background:var(--card);border:1px solid var(--line);font-size:12px;color:var(--mute)">[nguồn 2]</span>
+</div>
+</div>
+</sc-if>
+
+<sc-if value="{{t.isImage}}" hint-placeholder-val="{{false}}">
+<div style="display:flex;flex-direction:column;gap:12px">
+<div style="font-weight:500">Đã vẽ 2 ảnh</div>
+<div style="display:flex;flex-wrap:wrap;gap:12px">
+<div style="{{t.tileStyle}}"><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="{{iImage}}"></path></svg></div>
+<div style="{{t.tileStyle}}"><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="{{iImage}}"></path></svg></div>
+</div>
+</div>
+</sc-if>
+
+<sc-if value="{{t.isVideo}}" hint-placeholder-val="{{false}}">
+<div style="display:flex;flex-direction:column;gap:12px">
+<div style="font-weight:500">Đang tạo video</div>
+<div style="{{t.videoStyle}}"><svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 5l11 7-11 7z"></path></svg></div>
+<div style="max-width:420px;display:flex;flex-direction:column;gap:6px">
+<div style="height:8px;border-radius:4px;background:#E4E2DC;overflow:hidden"><div style="width:40%;height:100%;background:var(--acc)"></div></div>
+<div style="font-size:13px;color:var(--mute)">Khoảng 2 phút nữa. Xong sẽ tự lưu vào Tác phẩm, bạn có thể đóng trang.</div>
+</div>
+<div style="display:flex;flex-wrap:wrap;gap:8px">
+<button type="button" style="min-height:44px;padding:0 16px;border-radius:22px;border:1px solid var(--line);background:var(--card);color:var(--ink)">Huỷ</button>
+</div>
+</div>
+</sc-if>
+
+<sc-if value="{{t.isDich}}" hint-placeholder-val="{{false}}">
+<div style="display:flex;flex-direction:column;gap:12px">
+
+<sc-if value="{{t.dText}}" hint-placeholder-val="{{false}}">
+<div style="display:flex;flex-direction:column;gap:12px">
+<div style="background:var(--accsoft);border:1px solid #BFDCD6;border-radius:14px;padding:16px;display:flex;flex-direction:column;gap:6px">
+<span style="font-size:12px;color:#0B5A53">{{t.dstName}}</span>
+<span style="text-wrap:pretty">[Bản dịch hiện ở đây]</span>
+</div>
+</div>
+</sc-if>
+
+<sc-if value="{{t.dFile}}" hint-placeholder-val="{{false}}">
+<div style="background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px;display:flex;flex-wrap:wrap;align-items:center;gap:12px">
+<div style="flex:1 1 220px;display:flex;flex-direction:column">
+<span style="font-weight:500">{{t.fileName}}</span>
+<span style="font-size:13px;color:var(--mute)">{{t.fileNote}}</span>
+</div>
+<span style="font-size:13px;color:var(--acc);font-weight:500">Đã lưu vào Tác phẩm</span>
+</div>
+</sc-if>
+
+<sc-if value="{{t.dBusy}}" hint-placeholder-val="{{false}}">
+<div style="background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px;display:flex;flex-direction:column;gap:10px">
+<span style="font-weight:500">{{t.fileName}}</span>
+<div style="height:8px;border-radius:4px;background:#E4E2DC;overflow:hidden"><div style="width:60%;height:100%;background:var(--acc)"></div></div>
+<span style="font-size:13px;color:var(--mute)">{{t.step}}</span>
+<span style="font-size:12px;color:var(--mute);text-wrap:pretty">{{t.fileNote}}</span>
+</div>
+</sc-if>
+
+</div>
+</sc-if>
+
+<div style="font-size:12px;color:var(--mute)">Bản mẫu minh hoạ, chưa nối AI thật. {{t.modelNote}}</div>
+</div>
+</div>
+
+</div>
+</sc-for>
+<div id="cu-nhat" style="height:1px;flex:0 0 1px"></div>
+</div>
+<div style="position:absolute;right:10px;bottom:10px;display:flex;flex-direction:column;gap:8px">
+<a href="#cu-nhat" aria-label="Lên yêu cầu đầu tiên" style="width:44px;height:44px;border-radius:50%;border:1px solid var(--line);background:var(--card);color:var(--ink);box-shadow:0 4px 12px rgba(24,24,22,0.12);display:flex;align-items:center;justify-content:center">
+<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 11l6-6 6 6 M6 19l6-6 6 6"></path></svg>
+</a>
+<a href="#moi-nhat" aria-label="Xuống yêu cầu mới nhất" style="width:44px;height:44px;border-radius:50%;border:1px solid var(--line);background:var(--card);color:var(--ink);box-shadow:0 4px 12px rgba(24,24,22,0.12);display:flex;align-items:center;justify-content:center">
+<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 5l6 6 6-6 M6 13l6 6 6-6"></path></svg>
+</a>
+</div>
+</div>
+</sc-if>
+
+<div class="oNhap" style="width:100%;box-sizing:border-box;background:var(--card);border:1px solid var(--line);border-radius:20px;box-shadow:0 1px 2px rgba(24,24,22,0.04),0 12px 32px rgba(24,24,22,0.06);display:flex;flex-direction:column;position:relative">
+<label for="loi-nhan" style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)">Lời nhắn</label>
+<textarea id="loi-nhan" rows="3" placeholder="{{placeholder}}" value="{{draft}}" onInput="{{onDraft}}" style="border:0;resize:none;background:transparent;color:var(--ink);padding:18px 20px 6px;font-size:16px;line-height:1.5;border-radius:20px 20px 0 0"></textarea>
+
+<sc-if value="{{hasTep}}" hint-placeholder-val="{{false}}">
+<div style="margin:0 16px;display:flex;align-items:center;gap:10px;padding:8px 8px 8px 14px;border:1px solid var(--line);border-radius:12px;background:var(--bg)">
+<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z M14 3v5h5"></path></svg>
+<div style="flex:1;min-width:0;display:flex;flex-direction:column;line-height:1.3"><span style="font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{tepName}}</span><span style="font-size:12px;color:var(--mute)">{{tepInfo}}</span></div>
+<button type="button" aria-label="Gỡ tệp đính kèm" onClick="{{removeTep}}" style="width:44px;height:44px;border-radius:12px;border:0;background:transparent;color:var(--mute);display:flex;align-items:center;justify-content:center">
+<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 6l12 12 M18 6L6 18"></path></svg>
+</button>
+</div>
+</sc-if>
+
+<sc-if value="{{nghe}}" hint-placeholder-val="{{false}}">
+<div role="status" style="display:flex;align-items:center;gap:10px;margin:0 16px;padding:8px 12px;border-radius:12px;background:#FDECEA;color:#8A1C12;font-size:13px">
+<span style="width:10px;height:10px;border-radius:50%;background:#B42318"></span>Đang nghe. Nói xong bấm nút micro để dừng, lời sẽ thành chữ trong ô nhập.
+</div>
+</sc-if>
+
+
+
+<div style="display:flex;flex-wrap:nowrap;align-items:center;gap:8px;padding:8px 14px 14px">
+<div style="position:relative;flex:0 0 auto">
+<button type="button" aria-label="Đính kèm tệp" aria-expanded="{{moT}}" onClick="{{toggleTep}}" style="width:44px;height:44px;border-radius:12px;border:1px solid var(--line);background:var(--card);color:var(--ink);display:flex;align-items:center;justify-content:center">
+<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="{{plus}}"></path></svg>
+</button>
+<sc-if value="{{moT}}" hint-placeholder-val="{{false}}">
+<div role="group" aria-label="Đính kèm tệp" style="position:absolute;width:320px;max-width:calc(100vw - 48px);left:0;bottom:calc(100% + 10px);z-index:5;max-height:340px;box-sizing:border-box;background:var(--card);border:1px solid var(--line);border-radius:16px;box-shadow:0 12px 32px rgba(24,24,22,0.14);padding:14px;display:flex;flex-direction:column;gap:10px">
+<div style="display:flex;flex-direction:column;line-height:1.3;flex:0 0 auto"><span style="font-weight:600">Đính kèm</span><span style="font-size:12px;color:var(--mute)">Tệp từ máy, hoặc ảnh và video đã tạo trong Tác phẩm</span></div>
+<div style="flex:1 1 auto;min-height:0;overflow-y:auto;display:flex;flex-direction:column;gap:8px">
+<sc-for list="{{samples}}" as="f" hint-placeholder-count="4">
+<button type="button" onClick="{{f.pick}}" style="box-sizing:border-box;width:100%;min-height:44px;display:flex;flex-direction:column;align-items:flex-start;gap:2px;padding:10px 14px;border-radius:12px;border:1px solid #E4E2DC;background:#fff;color:#181816;text-align:left">
+<span style="font-weight:500">{{f.name}}</span>
+<span style="font-size:12px;color:var(--mute)">{{f.info}}</span>
+</button>
+</sc-for>
+</div>
+<div style="flex:0 0 auto;font-size:12px;color:var(--mute)">Danh sách tệp mẫu chỉ có trong bản demo. Bản thật mở hộp chọn tệp của máy.</div>
+</div>
+</sc-if>
+</div>
+
+<sc-if value="{{coTog}}" hint-placeholder-val="{{true}}">
+<sc-for list="{{tog}}" as="g" hint-placeholder-count="2">
+<button type="button" aria-label="{{g.label}}" aria-pressed="{{g.on}}" onClick="{{g.pick}}" style="{{g.style}}">
+<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="{{g.d}}"></path></svg>
+<span class="chu-an">{{g.label}}</span>
+</button>
+</sc-for>
+</sc-if>
+<sc-if value="{{coModel}}" hint-placeholder-val="{{false}}">
+<div style="position:relative;flex:0 0 auto">
+<button type="button" aria-label="Chọn model" aria-expanded="{{moM}}" onClick="{{toggleModel}}" style="{{modelBtnStyle}}">
+<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z"></path></svg>
+<span class="chu-an2">{{modelLabel}}</span>
+<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"></path></svg>
+</button>
+<sc-if value="{{moM}}" hint-placeholder-val="{{false}}">
+<div role="group" aria-label="Chọn model" style="position:absolute;width:340px;max-width:calc(100vw - 48px);left:0;bottom:calc(100% + 10px);z-index:5;max-height:340px;box-sizing:border-box;background:var(--card);border:1px solid var(--line);border-radius:16px;box-shadow:0 12px 32px rgba(24,24,22,0.14);padding:14px;display:flex;flex-direction:column;gap:10px">
+<div style="display:flex;flex-direction:column;line-height:1.3;flex:0 0 auto"><span style="font-weight:600">{{modelTitle}}</span><span style="font-size:12px;color:var(--mute)">{{modelSub}}</span></div>
+<div style="flex:1 1 auto;min-height:0;overflow-y:auto;display:flex;flex-direction:column;gap:8px">
+<sc-for list="{{models}}" as="m" hint-placeholder-count="3">
+<button type="button" onClick="{{m.pick}}" aria-pressed="{{m.on}}" style="{{m.style}}">
+<span style="font-weight:600">{{m.name}}</span>
+<span style="font-size:12px;color:var(--mute)">{{m.note}}</span>
+<span style="font-size:12px;color:var(--acc);font-weight:500">{{m.spec}}</span>
+</button>
+</sc-for>
+</div>
+<div style="flex:0 0 auto;font-size:12px;color:var(--mute)">Model và tỉ lệ ở đây là ví dụ. Bản thật lấy theo khai báo của từng model.</div>
+</div>
+</sc-if>
+</div>
+</sc-if>
+<sc-if value="{{coRatio}}" hint-placeholder-val="{{false}}">
+<div style="position:relative;flex:0 0 auto">
+<button type="button" aria-label="Thông số: tỉ lệ và thời lượng" aria-expanded="{{moP}}" onClick="{{toggleP}}" style="{{chipStyle}}">
+<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h10 M18 7h2 M4 17h2 M10 17h10 M16 5v4 M8 15v4"></path></svg><span class="chu-an2">{{paramSummary}}</span>
+</button>
+<sc-if value="{{moP}}" hint-placeholder-val="{{false}}">
+<div role="group" aria-label="Thông số" style="position:absolute;left:0;bottom:calc(100% + 10px);z-index:5;width:300px;max-width:calc(100vw - 48px);max-height:340px;box-sizing:border-box;background:var(--card);border:1px solid var(--line);border-radius:16px;box-shadow:0 12px 32px rgba(24,24,22,0.14);padding:14px;display:flex;flex-direction:column;gap:12px">
+<div style="display:flex;flex-direction:column;gap:8px"><span style="font-weight:600">Tỉ lệ khung hình</span>
+<div style="display:flex;flex-wrap:wrap;gap:8px"><sc-for list="{{ratioPills}}" as="r" hint-placeholder-count="4"><button type="button" aria-pressed="{{r.on}}" onClick="{{r.pick}}" style="{{r.style}}">{{r.label}}</button></sc-for></div></div>
+<sc-if value="{{coDur}}" hint-placeholder-val="{{false}}">
+<div style="display:flex;flex-direction:column;gap:8px"><span style="font-weight:600">Thời lượng</span>
+<div style="display:flex;flex-wrap:wrap;gap:8px"><sc-for list="{{durPills}}" as="d" hint-placeholder-count="2"><button type="button" aria-pressed="{{d.on}}" onClick="{{d.pick}}" style="{{d.style}}">{{d.label}}</button></sc-for></div></div>
+</sc-if>
+<button type="button" onClick="{{dong}}" style="min-height:44px;border-radius:12px;border:0;background:var(--ink);color:#fff;font-weight:500;flex:0 0 auto">Xong</button>
+</div>
+</sc-if>
+</div>
+</sc-if>
+<sc-if value="{{coLang}}" hint-placeholder-val="{{false}}">
+<div style="position:relative;flex:0 0 auto">
+<button type="button" aria-label="Ngôn ngữ dịch" aria-expanded="{{moL}}" onClick="{{toggleL}}" style="{{chipStyle}}">
+<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 5h9 M8.5 3v2 M6 5c.5 3 2.5 6 6 8 M11 5c-.5 3-3 6.5-7 8 M13 20l4-9 4 9 M14.5 17h5"></path></svg><span class="chu-an2">{{langSummary}}</span>
+</button>
+<sc-if value="{{moL}}" hint-placeholder-val="{{false}}">
+<div role="group" aria-label="Ngôn ngữ dịch" style="position:absolute;left:0;bottom:calc(100% + 10px);z-index:5;width:340px;max-width:calc(100vw - 48px);max-height:340px;box-sizing:border-box;background:var(--card);border:1px solid var(--line);border-radius:16px;box-shadow:0 12px 32px rgba(24,24,22,0.14);padding:14px;display:flex;flex-direction:column;gap:12px">
+<div style="display:flex;align-items:flex-end;gap:8px">
+<label style="flex:1;display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--mute)">Từ
+<select aria-label="Dịch từ ngôn ngữ" value="{{src}}" onChange="{{onSrc}}" style="height:44px;border:1px solid var(--line);border-radius:12px;background:var(--card);color:var(--ink);font:inherit;font-size:14px;padding:0 8px">
+<sc-for list="{{srcOpts}}" as="o" hint-placeholder-count="6"><option value="{{o.v}}">{{o.label}}</option></sc-for>
+</select></label>
+<button type="button" aria-label="Đổi chiều dịch" onClick="{{swap}}" style="width:44px;height:44px;border-radius:12px;border:1px solid var(--line);background:var(--card);color:var(--ink);display:flex;align-items:center;justify-content:center;flex:0 0 auto">
+<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 8h14 M14 4l4 4-4 4 M20 16H6 M10 12l-4 4 4 4"></path></svg>
+</button>
+<label style="flex:1;display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--mute)">Sang
+<select aria-label="Dịch sang ngôn ngữ" value="{{dst}}" onChange="{{onDst}}" style="height:44px;border:1px solid var(--line);border-radius:12px;background:var(--card);color:var(--ink);font:inherit;font-size:14px;padding:0 8px">
+<sc-for list="{{dstOpts}}" as="o" hint-placeholder-count="6"><option value="{{o.v}}">{{o.label}}</option></sc-for>
+</select></label>
+</div>
+<button type="button" onClick="{{dong}}" style="min-height:44px;border-radius:12px;border:0;background:var(--ink);color:#fff;font-weight:500;flex:0 0 auto">Xong</button>
+</div>
+</sc-if>
+</div>
+</sc-if>
+<sc-if value="{{coGiong}}" hint-placeholder-val="{{false}}">
+<div style="position:relative;flex:0 0 auto">
+<button type="button" aria-label="Giọng lồng tiếng" aria-expanded="{{moG}}" onClick="{{toggleG}}" style="{{chipStyle}}">
+<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 9v6h4l5 4V5L8 9z M16.5 8.5a5 5 0 0 1 0 7 M19 6a8.5 8.5 0 0 1 0 12"></path></svg><span class="chu-an2">{{giongShort}}</span>
+</button>
+<sc-if value="{{moG}}" hint-placeholder-val="{{false}}">
+<div role="group" aria-label="Giọng lồng tiếng" style="position:absolute;left:0;bottom:calc(100% + 10px);z-index:5;width:320px;max-width:calc(100vw - 48px);max-height:340px;box-sizing:border-box;background:var(--card);border:1px solid var(--line);border-radius:16px;box-shadow:0 12px 32px rgba(24,24,22,0.14);padding:14px;display:flex;flex-direction:column;gap:12px">
+<span style="font-weight:600">Giọng lồng tiếng</span>
+<div style="flex:1 1 auto;min-height:0;overflow-y:auto;display:flex;flex-direction:column;gap:8px">
+<sc-for list="{{giongRows}}" as="g" hint-placeholder-count="4"><button type="button" onClick="{{g.pick}}" aria-pressed="{{g.on}}" disabled="{{g.off}}" style="{{g.style}}"><span style="font-weight:600">{{g.name}}</span><span style="font-size:12px;color:var(--mute)">{{g.note}}</span></button></sc-for>
+</div>
+</div>
+</sc-if>
+</div>
+</sc-if>
+<sc-if value="{{coLang}}" hint-placeholder-val="{{false}}">
+<div style="position:relative;flex:0 0 auto">
+<button type="button" aria-label="{{aiLabel}}" aria-pressed="{{aiOn}}" aria-expanded="{{moA}}" onClick="{{toggleAi}}" style="{{aiBtnStyle}}">
+<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="{{aiBtnD}}"></path></svg>AI<span class="chu-an2">{{aiSuffix}}</span>
+</button>
+<sc-if value="{{moA}}" hint-placeholder-val="{{false}}">
+<div role="group" aria-label="Chỉnh bản dịch bằng AI" style="position:absolute;width:340px;max-width:calc(100vw - 48px);left:0;bottom:calc(100% + 10px);z-index:5;max-height:340px;box-sizing:border-box;background:var(--card);border:1px solid var(--line);border-radius:16px;box-shadow:0 12px 32px rgba(24,24,22,0.14);padding:14px;display:flex;flex-direction:column;gap:10px">
+<div style="display:flex;flex-direction:column;line-height:1.3;flex:0 0 auto"><span style="font-weight:600">Chỉnh bản dịch bằng AI</span><span style="font-size:12px;color:var(--mute)">Không bắt buộc. Máy dịch tại nhà vẫn dịch, AI chỉ chỉnh nghĩa và làm mượt câu.</span></div>
+<div style="flex:1 1 auto;min-height:0;overflow-y:auto;display:flex;flex-direction:column;gap:8px">
+<sc-for list="{{aiRows}}" as="a" hint-placeholder-count="5">
+<button type="button" onClick="{{a.pick}}" aria-pressed="{{a.on}}" style="{{a.style}}">
+<span style="font-weight:600">{{a.name}}</span>
+<span style="font-size:12px;color:var(--mute)">{{a.note}}</span>
+</button>
+</sc-for>
+</div>
+</div>
+</sc-if>
+</div>
+</sc-if>
+<div style="margin-left:auto;display:flex;align-items:center;gap:8px;flex:0 0 auto">
+
+<div style="position:relative;flex:0 0 auto">
+<button type="button" aria-label="{{loaLabel}}" aria-pressed="{{loa}}" onClick="{{toggleLoa}}" style="{{loaStyle}}">
+<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="{{loaD}}"></path></svg>
+</button>
+<sc-if value="{{mo}}" hint-placeholder-val="{{false}}">
+<div role="group" aria-label="Giọng đọc" style="position:absolute;width:340px;max-width:calc(100vw - 48px);right:0;bottom:calc(100% + 10px);z-index:5;max-height:340px;box-sizing:border-box;background:var(--card);border:1px solid var(--line);border-radius:16px;box-shadow:0 12px 32px rgba(24,24,22,0.14);padding:14px;display:flex;flex-direction:column;gap:10px">
+<div style="display:flex;align-items:center;gap:8px;flex:0 0 auto">
+<sc-if value="{{trong}}" hint-placeholder-val="{{false}}">
+<button type="button" aria-label="Quay lại chọn loại giọng" onClick="{{quay}}" style="width:44px;height:44px;border-radius:12px;border:1px solid var(--line);background:var(--card);color:var(--ink);display:flex;align-items:center;justify-content:center">
+<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 6l-6 6 6 6"></path></svg>
+</button>
+</sc-if>
+<div style="display:flex;flex-direction:column;line-height:1.3">
+<span style="font-weight:600">{{title}}</span>
+<span style="font-size:12px;color:var(--mute)">{{sub}}</span>
+</div>
+</div>
+<div style="flex:1 1 auto;min-height:0;overflow-y:auto;display:flex;flex-direction:column;gap:8px">
+<sc-if value="{{ds1}}" hint-placeholder-val="{{true}}">
+<button type="button" onClick="{{tatDoc}}" aria-pressed="{{tat}}" style="{{tatStyle}}">
+<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 9v6h4l5 4V5L8 9z M22 9l-6 6 M16 9l6 6"></path></svg>
+<span style="flex:1;text-align:left">Không đọc</span>
+</button>
+</sc-if>
+<sc-for list="{{rows}}" as="v" hint-placeholder-count="5">
+<sc-if value="{{v.isEng}}" hint-placeholder-val="{{true}}">
+<button type="button" onClick="{{v.pick}}" style="{{v.style}}">
+<span style="flex:1;text-align:left">{{v.name}}</span>
+<span style="font-size:12px;color:var(--mute)">{{v.note}}</span>
+<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"></path></svg>
+</button>
+</sc-if>
+<sc-if value="{{v.isVoice}}" hint-placeholder-val="{{false}}">
+<div style="display:flex;align-items:center;gap:8px">
+<button type="button" onClick="{{v.pick}}" aria-pressed="{{v.on}}" style="{{v.style}}">
+<span style="flex:1;text-align:left">{{v.name}}</span>
+</button>
+<button type="button" aria-label="Nghe thử giọng {{v.name}}" style="width:44px;height:44px;border-radius:12px;border:1px solid var(--line);background:var(--card);color:var(--ink);display:flex;align-items:center;justify-content:center">
+<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 5l11 7-11 7z"></path></svg>
+</button>
+</div>
+</sc-if>
+</sc-for>
+</div>
+<div style="flex:0 0 auto;font-size:12px;color:var(--mute);display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap"><span>Tên giọng ở đây là ví dụ.</span><a href="#" style="color:var(--acc);font-weight:500">Quản lý giọng đã tải</a></div>
+</div>
+</sc-if>
+</div>
+<button type="button" aria-label="{{micLabel}}" aria-pressed="{{nghe}}" onClick="{{toggleMic}}" style="{{micStyle}}">
+<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="{{micD}}"></path></svg>
+</button>
+<button type="button" aria-label="Gửi" onClick="{{gui}}" style="width:44px;height:44px;border-radius:50%;border:0;background:var(--ink);color:#fff;display:flex;align-items:center;justify-content:center">
+<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="{{up}}"></path></svg>
+</button></div>
+</div>
+</div>
+
+<div role="toolbar" aria-label="Chọn việc cần làm" style="display:flex;flex-wrap:wrap;justify-content:center;gap:10px">
+<sc-for list="{{modes}}" as="m" hint-placeholder-count="4">
+<button type="button" aria-pressed="{{m.on}}" onClick="{{m.pick}}" style="{{m.style}}">
+<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="{{m.d}}"></path></svg>
+{{m.label}}
+</button>
+<sc-if value="{{m.coThem}}" hint-placeholder-val="{{true}}"><button type="button" aria-label="Tạo cuộc trò chuyện mới" onClick="{{reset}}" style="{{moiStyle}}"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14 M5 12h14"></path></svg><span>Tạo mới</span></button><button type="button" aria-haspopup="dialog" aria-expanded="{{lsMo}}" aria-label="Lịch sử trò chuyện" onClick="{{lsToggle}}" style="{{lsStyle}}"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 7v5l3 2 M3 12a9 9 0 1 0 3-6.7 M3 4v4h4"></path></svg><span>Lịch sử</span></button></sc-if>
+</sc-for>
+</div>
+<sc-if value="{{lsMo}}" hint-placeholder-val="{{false}}"><div aria-hidden="true" onClick="{{lsDong}}" style="position:fixed;top:0;right:0;bottom:0;left:0;z-index:40"></div>
+<div role="dialog" aria-label="Lịch sử trò chuyện" style="position:fixed;left:50%;transform:translateX(-50%);bottom:150px;z-index:41;width:min(440px,calc(100vw - 32px));max-height:min(60vh,420px);display:flex;flex-direction:column;gap:8px;box-sizing:border-box;padding:12px;background:var(--card);border:1px solid var(--line);border-radius:16px;box-shadow:0 16px 40px rgba(24,24,22,0.2)">
+<div style="display:flex;align-items:baseline;justify-content:space-between;gap:8px"><span style="font-weight:600">Lịch sử trò chuyện</span><span style="font-size:12px;color:var(--mute)">chọn một cuộc để nói tiếp</span></div>
+<input type="search" aria-label="Tìm cuộc trò chuyện" placeholder="Tìm cuộc trò chuyện…" value="{{lsQ}}" onInput="{{onLsQ}}" style="box-sizing:border-box;width:100%;min-height:40px;padding:0 14px;border:1px solid var(--line);border-radius:20px;background:var(--bg);color:var(--ink);font:inherit;font-size:14px">
+<div class="cuon" style="flex:1 1 auto;min-height:0;overflow-y:auto;display:flex;flex-direction:column;gap:2px">
+<sc-for list="{{lsRows}}" as="h" hint-placeholder-count="4"><button type="button" aria-current="{{h.on}}" onClick="{{h.pick}}" style="{{h.style}}"><span style="min-width:0;display:flex;flex-direction:column;gap:2px;line-height:1.35"><span style="font-weight:500;font-size:14px;overflow-wrap:anywhere">{{h.ten}}</span><span style="font-size:12px;color:var(--mute)">{{h.luc}} · {{h.so}}</span></span><sc-if value="{{h.on}}" hint-placeholder-val="{{false}}"><span style="flex:0 0 auto;padding:2px 10px;border-radius:12px;background:#E2F0ED;color:#0B5A53;font-size:12px;font-weight:500">Đang mở</span></sc-if></button></sc-for>
+<sc-if value="{{lsTrong}}" hint-placeholder-val="{{false}}"><div style="padding:18px 0;text-align:center;color:var(--mute);font-size:13px">Không có cuộc nào khớp.</div></sc-if>
+</div>
+</div></sc-if>
+
+
+</div>
+</main>
+<nav aria-label="Điều hướng chính (điện thoại)" class="bn">
+<sc-for list="{{nav}}" as="n" hint-placeholder-count="6">
+<sc-if value="{{n.bLink}}" hint-placeholder-val="{{true}}"><a href="{{n.href}}" aria-label="{{n.label}}" onClick="{{n.dong}}" style="{{n.bstyle}}"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="{{n.d}}"></path></svg><span>{{n.label}}</span></a></sc-if>
+<sc-if value="{{n.bSub}}" hint-placeholder-val="{{false}}"><button type="button" aria-haspopup="menu" aria-expanded="{{n.open}}" aria-label="{{n.label}}" onClick="{{n.toggle}}" style="{{n.bbtn}}"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="{{n.d}}"></path></svg><span>{{n.label}}</span></button></sc-if>
+</sc-for>
+<sc-if value="{{coSheet}}" hint-placeholder-val="{{false}}">
+<div aria-hidden="true" style="position:absolute;{{sheet.arrow}};bottom:calc(100% + 4px);z-index:31;width:12px;height:12px;box-sizing:border-box;background:var(--card);border-right:1px solid var(--line);border-bottom:1px solid var(--line);transform:rotate(45deg)"></div>
+<div role="menu" aria-label="Mục trong {{sheet.label}}" style="position:absolute;{{sheet.pos}};width:200px;bottom:calc(100% + 10px);z-index:30;box-sizing:border-box;background:var(--card);border:1px solid var(--line);border-radius:14px;box-shadow:0 -6px 24px rgba(24,24,22,0.16);padding:4px;display:flex;flex-direction:column;gap:1px;max-height:60vh;overflow-y:auto">
+<sc-for list="{{sheet.subs}}" as="u" hint-placeholder-count="5">
+<sc-if value="{{u.ext}}" hint-placeholder-val="{{false}}"><a role="menuitem" href="{{u.href}}" onClick="{{u.pick}}" style="{{u.style}}"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="{{u.d}}"></path></svg><span>{{u.label}}</span><sc-if value="{{u.coBao}}" hint-placeholder-val="{{false}}"><span style="margin-left:auto;min-width:20px;height:20px;box-sizing:border-box;padding:0 6px;border-radius:10px;background:#B42318;color:#fff;font-size:12px;font-weight:600;display:flex;align-items:center;justify-content:center">{{u.bao}}</span></sc-if></a></sc-if>
+<sc-if value="{{u.inner}}" hint-placeholder-val="{{false}}"><button type="button" role="menuitem" aria-current="{{u.on}}" onClick="{{u.pick}}" style="{{u.style}}"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="{{u.d}}"></path></svg><span>{{u.label}}</span><sc-if value="{{u.coBao}}" hint-placeholder-val="{{false}}"><span style="margin-left:auto;min-width:20px;height:20px;box-sizing:border-box;padding:0 6px;border-radius:10px;background:#B42318;color:#fff;font-size:12px;font-weight:600;display:flex;align-items:center;justify-content:center">{{u.bao}}</span></sc-if></button></sc-if>
+</sc-for>
+</div>
+</sc-if>
+</nav>
+<sc-if value="{{backdrop}}" hint-placeholder-val="{{false}}"><div aria-hidden="true" onClick="{{menuDong}}" style="position:fixed;top:0;right:0;bottom:0;left:0;z-index:19"></div></sc-if>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1280,"height":860}}'>
+class Component extends DCLogic {
+  state = { menuMo: null, accMo: false, 
+    mode: 'chat', draft: '', ratio: '1:1', dur: '',
+    voice: 'tat', eng: '', mo: false, moM: false, nghe: false,
+    imgModel: 'auto', vidModel: 'auto', chatModel: 'text',
+    src: 'auto', dst: 'vi', kq: 'phu-de', giong: 'zerotts:0', ai: 'khong',
+    turns: (() => { try { const j = JSON.parse(localStorage.getItem('web2api_chat') || 'null'); return j && Array.isArray(j.turns) ? j.turns : []; } catch (e) { return []; } })(), chatId: (() => { try { const j = JSON.parse(localStorage.getItem('web2api_chat') || 'null'); return j && j.id ? j.id : null; } catch (e) { return null; } })(), lsMo: false, lsQ: '', tep: null, moT: false, moA: false, moP: false, moL: false, moG: false
+  };
+
+  renderVals() {
+    const s = this.state;
+    const IC = {
+      logo: 'M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z',
+      plus: 'M12 5v14 M5 12h14',
+      up: 'M12 19V5 M6 11l6-6 6 6',
+      chat: 'M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z',
+      image: 'M4 5h16v14H4z M4 16l5-5 4 4 3-3 4 4 M9 9.5h.01',
+      video: 'M3 6h12v12H3z M15 10l6-3v10l-6-3',
+      dich: 'M4 5h9 M8.5 3v2 M6 5c.5 3 2.5 6 6 8 M11 5c-.5 3-3 6.5-7 8 M13 20l4-9 4 9 M14.5 17h5',
+      search: 'M11 4a7 7 0 1 0 0 14 7 7 0 0 0 0-14z M20 20l-4-4',
+      home: 'M3 11l9-8 9 8 M5 10v10h14V10 M10 20v-6h4v6',
+      plug: 'M9 3v5 M15 3v5 M6 8h12v3a6 6 0 0 1-12 0z M12 17v4',
+      sliders: 'M4 7h10 M18 7h2 M4 17h2 M10 17h10 M16 5v4 M8 15v4',
+      sub: 'M3 6h18v12H3z M7 14h4 M13 14h4 M7 10h2 M12 10h5',
+      dub: 'M3 12h2 M7 8v8 M11 5v14 M15 9v6 M19 11v2',
+      folder: 'M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z'
+    };
+    const MODES = [
+      { id: 'chat', label: 'Trò chuyện', d: IC.chat, ph: 'Hỏi bất kỳ điều gì, hoặc giao một việc cần làm…',
+        ideas: ['Tóm tắt tài liệu tôi đính kèm', 'Soạn thư trả lời khách', 'Giá xăng hôm nay'] },
+      { id: 'image', label: 'Vẽ ảnh', d: IC.image, ph: 'Tả bức ảnh bạn muốn — chủ thể, ánh sáng, phong cách…',
+        ideas: ['Ảnh sản phẩm trên nền trắng', 'Tranh minh hoạ phong cách màu nước', 'Logo đơn giản một màu'] },
+      { id: 'video', label: 'Tạo video', d: IC.video, ph: 'Tả cảnh quay: ai, ở đâu, chuyển động thế nào…',
+        ideas: ['Cảnh hoàng hôn trên biển, máy quay lướt chậm', 'Biến ảnh đính kèm thành video ngắn'] },
+      { id: 'dich', label: 'Dịch', d: IC.dich, ph: 'Dán chữ cần dịch…',
+        ideas: ['Dịch Anh sang Việt, giữ giọng văn', 'Dịch đoạn hợp đồng sang tiếng Anh'] },
+      { id: 'vietsub', label: 'Vietsub', d: IC.sub, ph: 'Đính kèm video hoặc âm thanh bằng dấu +, rồi bấm gửi.',
+        ideas: ['Thêm phụ đề cho video', 'Thêm phụ đề cho bản ghi âm'] },
+      { id: 'longtieng', label: 'Lồng tiếng', d: IC.dub, ph: 'Đính kèm video bằng dấu +, rồi bấm gửi.',
+        ideas: ['Lồng tiếng tiếng Việt cho video'] }
+    ];
+    const cur = MODES.find((m) => m.id === s.mode);
+
+    // ---- model, tỉ lệ, thời lượng theo model
+    const CHAT = [
+      { id: 'text', name: 'AI text', note: 'Cân bằng, dùng cho hầu hết việc', spec: 'Combo, tự lùi khi hết hạn mức' },
+      { id: 'kho', name: 'AI khó', note: 'Việc phức tạp, trả lời chậm hơn', spec: 'Combo, tự lùi khi hết hạn mức' },
+      { id: 'nhe', name: 'AI nhẹ', note: 'Việc đơn giản, trả lời nhanh', spec: 'Combo, tự lùi khi hết hạn mức' },
+      { id: 'gpt', name: 'ChatGPT', note: 'Qua tài khoản ChatGPT', spec: 'Model cụ thể' },
+      { id: 'claude', name: 'Claude', note: 'Qua tài khoản Claude', spec: 'Model cụ thể' },
+      { id: 'gemini', name: 'Gemini', note: 'Qua tài khoản Gemini', spec: 'Model cụ thể' },
+      { id: 'ag', name: 'Antigravity', note: 'Qua tài khoản Antigravity', spec: 'Model cụ thể' }
+    ];
+    const IMG = [
+      { id: 'auto', name: 'Tự chọn', note: 'Hệ thống chọn nguồn còn hạn mức', ratios: ['1:1', '3:4', '4:3', '9:16', '16:9'] },
+      { id: 'gpt', name: 'ChatGPT ảnh', note: 'Qua tài khoản ChatGPT', ratios: ['1:1', '3:2', '2:3'] },
+      { id: 'gem', name: 'Gemini ảnh', note: 'Qua tài khoản Gemini', ratios: ['1:1', '3:4', '4:3', '9:16', '16:9'] },
+      { id: 'grok', name: 'Grok Imagine', note: 'Qua tài khoản Grok', ratios: ['1:1', '2:3', '3:2', '9:16', '16:9'] }
+    ];
+    const VID = [
+      { id: 'auto', name: 'Tự chọn', note: 'Hệ thống chọn nguồn còn hạn mức', ratios: ['16:9', '9:16'], durs: ['6 giây', '8 giây', '10 giây'] },
+      { id: 'veo', name: 'Veo (Flow)', note: 'Qua tài khoản Google Flow', ratios: ['16:9', '9:16'], durs: ['8 giây'] },
+      { id: 'grokv', name: 'Grok Imagine', note: 'Qua tài khoản Grok', ratios: ['16:9', '9:16', '1:1'], durs: ['6 giây', '10 giây'] }
+    ];
+    const isVid = s.mode === 'video';
+    const isChat = s.mode === 'chat';
+    const isDich = s.mode === 'dich';
+    const isSub = s.mode === 'vietsub';
+    const isDub = s.mode === 'longtieng';
+    const isChatFam = s.mode === 'chat' || s.mode === 'image' || s.mode === 'video';
+    const coLang = isDich || isSub || isDub;
+    const LIST = isVid ? VID : (isChat ? CHAT : IMG);
+    const selId = isVid ? s.vidModel : (isChat ? s.chatModel : s.imgModel);
+    const mdl = LIST.find((m) => m.id === selId) || LIST[0];
+    const coRatio = s.mode === 'image' || isVid;
+    const coModel = coRatio || isChat;
+    const rs = mdl.ratios || [];
+    const ratio = rs.includes(s.ratio) ? s.ratio : (rs[0] || '');
+    const durs = mdl.durs || [];
+    const dur = durs.includes(s.dur) ? s.dur : (durs[0] || '');
+    const mOn = 'box-sizing:border-box;width:100%;min-height:44px;display:flex;flex-direction:column;align-items:flex-start;gap:2px;padding:10px 14px;border-radius:12px;border:2px solid #0F766E;background:#E2F0ED;color:#181816;text-align:left';
+    const mOff = 'box-sizing:border-box;width:100%;min-height:44px;display:flex;flex-direction:column;align-items:flex-start;gap:2px;padding:10px 14px;border-radius:12px;border:1px solid #E4E2DC;background:#fff;color:#181816;text-align:left';
+    const models = LIST.map((m) => ({ name: m.name, note: m.note, on: m.id === mdl.id, style: m.id === mdl.id ? mOn : mOff,
+      spec: m.ratios ? m.ratios.join(' · ') + (m.durs ? ' · ' + m.durs.join(' · ') : '') : m.spec,
+      pick: () => this.setState(isVid ? { vidModel: m.id, moM: false } : (isChat ? { chatModel: m.id, moM: false } : { imgModel: m.id, moM: false })) }));
+
+    // ---- dịch: ngôn ngữ, dạng, kết quả, giọng, AI chỉnh dịch
+    const LANG = [['vi', 'Việt'], ['en', 'Anh'], ['zh', 'Trung'], ['ja', 'Nhật'], ['ko', 'Hàn'],
+      ['fr', 'Pháp'], ['de', 'Đức'], ['es', 'Tây Ban Nha'], ['th', 'Thái'], ['id', 'Indonesia'], ['ru', 'Nga']];
+    const LN = {};
+    LANG.forEach(([v, l]) => { LN[v] = l.replace('', ''); });
+    const dstOpts = LANG.map(([v, label]) => ({ v, label }));
+    const srcOpts = [{ v: 'auto', label: 'Tự nhận' }].concat(dstOpts);
+    const coGiong = isDub;
+    const DATA = [['zerotts', 'ZeroTTS', ['Nữ miền Bắc', 'Nam miền Bắc', 'Nữ miền Nam']], ['vieneu', 'VieNeu', ['Nữ trẻ', 'Nam trầm']], ['kokoro', 'Kokoro', ['Nữ 1', 'Nam 1']]];
+    const giongOpts = [];
+    DATA.forEach(([id, name, vs]) => vs.forEach((vn, i) => giongOpts.push({ v: id + ':' + i, label: name + ' · ' + vn, off: false })));
+    giongOpts.push({ v: 'kokoro:9', label: 'Kokoro · Nam 2 · chưa tải', off: true });
+    const giongLabel = (giongOpts.find((o) => o.v === s.giong) || giongOpts[0]).label;
+    const aiOpts = [{ v: 'khong', label: 'Không chỉnh bằng AI' }, { v: 'cuc-bo', label: 'Chỉnh bằng model tại nhà' }, { v: 'nhe', label: 'Chỉnh bằng AI nhẹ' }, { v: 'text', label: 'Chỉnh bằng AI text' }, { v: 'kho', label: 'Chỉnh bằng AI khó' }];
+    const aiName = { 'cuc-bo': 'model tại nhà', nhe: 'AI nhẹ', text: 'AI text', kho: 'AI khó' };
+    const aiRows = [
+      { id: 'khong', name: 'Không chỉnh', note: 'Chỉ dùng máy dịch tại nhà' },
+      { id: 'cuc-bo', name: 'Model tại nhà', note: 'Khuyên dùng, không gửi chữ ra ngoài' },
+      { id: 'nhe', name: 'AI nhẹ', note: 'Nhanh, chữ có thể gửi ra ngoài' },
+      { id: 'text', name: 'AI text', note: 'Cân bằng' },
+      { id: 'kho', name: 'AI khó', note: 'Chỉnh kỹ, chậm hơn, hợp văn bản pháp lý' }
+    ].map((a) => ({ name: a.name, note: a.note, on: s.ai === a.id, style: s.ai === a.id ? mOn : mOff, pick: () => this.setState({ ai: a.id, moA: false }) }));
+    const aiOn = s.ai !== 'khong';
+    const none = { lsMo: false, moM: false, moT: false, moA: false, mo: false, moP: false, moL: false, moG: false };
+    const pOn = 'min-height:44px;padding:0 16px;border-radius:22px;border:2px solid #181816;background:#181816;color:#fff;font-weight:600';
+    const pOff = 'min-height:44px;padding:0 16px;border-radius:22px;border:1px solid #E4E2DC;background:#fff;color:#181816';
+    const chipStyle = 'height:44px;padding:0 12px;border-radius:22px;border:1px solid #E4E2DC;background:#fff;color:#181816;font-size:13px;font-weight:500;display:flex;align-items:center;gap:8px;white-space:nowrap';
+    const giongRows = giongOpts.map((o) => ({ name: o.label, note: o.off ? 'chưa tải' : '', off: o.off, on: s.giong === o.v, style: s.giong === o.v ? mOn : mOff, pick: () => this.setState(Object.assign({}, none, { giong: o.v })) }));
+    const SAMPLES = [
+      { name: 'bai-giang.mp4', kind: 'video', info: 'Video · 48 MB' },
+      { name: 'ghi-am.m4a', kind: 'audio', info: 'Âm thanh · 6 MB' },
+      { name: 'hop-dong.pdf', kind: 'doc', info: 'Tài liệu · 1,2 MB' },
+      { name: 'anh-chup.jpg', kind: 'image', info: 'Ảnh · 2 MB' }
+    ];
+
+    // ---- giọng đọc (TTS)
+    const engOf = (v) => v.split(':')[0];
+    const vOn = 'flex:1;min-height:44px;display:flex;align-items:center;gap:8px;padding:0 14px;border-radius:12px;border:2px solid #0F766E;background:#E2F0ED;color:#181816;font-weight:500';
+    const vOff = 'flex:1;min-height:44px;display:flex;align-items:center;gap:8px;padding:0 14px;border-radius:12px;border:1px solid #E4E2DC;background:#fff;color:#181816';
+    const engStyle = 'width:100%;box-sizing:border-box;min-height:44px;display:flex;align-items:center;gap:8px;padding:0 14px;border-radius:12px;border:1px solid #E4E2DC;background:#F6F5F2;color:#181816;font-weight:500';
+    const trong = s.eng !== '';
+    const curEng = DATA.find((d) => d[0] === s.eng);
+    const rows = [];
+    if (!trong) {
+      DATA.forEach(([id, name, vs]) => rows.push({ isEng: true, isVoice: false, name, note: engOf(s.voice) === id ? 'đang dùng' : vs.length + ' giọng', style: engStyle, on: false,
+        pick: () => this.setState({ eng: id }) }));
+    } else {
+      curEng[2].forEach((vn, i) => rows.push({ isEng: false, isVoice: true, name: vn, note: '', on: s.voice === s.eng + ':' + i,
+        style: s.voice === s.eng + ':' + i ? vOn : vOff, pick: () => this.setState({ voice: s.eng + ':' + i, mo: false, eng: '' }) }));
+    }
+    const ic = 'width:44px;height:44px;border-radius:12px;display:flex;align-items:center;justify-content:center;';
+    const loaOn = s.voice !== 'tat';
+
+    const tab = (on) => 'display:flex;align-items:center;gap:8px;height:44px;padding:0 18px;border-radius:22px;font-size:14px;' +
+      (on ? 'border:1px solid #181816;background:#fff;color:#181816;font-weight:500' : 'border:1px solid transparent;background:transparent;color:#66645F');
+
+    const navBase = 'flex:0 0 auto;display:flex;align-items:center;gap:8px;height:40px;padding:0 14px;border-radius:20px;white-space:nowrap;';
+    const navOn = navBase + 'background:#EFEDE8;color:#181816;font-weight:500';
+    const navOff = navBase + 'color:#66645F';
+    const nav = [
+      { label: 'Studio', d: IC.chat, href: 'Main.dc.html', style: navOn },
+      { label: 'Tác phẩm', d: IC.folder, href: 'Tac-pham.dc.html', style: navOff },
+      { label: 'Nhà', d: IC.home, href: 'Nha.dc.html', style: navOff },
+      { label: 'Đời sống', d: 'M12 21s-7-4.4-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 11c0 5.6-7 10-7 10z', href: 'Doi-song.dc.html', style: navOff },
+      { label: 'Hệ thống', d: IC.sliders, href: 'He-thong.dc.html', wst: 'margin-left:auto', style: navOff }
+    ];
+
+    // ---- cuộc trò chuyện đang mở được nhớ trong trình duyệt: sang khung khác rồi quay lại vẫn nói tiếp được
+    const luuChat = (id, turns) => { try { localStorage.setItem('web2api_chat', JSON.stringify({ id, turns })); } catch (e) { /* trình duyệt chặn */ } };
+    // ---- gửi yêu cầu: dựng một lượt hỏi và đáp mẫu theo từng chế độ
+    const gui = () => {
+      const turnId = s.turns.length + 1;
+      const tileBase = 'display:flex;align-items:center;justify-content:center;color:#66645F;background:#EFEDE8;border:1px solid #E4E2DC;border-radius:14px;';
+      const asp = (r) => (r || '1:1').replace(':', ' / ');
+      const noi = s.draft.trim() || cur.ideas[0];
+      let t;
+      if (isDich || isSub || isDub) {
+        const dich = LN[s.dst];
+        const tu = s.src === 'auto' ? 'tự nhận' : LN[s.src];
+        const ai = s.ai === 'khong' ? '' : ' · chỉnh bằng ' + aiName[s.ai];
+        const f = s.tep || SAMPLES[0];
+        t = { id: turnId, isDich: true, text: noi, srcName: s.src === 'auto' ? 'Bản gốc (tự nhận tiếng)' : 'Bản gốc · ' + LN[s.src], dstName: 'Tiếng ' + dich,
+          dText: false, dFile: false, dBusy: false, fileName: '', fileNote: '', step: '',
+          modelNote: s.ai === 'khong' ? 'Dịch bằng máy dịch tại nhà, không dùng AI.' : 'Máy dịch tại nhà, bản dịch được ' + aiName[s.ai] + ' chỉnh lại.' };
+        if (isDich) {
+          const chu = !s.tep;
+          Object.assign(t, { userLine: chu ? noi : 'Dịch «' + s.tep.name + '» sang tiếng ' + dich, meta: 'Dịch · ' + tu + ' → ' + dich + ai, dText: chu });
+          if (!chu) Object.assign(t, { dFile: true, fileName: s.tep.name.replace(/\.[^.]+$/, '') + '-da-dich', fileNote: 'Giữ nguyên bố cục. Ảnh được đọc chữ rồi dịch. Đã lưu vào Tác phẩm.' });
+        } else if (isSub) {
+          Object.assign(t, { userLine: 'Làm phụ đề tiếng ' + dich + ' cho «' + f.name + '»', meta: 'Vietsub · ' + tu + ' → ' + dich + ai,
+            dFile: true, fileName: f.name.replace(/\.[^.]+$/, '') + '.srt', fileNote: 'Có mốc thời gian. Dán vào trình phát hoặc ghép vào video.' });
+        } else {
+          Object.assign(t, { userLine: 'Lồng tiếng ' + dich + ' cho «' + f.name + '»', meta: 'Lồng tiếng · ' + tu + ' → ' + dich + ' · ' + giongLabel + ai,
+            dBusy: true, fileName: f.name.replace(/\.[^.]+$/, '') + '-long-tieng.mp4', step: 'Bước 4/5 · Đọc bằng giọng đã chọn',
+            fileNote: 'Phim dài có thể mất vài giờ, bạn có thể đóng trang, xong sẽ báo và lưu vào Tác phẩm.' });
+        }
+      } else if (isVid) {
+        t = { id: turnId, isVideo: true, userLine: noi, meta: 'Tạo video · ' + mdl.name + ' · ' + ratio + (dur ? ' · ' + dur : ''),
+          videoStyle: tileBase + 'width:100%;max-width:440px;aspect-ratio:' + asp(ratio) + ';', modelNote: '' };
+      } else if (s.mode === 'image') {
+        t = { id: turnId, isImage: true, userLine: noi, meta: 'Vẽ ảnh · ' + mdl.name + ' · ' + ratio,
+          tileStyle: tileBase + 'width:' + (ratio === '16:9' || ratio === '4:3' || ratio === '3:2' ? 260 : 190) + 'px;aspect-ratio:' + asp(ratio) + ';', modelNote: '' };
+      } else {
+        t = { id: turnId, isChat: true, userLine: noi, meta: 'Trò chuyện · ' + mdl.name, modelNote: '' };
+      }
+      const id = s.chatId || 'moi'; luuChat(id, s.turns.concat([t]));
+      this.setState(Object.assign({}, none, { turns: s.turns.concat([t]), draft: '', tep: null, chatId: id }));
+    };
+    const turns = s.turns.slice().reverse().map((t) => Object.assign({ isChat: false, isImage: false, isVideo: false, isDich: false, dText: false, dFile: false, dBusy: false }, t));
+
+    const dsBat = (() => { try { const j = JSON.parse(localStorage.getItem('web2api_ds') || 'null'); return !j || ['youtube', 'chitieu', 'sgk'].some((k) => j[k] !== false); } catch (e) { return true; } })();
+    const nhaBat = (() => { try { const j = JSON.parse(localStorage.getItem('web2api_nha') || 'null'); return !j || ['camera', 'mang', 'pin', 'mat', 'hoc'].some((k) => j[k] !== false); } catch (e) { return true; } })();
+    // ---- Menu chính: Nhà, Hệ thống, Nhật ký có danh sách xổ khi bấm; chọn mục nào thì vào mục đó (khung khác thì nhớ mục rồi chuyển khung).
+    const SUBNAV = {"Nhà": [{"id": "camera", "label": "Camera", "d": "M3 8h4l2-3h6l2 3h4v11H3z M12 11a3 3 0 1 0 0 6 3 3 0 0 0 0-6z", "bao": 0}, {"id": "mang", "label": "Mạng", "d": "M12 4a2 2 0 1 0 0 .01 M5 19a2 2 0 1 0 0 .01 M19 19a2 2 0 1 0 0 .01 M12 6v6 M12 12l-6 5 M12 12l6 5", "bao": 2}, {"id": "pin", "label": "Pin", "d": "M3 8h15v8H3z M18 11h3v2h-3z M6 11v2 M9 11v2", "bao": 0}, {"id": "mat", "label": "Khuôn mặt", "d": "M4 8V5a1 1 0 0 1 1-1h3 M16 4h3a1 1 0 0 1 1 1v3 M20 16v3a1 1 0 0 1-1 1h-3 M8 20H5a1 1 0 0 1-1-1v-3 M9 10v1 M15 10v1 M9 15c1.5 1.5 4.5 1.5 6 0", "bao": 0}, {"id": "hoc", "label": "Học hỏi", "d": "M5 4h12a2 2 0 0 1 2 2v14H7a2 2 0 0 1-2-2z M5 18a2 2 0 0 1 2-2h12", "bao": 0}], "Đời sống": [{"id": "gt", "label": "Giải trí", "d": "M9 18V5l12-2v13 M9 18a3 3 0 1 1-6 0 3 3 0 0 1 6 0z M21 16a3 3 0 1 1-6 0 3 3 0 0 1 6 0z", "bao": 0}, {"id": "ct", "label": "Chi tiêu", "d": "M3 7a2 2 0 0 1 2-2h13v4 M3 7v11a2 2 0 0 0 2 2h14V9H5a2 2 0 0 1-2-2z M16 14h2", "bao": 0}, {"id": "gv", "label": "Giáo viên", "d": "M2 9l10-5 10 5-10 5z M6 11v5c3 2.5 9 2.5 12 0v-5", "bao": 0}], "Tác phẩm": [{"id": "anh", "label": "Ảnh", "d": "M4 5h16v14H4z M4 16l5-5 4 4 3-3 4 4 M9 9.5h.01", "bao": 0}, {"id": "video", "label": "Video", "d": "M3 6h12v12H3z M15 10l6-3v10l-6-3", "bao": 0}]};
+    SUBNAV['Đời sống'] = SUBNAV['Đời sống'].filter((u) => { try { const j = JSON.parse(localStorage.getItem('web2api_ds') || 'null'); return !j || j[{ gt: 'youtube', ct: 'chitieu', gv: 'sgk' }[u.id]] !== false; } catch (e) { return true; } });
+    const SELF_L = '';
+    const iStyle = (on) => 'display:flex;align-items:center;gap:10px;width:100%;box-sizing:border-box;min-height:38px;padding:0 10px;border:0;border-radius:9px;text-align:left;font:inherit;font-size:14px;text-decoration:none;cursor:pointer;color:#181816;background:' + (on ? '#EFEDE8' : 'transparent') + ';font-weight:' + (on ? '600' : '400');
+    const navX = nav.filter((n) => (n.label !== 'Nhà' || nhaBat) && (n.label !== 'Đời sống' || dsBat)).map((n, ni, arr) => { const L = SUBNAV[n.label]; const open = !!L && s.menuMo === n.label; const same = n.label === SELF_L;
+      const subs = (L || []).map((u) => { const on = same && (false);
+        return { label: u.label, d: u.d, coBao: !!u.bao, bao: u.bao, on, ext: !same, inner: same, href: n.href, style: iStyle(on),
+          pick: same ? () => { 0; this.setState({ menuMo: null }); } : () => { try { localStorage.setItem('web2api_muc', JSON.stringify({ khung: n.label, muc: u.id })); } catch (e) { /* trình duyệt chặn */ } this.setState({ menuMo: null }); } }; });
+      const bst = 'flex:1 1 0;min-width:0;display:flex;flex-direction:column;align-items:center;gap:2px;padding:8px 2px;font-size:10px;font-weight:500;text-align:center;color:' + (/#EFEDE8/.test(n.style) || open ? '#0F766E' : '#66645F');
+      const ownL2 = false && same;
+      return Object.assign({}, n, { wst: n.wst || '', bLink: !L || ownL2, bSub: !!L && !ownL2, pos: 'left:clamp(8px,calc(' + (((ni + 0.5) / arr.length) * 100).toFixed(3) + '% - 100px),calc(100% - 208px))', arrow: 'left:calc(' + (((ni + 0.5) / arr.length) * 100).toFixed(3) + '% - 6px)', bstyle: bst, link: !L, hasSub: !!L, open, subs,
+        btnStyle: 'border:0;background:transparent;font:inherit;' + n.style, bbtn: 'border:0;background:transparent;font-family:inherit;' + bst,
+        chev: 'flex:0 0 auto;transition:transform .15s;transform:rotate(' + (open ? 180 : 0) + 'deg)',
+        toggle: () => this.setState({ menuMo: open ? null : n.label, accMo: false }), dong: () => { if (n.label === 'Hệ thống') { const cur0 = nav.find((x) => x.style === navOn); try { localStorage.setItem('web2api_tu', JSON.stringify({ label: cur0 ? cur0.label : 'Studio' })); } catch (e) { /* trình duyệt chặn */ } } this.setState({ menuMo: null, accMo: false }); } }); });
+    // ---- Lịch sử trò chuyện (minh hoạ): chọn một cuộc → mở lại các lượt của nó để nói tiếp
+    const HIST = [
+      { id: 'h1', ten: 'Giá xăng hôm nay', luc: 'Hôm nay · 09:12', n: 3 },
+      { id: 'h2', ten: 'Soạn thư trả lời khách', luc: 'Hôm qua · 16:40', n: 5 },
+      { id: 'h3', ten: 'Tóm tắt tài liệu tôi đính kèm', luc: 'Thứ Hai · 10:05', n: 2 },
+      { id: 'h4', ten: 'Công thức nấu bún chả', luc: '06/10 · 19:30', n: 4 },
+      { id: 'h5', ten: 'So sánh hai gói cước internet', luc: '03/10 · 21:15', n: 6 }
+    ];
+    const FOLLOW = ['Nói rõ hơn ở ý thứ hai', 'Cho ví dụ cụ thể', 'Rút gọn thành ba gạch đầu dòng', 'Viết lại ngắn hơn', 'Còn cách nào khác không?'];
+    const lsQl = (s.lsQ || '').trim().toLowerCase();
+    const lsRows = HIST.filter((h) => !lsQl || h.ten.toLowerCase().includes(lsQl)).map((h) => ({ ten: h.ten, luc: h.luc, so: h.n + ' lượt', on: s.chatId === h.id,
+      style: 'display:flex;align-items:center;justify-content:space-between;gap:10px;width:100%;box-sizing:border-box;min-height:48px;padding:6px 10px;border:0;border-radius:10px;text-align:left;font:inherit;cursor:pointer;color:#181816;background:' + (s.chatId === h.id ? '#EFEDE8' : 'transparent'),
+      pick: () => { const tr = Array.from({ length: h.n }, (_, i) => ({ id: i + 1, isChat: true, userLine: i === 0 ? h.ten : FOLLOW[(i - 1) % FOLLOW.length], meta: 'Trò chuyện · ' + mdl.name, modelNote: '' })); luuChat(h.id, tr); this.setState(Object.assign({}, none, { mode: 'chat', turns: tr, draft: '', tep: null, chatId: h.id, lsQ: '' })); } }));
+    const sheet = navX.find((n) => n.open && n.bSub);
+    return {
+      lsMo: !!s.lsMo, lsQ: s.lsQ || '', lsRows, lsTrong: lsRows.length === 0, onLsQ: (e) => this.setState({ lsQ: e && e.target ? e.target.value : '' }), lsToggle: () => this.setState(Object.assign({}, none, { lsMo: !s.lsMo, menuMo: null, accMo: false })), lsDong: () => this.setState({ lsMo: false }),
+      lsStyle: tab(!!s.lsMo), moiStyle: tab(false) + ';background:#181816;color:#fff;border-color:#181816',
+      sinCtx: true, menuMo: s.menuMo, accMo: !!s.accMo, backdrop: !!(s.menuMo || s.accMo), accToggle: () => this.setState({ accMo: !s.accMo, menuMo: null }), dangXuat: () => this.setState({ accMo: false }), menuDong: () => this.setState({ menuMo: null, accMo: false }), sheet: sheet || { label: '', subs: [] }, coSheet: !!sheet,
+      navStyle: 'flex:0 0 auto;position:sticky;top:0;z-index:20;box-sizing:border-box;display:flex;align-items:center;gap:20px;height:60px;padding:0 24px;border-bottom:1px solid #E4E2DC;background:#FBFAF8',
+      logo: IC.logo, plus: IC.plus, up: IC.up, iSearch: IC.search, iImage: IC.image, nav: navX,
+      reset: () => { luuChat(null, []); this.setState(Object.assign({}, none, { turns: [], draft: '', tep: null, chatId: null })); },
+      turns, hasTurns: turns.length > 0, noTurns: turns.length === 0, gui,
+      placeholder: s.turns.length ? 'Nhắn tiếp, hoặc đổi chế độ bên dưới…' : cur.ph,
+      draft: s.draft, onDraft: (e) => this.setState({ draft: e.target.value }),
+      modes: MODES.filter((m) => m.id !== 'image' && m.id !== 'video').map((m) => {
+        const on = m.id === 'chat' ? isChatFam : s.mode === m.id;
+        return { label: m.label, d: m.d, on, coThem: m.id === 'chat', style: tab(on), pick: () => this.setState(Object.assign({}, none, { mode: m.id, draft: '', tep: null })) };
+      }),
+      coTog: isChatFam,
+      tog: [['image', 'Vẽ ảnh', IC.image], ['video', 'Tạo video', IC.video]].map(([id, label, d]) => ({ label, d, on: s.mode === id,
+        style: 'height:44px;padding:0 14px;border-radius:22px;display:flex;align-items:center;gap:8px;font-size:14px;flex:0 0 auto;white-space:nowrap;' + (s.mode === id ? 'border:2px solid #181816;background:#181816;color:#fff;font-weight:600' : 'border:1px solid #E4E2DC;background:#fff;color:#66645F'),
+        pick: () => this.setState(Object.assign({}, none, { mode: s.mode === id ? 'chat' : id })) })),
+      ideas: (isSub || isDub) ? cur.ideas.map((x, i) => ({ text: x, pick: () => this.setState({ tep: (i === 1 && isSub) ? SAMPLES[1] : SAMPLES[0] }) })) : cur.ideas.map((x) => ({ text: x, pick: () => this.setState({ draft: x }) })),
+      recent: [
+        { label: '[cuộc trò chuyện mới nhất]', d: IC.chat },
+        { label: '[ảnh mới nhất]', d: IC.image },
+        { label: '[video mới nhất]', d: IC.video }
+      ],
+      // model
+      coModel, coRatio, moM: s.moM, models, modelLabel: mdl.name,
+      modelTitle: isVid ? 'Model tạo video' : (isChat ? 'Model trả lời' : 'Model vẽ ảnh'),
+      modelSub: isChat ? 'Combo tự chọn model theo độ khó của việc' : 'Tỉ lệ khung hình đổi theo model đã chọn',
+      modelBtnStyle: 'height:44px;padding:0 12px;border-radius:22px;border:1px solid #0F766E;background:#E2F0ED;color:#0B5A53;font-size:13px;font-weight:500;display:flex;align-items:center;gap:6px;white-space:nowrap',
+      toggleModel: () => this.setState(Object.assign({}, none, { moM: !s.moM })),
+      ratio, dur, coDur: durs.length > 0,
+      ratioOpts: rs.map((r) => ({ v: r, label: r })),
+      durOpts: durs.map((d) => ({ v: d, label: d })),
+      onRatio: (e) => this.setState({ ratio: e.target.value }),
+      onDur: (e) => this.setState({ dur: e.target.value }),
+      // dịch
+      coLang, coGiong, moP: s.moP, moL: s.moL, moG: s.moG, chipStyle,
+      paramSummary: ratio + (dur ? ' · ' + dur : ''),
+      langSummary: (s.src === 'auto' ? 'Tự nhận' : LN[s.src]) + ' → ' + LN[s.dst],
+      giongShort: giongLabel.split(' · ').slice(1).join(' · ') || giongLabel,
+      giongRows,
+      ratioPills: rs.map((r) => ({ label: r, on: ratio === r, style: ratio === r ? pOn : pOff, pick: () => this.setState({ ratio: r }) })),
+      durPills: durs.map((d) => ({ label: d, on: dur === d, style: dur === d ? pOn : pOff, pick: () => this.setState({ dur: d }) })),
+      dong: () => this.setState(none),
+      toggleP: () => this.setState(Object.assign({}, none, { moP: !s.moP })),
+      toggleL: () => this.setState(Object.assign({}, none, { moL: !s.moL })),
+      toggleG: () => this.setState(Object.assign({}, none, { moG: !s.moG })),
+      hasTep: !!s.tep, tepName: s.tep ? s.tep.name : '', tepInfo: s.tep ? s.tep.info : '',
+      removeTep: () => this.setState({ tep: null }),
+      toggleTep: () => this.setState(Object.assign({}, none, { moT: !s.moT })),
+      moT: s.moT, moA: s.moA,
+      samples: SAMPLES.filter((f) => (isDich ? ['doc', 'image'] : isSub ? ['video', 'audio'] : isDub ? ['video'] : ['video', 'audio', 'doc', 'image']).includes(f.kind)).map((f) => ({ name: f.name, info: f.info, pick: () => this.setState({ tep: f, moT: false }) })),
+      aiRows, aiOn, aiSuffix: aiOn ? ' · ' + ({ 'cuc-bo': 'Model tại nhà', nhe: 'AI nhẹ', text: 'AI text', kho: 'AI khó' }[s.ai]) : '',
+      aiLabel: aiOn ? 'Đang chỉnh bằng ' + aiName[s.ai] + '. Đổi model hoặc tắt' : 'Bật chỉnh bản dịch bằng AI',
+      aiBtnD: aiOn ? 'M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z' : 'M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z M4 4l16 16',
+      aiBtnStyle: 'height:44px;padding:0 12px;border-radius:22px;font-size:13px;font-weight:500;display:flex;align-items:center;gap:6px;flex:0 0 auto;' + (aiOn ? 'border:1px solid #0F766E;background:#E2F0ED;color:#0B5A53' : 'border:1px solid #E4E2DC;background:#fff;color:#66645F'),
+      toggleAi: () => this.setState(Object.assign({}, none, { moA: !s.moA })),
+      src: s.src, dst: s.dst, giong: s.giong,
+      srcOpts, dstOpts, giongOpts,
+      onSrc: (e) => { const v = e.target.value; this.setState({ src: v, dst: v === s.dst ? (v === 'vi' ? 'en' : 'vi') : s.dst }); },
+      onDst: (e) => { const v = e.target.value; this.setState({ dst: v, src: v === s.src ? 'auto' : s.src }); },
+      swap: () => { if (s.src !== 'auto') this.setState({ src: s.dst, dst: s.src }); },
+      onGiong: (e) => this.setState({ giong: e.target.value }),
+      // giọng đọc
+      loa: loaOn, mo: s.mo, nghe: s.nghe, tat: s.voice === 'tat',
+      tatStyle: 'width:100%;box-sizing:border-box;' + (s.voice === 'tat' ? vOn : vOff),
+      tatDoc: () => this.setState({ voice: 'tat', mo: false, eng: '' }),
+      loaD: loaOn ? 'M4 9v6h4l5 4V5L8 9z M16.5 8.5a5 5 0 0 1 0 7 M19 6a8.5 8.5 0 0 1 0 12' : 'M4 9v6h4l5 4V5L8 9z M22 9l-6 6 M16 9l6 6',
+      micD: 'M12 3a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3z M5 11a7 7 0 0 0 14 0 M12 18v3',
+      loaLabel: loaOn ? 'Đổi giọng đọc hoặc tắt đọc' : 'Chọn giọng đọc câu trả lời',
+      micLabel: s.nghe ? 'Dừng nghe' : 'Nói để nhập chữ',
+      loaStyle: ic + (loaOn ? 'border:1px solid #0F766E;background:#E2F0ED;color:#0B5A53' : 'border:1px solid #E4E2DC;background:#fff;color:#66645F'),
+      micStyle: ic + (s.nghe ? 'border:1px solid #B42318;background:#B42318;color:#fff' : 'border:1px solid #E4E2DC;background:#fff;color:#181816'),
+      toggleLoa: () => this.setState(Object.assign({}, none, { mo: !s.mo, eng: '' })),
+      toggleMic: () => this.setState(s.nghe ? { nghe: false, draft: (s.draft ? s.draft + ' ' : '') + '[lời nói được chuyển thành chữ ở đây]' } : { nghe: true }),
+      rows, trong, ds1: !trong,
+      title: trong ? curEng[1] : 'Giọng đọc câu trả lời',
+      sub: trong ? 'Chọn một giọng đã tải' : 'Bấm vào một loại để xem các giọng đã tải',
+      quay: () => this.setState({ eng: '' })
+    };
+  }
+}
+</script>
+</body>
+</html>

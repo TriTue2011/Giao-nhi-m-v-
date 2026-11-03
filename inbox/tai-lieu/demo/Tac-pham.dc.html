@@ -1,0 +1,373 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<title>Tác phẩm web2api</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600&family=Newsreader:opsz,wght@6..72,400;6..72,500&display=swap">
+<style>
+body{margin:0}
+button{font:inherit;cursor:pointer}
+a{color:inherit;text-decoration:none}
+select{font:inherit}
+button:focus-visible,a:focus-visible,select:focus-visible{outline:2px solid #0F766E;outline-offset:2px}
+.cuon{scrollbar-width:thin;scrollbar-color:#B9B6AE transparent}
+.cuon::-webkit-scrollbar{width:8px}
+.cuon::-webkit-scrollbar-thumb{background:#B9B6AE;border-radius:4px}
+.o .nutto{opacity:0;transition:opacity .15s}
+.o:hover .nutto,.o:focus-within .nutto{opacity:1}
+@keyframes chay{from{width:0}to{width:100%}}
+.mc{min-height:36px;padding:0 14px}
+.gal{--h:176px}
+.bn{display:none}
+.wmp{display:none}
+.ctxt{display:none}
+@media (max-width:1023px){
+.tb{min-height:52px !important;height:auto !important;padding:6px 14px !important;gap:10px !important}
+.tm{display:none !important}
+.wmd{display:none}.wmp{display:block}
+.ctxt{display:flex !important}
+.ctxb{display:none !important}
+.tao{display:none !important}
+.bn{display:flex !important;position:relative;z-index:20;flex:0 0 auto;align-items:stretch;border-top:1px solid #E4E2DC;background:#FBFAF8;padding:0 4px env(safe-area-inset-bottom,0px)}
+.bn > a,.bn > button{min-height:52px;justify-content:center}
+main.pg{padding:12px 16px 0 !important}
+}
+@media (max-width:1023px){.gal{--h:112px}.rail{flex:0 0 40px !important}.rail button{font-size:10px !important;padding:0 !important}}
+@media (max-width:1023px){.ctxt{flex-wrap:wrap !important;overflow:visible !important;row-gap:6px !important}.ctxt .mc{min-height:36px !important;padding:0 8px 0 12px !important;font-size:13px !important;gap:6px !important}.ctxt .ddw{position:relative !important}.ctxt .ddp{position:absolute !important;left:50% !important;transform:translateX(-50%) !important;top:calc(100% + 6px) !important;width:max-content !important;min-width:150px !important;max-width:min(240px,calc(100vw - 24px)) !important}}
+@media (pointer:coarse){.mc{min-height:44px !important}input,select,textarea{font-size:16px !important}[role=menuitem]{min-height:44px !important}}
+</style>
+</helmet>
+<div onKeyDown="{{onKey}}" style="--ink:#181816;--mute:#66645F;--line:#E4E2DC;--bg:#F6F5F2;--card:#FFFFFF;--acc:#0F766E;--accsoft:#E2F0ED;height:100vh;height:100dvh;min-height:560px;overflow-x:hidden;display:flex;flex-direction:column;flex-wrap:nowrap;background:var(--bg);color:var(--ink);font-family:'Be Vietnam Pro',system-ui,sans-serif;font-size:14px;line-height:1.5">
+
+<nav aria-label="Điều hướng chính" class="tb" style="{{navStyle}}">
+<div style="display:flex;align-items:center;gap:10px;flex:0 0 auto">
+<div style="width:30px;height:30px;border-radius:9px;background:var(--ink);color:#fff;display:flex;align-items:center;justify-content:center"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="{{logo}}"></path></svg></div>
+<div class="wmd" style="font-family:Newsreader,Georgia,serif;font-size:24px;font-weight:500;letter-spacing:-0.01em">web2api</div>
+<sc-if value="{{sinCtx}}" hint-placeholder-val="{{true}}"><div class="wmp" style="font-family:Newsreader,Georgia,serif;font-size:24px;font-weight:500;letter-spacing:-0.01em">web2api</div></sc-if>
+</div>
+<sc-if value="{{coCtx}}" hint-placeholder-val="{{true}}"><div class="ctxt" role="toolbar" aria-label="Mục lục" style="align-items:center;gap:6px;flex:1 1 auto;min-width:0;overflow-x:auto">
+<sc-for list="{{ctx}}" as="x" hint-placeholder-count="3">
+<sc-if value="{{x.isDd}}" hint-placeholder-val="{{true}}"><div class="ddw" style="position:relative;flex:0 0 auto">
+<button type="button" class="mc" aria-haspopup="menu" aria-expanded="{{x.open}}" aria-label="{{x.nhan}}" onClick="{{x.toggle}}" style="{{x.btn}}"><span>{{x.cur}}</span><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="{{x.chev}}"><path d="M6 9l6 6 6-6"></path></svg></button>
+<sc-if value="{{x.open}}" hint-placeholder-val="{{false}}"><div role="menu" class="ddp" aria-label="{{x.nhan}}" style="position:absolute;top:calc(100% + 6px);left:0;z-index:30;min-width:200px;max-width:min(320px,calc(100vw - 32px));box-sizing:border-box;background:var(--card);border:1px solid var(--line);border-radius:14px;box-shadow:0 12px 32px rgba(24,24,22,0.14);padding:4px;display:flex;flex-direction:column;gap:1px;max-height:60vh;overflow-y:auto">
+<sc-for list="{{x.items}}" as="u" hint-placeholder-count="4"><button type="button" role="menuitem" aria-current="{{u.on}}" onClick="{{u.pick}}" style="{{u.style}}"><span>{{u.label}}</span><sc-if value="{{u.coSo}}" hint-placeholder-val="{{false}}"><span style="margin-left:auto;display:flex"><span style="{{u.soStyle}}">{{u.so}}</span></span></sc-if></button></sc-for>
+</div></sc-if>
+</div></sc-if>
+<sc-if value="{{x.isPlus}}" hint-placeholder-val="{{false}}"><button type="button" class="mc" aria-label="{{x.nhan}}" title="{{x.nhan}}" aria-pressed="{{x.on}}" onClick="{{x.pick}}" style="{{x.btn}}"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14 M5 12h14"></path></svg></button></sc-if>
+</sc-for>
+</div></sc-if>
+<div class="tm" style="display:flex;align-items:center;gap:2px;flex:1 1 auto;min-width:0">
+<sc-for list="{{nav}}" as="n" hint-placeholder-count="6">
+<div style="position:relative;flex:0 0 auto;{{n.wst}}">
+<sc-if value="{{n.link}}" hint-placeholder-val="{{true}}"><a href="{{n.href}}" aria-label="{{n.label}}" onClick="{{n.dong}}" style="{{n.style}}"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="{{n.d}}"></path></svg><span>{{n.label}}</span></a></sc-if>
+<sc-if value="{{n.hasSub}}" hint-placeholder-val="{{false}}"><button type="button" aria-haspopup="menu" aria-expanded="{{n.open}}" onClick="{{n.toggle}}" style="{{n.btnStyle}}"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="{{n.d}}"></path></svg><span>{{n.label}}</span><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="{{n.chev}}"><path d="M6 9l6 6 6-6"></path></svg></button>
+<sc-if value="{{n.open}}" hint-placeholder-val="{{false}}">
+<div role="menu" aria-label="Mục trong {{n.label}}" style="position:absolute;top:calc(100% + 8px);left:50%;transform:translateX(-50%);z-index:30;width:200px;box-sizing:border-box;background:var(--card);border:1px solid var(--line);border-radius:14px;box-shadow:0 12px 32px rgba(24,24,22,0.14);padding:4px;display:flex;flex-direction:column;gap:1px">
+<sc-for list="{{n.subs}}" as="u" hint-placeholder-count="5">
+<sc-if value="{{u.ext}}" hint-placeholder-val="{{false}}"><a role="menuitem" href="{{u.href}}" onClick="{{u.pick}}" style="{{u.style}}"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="{{u.d}}"></path></svg><span>{{u.label}}</span><sc-if value="{{u.coBao}}" hint-placeholder-val="{{false}}"><span style="margin-left:auto;min-width:20px;height:20px;box-sizing:border-box;padding:0 6px;border-radius:10px;background:#B42318;color:#fff;font-size:12px;font-weight:600;display:flex;align-items:center;justify-content:center">{{u.bao}}</span></sc-if></a></sc-if>
+<sc-if value="{{u.inner}}" hint-placeholder-val="{{false}}"><button type="button" role="menuitem" aria-current="{{u.on}}" onClick="{{u.pick}}" style="{{u.style}}"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="{{u.d}}"></path></svg><span>{{u.label}}</span><sc-if value="{{u.coBao}}" hint-placeholder-val="{{false}}"><span style="margin-left:auto;min-width:20px;height:20px;box-sizing:border-box;padding:0 6px;border-radius:10px;background:#B42318;color:#fff;font-size:12px;font-weight:600;display:flex;align-items:center;justify-content:center">{{u.bao}}</span></sc-if></button></sc-if>
+</sc-for>
+</div>
+</sc-if></sc-if>
+</div>
+</sc-for>
+</div>
+<div class="acc" style="position:relative;flex:0 0 auto;margin-left:auto">
+<button type="button" aria-haspopup="menu" aria-expanded="{{accMo}}" aria-label="Tài khoản" onClick="{{accToggle}}" style="width:36px;height:36px;padding:0;border-radius:50%;border:0;background:var(--accsoft);color:#0B5A53;display:flex;align-items:center;justify-content:center;font:inherit;font-weight:600;cursor:pointer">C</button>
+<sc-if value="{{accMo}}" hint-placeholder-val="{{false}}">
+<div role="menu" aria-label="Tài khoản" style="position:absolute;top:calc(100% + 8px);right:0;z-index:30;width:248px;max-width:calc(100vw - 24px);box-sizing:border-box;background:var(--card);border:1px solid var(--line);border-radius:14px;box-shadow:0 12px 32px rgba(24,24,22,0.14);padding:6px;display:flex;flex-direction:column;gap:2px">
+<div style="display:flex;align-items:center;gap:12px;padding:10px 10px 12px">
+<div style="flex:0 0 auto;width:40px;height:40px;border-radius:50%;background:var(--accsoft);color:#0B5A53;display:flex;align-items:center;justify-content:center;font-weight:600;font-size:16px">C</div>
+<div style="display:flex;flex-direction:column;line-height:1.35;min-width:0"><span style="font-weight:600">Chủ nhà</span><span style="font-size:12px;color:var(--mute)">Quản trị viên</span></div>
+</div>
+<div style="height:1px;background:var(--line);margin:0 4px 4px"></div>
+<button type="button" role="menuitem" onClick="{{dangXuat}}" style="display:flex;align-items:center;gap:10px;width:100%;box-sizing:border-box;min-height:44px;padding:0 12px;border:0;border-radius:10px;background:transparent;color:#B42318;font:inherit;font-size:14px;font-weight:500;text-align:left;cursor:pointer"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 4H5v16h5 M15 8l4 4-4 4 M19 12H9"></path></svg>Đăng xuất</button>
+</div>
+</sc-if>
+</div>
+</nav>
+
+<main class="pg" style="flex:1 1 0;min-width:0;min-height:0;overflow-x:hidden;display:flex;flex-direction:column;gap:16px;box-sizing:border-box;padding:20px 32px 0">
+<sc-if value="{{coCtxW}}" hint-placeholder-val="{{true}}"><div class="ctxb" role="toolbar" aria-label="Mục lục" style="position:sticky;top:0;z-index:4;background:var(--bg);box-shadow:0 1px 0 var(--line);padding:6px 0;display:flex;flex-wrap:wrap;align-items:center;gap:8px 20px">
+<sc-for list="{{ctx}}" as="x" hint-placeholder-count="3">
+<sc-if value="{{x.webDd}}" hint-placeholder-val="{{true}}"><div role="tablist" aria-label="{{x.nhan}}" style="{{x.sepW}}"><sc-for list="{{x.items}}" as="u" hint-placeholder-count="4"><button type="button" role="tab" class="mc" aria-selected="{{u.on}}" onClick="{{u.pick}}" style="{{u.cstyle}}"><span>{{u.label}}</span><sc-if value="{{u.coSo}}" hint-placeholder-val="{{false}}"><span style="{{u.soStyle}}">{{u.so}}</span></sc-if></button></sc-for></div></sc-if>
+<sc-if value="{{x.isPlus}}" hint-placeholder-val="{{false}}"><button type="button" class="mc" aria-label="{{x.nhan}}" title="{{x.nhan}}" aria-pressed="{{x.on}}" onClick="{{x.pick}}" style="{{x.btn}}"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14 M5 12h14"></path></svg></button></sc-if>
+</sc-for>
+</div></sc-if>
+<sc-if value="{{ddMo}}" hint-placeholder-val="{{false}}"><div aria-hidden="true" onClick="{{ddDong}}" style="position:fixed;top:0;right:0;bottom:0;left:0;z-index:2"></div></sc-if>
+
+<div style="flex:1 1 0;min-height:0;display:flex;gap:6px;padding-bottom:12px">
+<div class="cuon" style="flex:1 1 0;min-width:0;min-height:0;overflow-y:auto;padding-right:6px">
+<sc-if value="{{coVe}}" hint-placeholder-val="{{false}}"><button type="button" class="mc" onClick="{{veDau}}" style="margin:6px 0 2px;border-radius:18px;border:1px solid var(--line);background:var(--card);color:var(--ink);font-size:13px;font-weight:500;display:flex;align-items:center;gap:6px"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 15l6-6 6 6"></path></svg>Về mới nhất</button></sc-if>
+<sc-for list="{{groups}}" as="g" hint-placeholder-count="4">
+<section aria-label="{{g.label}}">
+<div style="position:sticky;top:0;z-index:2;background:var(--bg);padding:12px 0 6px;display:flex;align-items:baseline;gap:10px"><h2 style="margin:0;font-size:15px;font-weight:600">{{g.label}}</h2><span style="font-size:12px;color:var(--mute)">{{g.sub}}</span></div>
+<div class="gal" style="display:flex;flex-wrap:wrap;gap:4px">
+<sc-for list="{{g.cells}}" as="c" hint-placeholder-count="5">
+<div class="o" style="{{c.wrap}}">
+<button type="button" aria-label="{{c.label}}" onClick="{{c.tile}}" style="{{c.style}}"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="{{c.d}}"></path></svg></button>
+<span style="{{c.badgeStyle}}">{{c.badge}}</span>
+<sc-if value="{{c.canPlay}}" hint-placeholder-val="{{false}}"><button type="button" aria-label="Phát video" onClick="{{c.play}}" style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:48px;height:48px;border-radius:50%;border:0;background:rgba(24,24,22,0.74);color:#fff;display:flex;align-items:center;justify-content:center"><svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5l11 7-11 7z"></path></svg></button></sc-if>
+<div class="nutto" style="position:absolute;top:6px;right:6px;display:flex;gap:6px">
+<button type="button" aria-label="Phóng to" onClick="{{c.open}}" style="width:40px;height:40px;border-radius:50%;border:0;background:rgba(24,24,22,0.74);color:#fff;display:flex;align-items:center;justify-content:center"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="{{iExpand}}"></path></svg></button>
+<button type="button" aria-label="Tải xuống" disabled="{{c.busy}}" style="width:40px;height:40px;border-radius:50%;border:0;background:rgba(24,24,22,0.74);color:#fff;display:flex;align-items:center;justify-content:center"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11 M7 11l5 5 5-5 M5 20h14"></path></svg></button>
+<button type="button" aria-label="Xoá" style="width:40px;height:40px;border-radius:50%;border:0;background:rgba(24,24,22,0.74);color:#fff;display:flex;align-items:center;justify-content:center"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16 M9 7V4h6v3 M6 7l1 13h10l1-13"></path></svg></button>
+</div>
+<div class="nutto" style="position:absolute;left:0;right:0;bottom:0;box-sizing:border-box;padding:26px 10px 8px;border-radius:0 0 6px 6px;background:linear-gradient(to top,rgba(15,15,14,0.86),rgba(15,15,14,0));color:#fff;display:flex;align-items:flex-end;gap:8px;pointer-events:none">
+<div style="flex:1;min-width:0;display:flex;flex-direction:column;line-height:1.35"><span style="font-weight:600;font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{c.line1}}</span><span style="font-size:11px;color:#E8E6DF;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{c.line2}}</span></div>
+<button type="button" style="pointer-events:auto;flex:0 0 auto;min-height:30px;padding:0 10px;border-radius:15px;border:1px solid rgba(255,255,255,0.5);background:transparent;color:#fff;font-size:12px">Dùng lại</button>
+</div>
+</div>
+</sc-for>
+<div aria-hidden="true" style="flex:999999 1 0;height:0;min-width:0"></div>
+</div>
+</section>
+</sc-for>
+<sc-if value="{{trongTP}}" hint-placeholder-val="{{false}}"><div style="padding:48px 0;text-align:center;color:var(--mute)">Chưa có tác phẩm nào khớp bộ lọc.</div></sc-if>
+</div>
+<sc-if value="{{coRail}}" hint-placeholder-val="{{true}}"><nav class="rail" aria-label="Dòng thời gian" style="flex:0 0 44px;display:flex;flex-direction:column;justify-content:space-between;align-items:stretch;padding:10px 0 6px;min-height:0">
+<sc-for list="{{rail}}" as="r" hint-placeholder-count="8">
+<sc-if value="{{r.isYear}}" hint-placeholder-val="{{false}}"><span style="text-align:center;font-size:11px;font-weight:700;color:var(--ink);line-height:1.2">{{r.label}}</span></sc-if>
+<sc-if value="{{r.isMonth}}" hint-placeholder-val="{{true}}"><button type="button" aria-label="{{r.aria}}" aria-current="{{r.on}}" onClick="{{r.pick}}" style="{{r.style}}">{{r.label}}</button></sc-if>
+</sc-for>
+</nav></sc-if>
+</div>
+</main>
+<nav aria-label="Điều hướng chính (điện thoại)" class="bn">
+<sc-for list="{{nav}}" as="n" hint-placeholder-count="6">
+<sc-if value="{{n.bLink}}" hint-placeholder-val="{{true}}"><a href="{{n.href}}" aria-label="{{n.label}}" onClick="{{n.dong}}" style="{{n.bstyle}}"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="{{n.d}}"></path></svg><span>{{n.label}}</span></a></sc-if>
+<sc-if value="{{n.bSub}}" hint-placeholder-val="{{false}}"><button type="button" aria-haspopup="menu" aria-expanded="{{n.open}}" aria-label="{{n.label}}" onClick="{{n.toggle}}" style="{{n.bbtn}}"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="{{n.d}}"></path></svg><span>{{n.label}}</span></button></sc-if>
+</sc-for>
+<sc-if value="{{coSheet}}" hint-placeholder-val="{{false}}">
+<div aria-hidden="true" style="position:absolute;{{sheet.arrow}};bottom:calc(100% + 4px);z-index:31;width:12px;height:12px;box-sizing:border-box;background:var(--card);border-right:1px solid var(--line);border-bottom:1px solid var(--line);transform:rotate(45deg)"></div>
+<div role="menu" aria-label="Mục trong {{sheet.label}}" style="position:absolute;{{sheet.pos}};width:200px;bottom:calc(100% + 10px);z-index:30;box-sizing:border-box;background:var(--card);border:1px solid var(--line);border-radius:14px;box-shadow:0 -6px 24px rgba(24,24,22,0.16);padding:4px;display:flex;flex-direction:column;gap:1px;max-height:60vh;overflow-y:auto">
+<sc-for list="{{sheet.subs}}" as="u" hint-placeholder-count="5">
+<sc-if value="{{u.ext}}" hint-placeholder-val="{{false}}"><a role="menuitem" href="{{u.href}}" onClick="{{u.pick}}" style="{{u.style}}"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="{{u.d}}"></path></svg><span>{{u.label}}</span><sc-if value="{{u.coBao}}" hint-placeholder-val="{{false}}"><span style="margin-left:auto;min-width:20px;height:20px;box-sizing:border-box;padding:0 6px;border-radius:10px;background:#B42318;color:#fff;font-size:12px;font-weight:600;display:flex;align-items:center;justify-content:center">{{u.bao}}</span></sc-if></a></sc-if>
+<sc-if value="{{u.inner}}" hint-placeholder-val="{{false}}"><button type="button" role="menuitem" aria-current="{{u.on}}" onClick="{{u.pick}}" style="{{u.style}}"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="{{u.d}}"></path></svg><span>{{u.label}}</span><sc-if value="{{u.coBao}}" hint-placeholder-val="{{false}}"><span style="margin-left:auto;min-width:20px;height:20px;box-sizing:border-box;padding:0 6px;border-radius:10px;background:#B42318;color:#fff;font-size:12px;font-weight:600;display:flex;align-items:center;justify-content:center">{{u.bao}}</span></sc-if></button></sc-if>
+</sc-for>
+</div>
+</sc-if>
+</nav>
+<sc-if value="{{backdrop}}" hint-placeholder-val="{{false}}"><div aria-hidden="true" onClick="{{menuDong}}" style="position:fixed;top:0;right:0;bottom:0;left:0;z-index:19"></div></sc-if>
+
+<sc-if value="{{open}}" hint-placeholder-val="{{false}}">
+<div role="dialog" aria-modal="true" aria-label="Xem toàn màn hình" style="position:fixed;top:0;right:0;bottom:0;left:0;z-index:50;background:rgba(15,15,14,0.96);color:#fff;display:flex;flex-direction:column">
+<div style="flex:0 0 auto;display:flex;align-items:center;gap:12px;padding:12px 16px">
+<div style="flex:1;min-width:0;display:flex;flex-direction:column;line-height:1.3">
+<span style="font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{v.title}}</span>
+<span style="font-size:12px;color:#B9B7B0">Nhấn Esc để thoát</span>
+</div>
+<button type="button" aria-label="Đóng, thoát xem toàn màn hình" autoFocus="{{true}}" onClick="{{close}}" style="width:44px;height:44px;border-radius:50%;border:1px solid #3A3935;background:transparent;color:#fff;display:flex;align-items:center;justify-content:center">
+<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 6l12 12 M18 6L6 18"></path></svg>
+</button>
+</div>
+
+<div style="flex:1 1 0;min-height:0;display:flex;align-items:stretch;gap:8px;padding:0 16px 16px">
+<button type="button" aria-label="Mục trước" disabled="{{v.noPrev}}" onClick="{{prev}}" style="{{v.arrowStyle}}">
+<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 6l-6 6 6 6"></path></svg>
+</button>
+
+<div style="flex:1;min-width:0;display:flex;align-items:center;justify-content:center">
+<button type="button" aria-label="{{v.stageLabel}}" onClick="{{toggle}}" style="{{v.stageStyle}}">
+<sc-if value="{{v.isImage}}" hint-placeholder-val="{{false}}">
+<svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="{{iImage}}"></path></svg>
+</sc-if>
+<sc-if value="{{v.isVideo}}" hint-placeholder-val="{{false}}">
+<sc-if value="{{v.showPlay}}" hint-placeholder-val="{{true}}">
+<span style="width:72px;height:72px;border-radius:50%;background:rgba(24,24,22,0.78);display:flex;align-items:center;justify-content:center;color:#fff">
+<svg width="32" height="32" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5l11 7-11 7z"></path></svg>
+</span>
+</sc-if>
+<sc-if value="{{v.playing}}" hint-placeholder-val="{{false}}">
+<span style="position:absolute;left:16px;right:16px;bottom:14px;display:flex;flex-direction:column;gap:6px;text-align:left">
+<span style="height:6px;border-radius:3px;background:rgba(255,255,255,0.25);overflow:hidden"><span style="display:block;height:100%;background:#fff;animation:chay 8s linear forwards"></span></span>
+<span style="font-size:12px;color:#E8E6DF">Đang phát · bấm vào hình để tạm dừng</span>
+</span>
+</sc-if>
+<sc-if value="{{v.busy}}" hint-placeholder-val="{{false}}">
+<span style="font-size:14px;color:#E8E6DF;padding:0 16px;text-align:center">{{v.busyText}}</span>
+</sc-if>
+</sc-if>
+</button>
+</div>
+
+<button type="button" aria-label="Mục sau" disabled="{{v.noNext}}" onClick="{{next}}" style="{{v.arrowStyle}}">
+<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"></path></svg>
+</button>
+
+</div>
+</div>
+</sc-if>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1280,"height":860}}'>
+class Component extends DCLogic {
+  state = { menuMo: null, accMo: false, ddMo: null, tuNhom: 0, tab: (() => { try { const j = JSON.parse(localStorage.getItem('web2api_muc') || 'null'); if (j && j.khung === 'Tác phẩm' && ['anh', 'video'].includes(j.muc)) { localStorage.removeItem('web2api_muc'); return j.muc; } } catch (e) { /* trình duyệt chặn */ } return 'anh'; })(), sel: { anh: 0, video: 0 }, loc: 'all', xep: 'moi', xem: null, play: false };
+
+  // Bấm menu từ khung khác khi khung này ĐÃ mở sẵn: nó không dựng lại nên không đọc được «mục cần mở» lúc khởi tạo — nghe thêm khi đang chạy.
+  caiMuc() { this._tm = true; try { const f = () => this.tuMuc(); window.addEventListener('storage', f); window.addEventListener('focus', f); window.addEventListener('pageshow', f); document.addEventListener('visibilitychange', f); } catch (e) { /* không có cửa sổ */ } }
+  tuMuc() { try { const j = JSON.parse(localStorage.getItem('web2api_muc') || 'null'); if (j && j.khung === "Tác phẩm" && ["anh", "video"].includes(j.muc)) { localStorage.removeItem('web2api_muc'); this.setState(Object.assign({ tab: j.muc, menuMo: null, accMo: false, ddMo: null }, { loc: 'all', xem: null, play: false, tuNhom: 0 })); } } catch (e) { /* trình duyệt chặn */ } }
+
+  renderVals() {
+    if (!this._tm) this.caiMuc();
+    const s = this.state;
+    const IC = {
+      logo: 'M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z',
+      plus: 'M12 5v14 M5 12h14',
+      chat: 'M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z',
+      image: 'M4 5h16v14H4z M4 16l5-5 4 4 3-3 4 4 M9 9.5h.01',
+      video: 'M3 6h12v12H3z M15 10l6-3v10l-6-3',
+      home: 'M3 11l9-8 9 8 M5 10v10h14V10 M10 20v-6h4v6',
+      plug: 'M9 3v5 M15 3v5 M6 8h12v3a6 6 0 0 1-12 0z M12 17v4',
+      sliders: 'M4 7h10 M18 7h2 M4 17h2 M10 17h10 M16 5v4 M8 15v4',
+      folder: 'M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z',
+      expand: 'M4 9V4h5 M20 9V4h-5 M4 15v5h5 M20 15v5h-5'
+    };
+    const navBase = 'flex:0 0 auto;display:flex;align-items:center;gap:8px;height:40px;padding:0 14px;border-radius:20px;white-space:nowrap;';
+    const navOn = navBase + 'background:#EFEDE8;color:#181816;font-weight:500';
+    const navOff = navBase + 'color:#66645F';
+    const nav = [
+      { label: 'Studio', d: IC.chat, href: 'Main.dc.html', style: navOff },
+      { label: 'Tác phẩm', d: IC.folder, href: 'Tac-pham.dc.html', style: navOn },
+      { label: 'Nhà', d: IC.home, href: 'Nha.dc.html', style: navOff },
+      { label: 'Đời sống', d: 'M12 21s-7-4.4-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 11c0 5.6-7 10-7 10z', href: 'Doi-song.dc.html', style: navOff },
+      { label: 'Hệ thống', d: IC.sliders, href: 'He-thong.dc.html', wst: 'margin-left:auto', style: navOff }
+    ];
+
+    // dữ liệu mẫu: ảnh và video là hai danh sách độc lập; mỗi tác phẩm có ngày giờ tạo (xếp mới nhất trước, nhóm theo ngày như Google Photos)
+    const ANH_MAU = [
+      { r: '1:1', m: 'Gemini ảnh' }, { r: '3:4', m: 'ChatGPT ảnh' }, { r: '16:9', m: 'Gemini ảnh' }, { r: '9:16', m: 'Grok Imagine' },
+      { r: '1:1', m: 'ChatGPT ảnh' }, { r: '4:3', m: 'Gemini ảnh' }, { r: '3:4', m: 'Grok Imagine' }, { r: '1:1', m: 'Gemini ảnh' }, { r: '16:9', m: 'ChatGPT ảnh' }
+    ];
+    const VID_MAU = [
+      { r: '16:9', m: 'Veo (Flow)', loai: 'Tạo video', dur: '8 giây', pct: 40, viec: 'Đang tạo, còn khoảng 2 phút' },
+      { r: '16:9', m: 'Veo (Flow)', loai: 'Tạo video', dur: '8 giây' },
+      { r: '9:16', m: 'Grok Imagine', loai: 'Tạo video', dur: '6 giây' },
+      { r: '16:9', m: 'Máy lồng tiếng', loai: 'Lồng tiếng', dur: '42 phút', pct: 60, viec: 'Bước 4/5 · Đọc bằng giọng đã chọn' },
+      { r: '16:9', m: 'Máy dịch tại nhà', loai: 'Vietsub', dur: '12 phút' },
+      { r: '16:9', m: 'Grok Imagine', loai: 'Tạo video', dur: '10 giây' }
+    ];
+    const HOM = new Date(); HOM.setHours(0, 0, 0, 0);
+    const LUI = [0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 2, 2, 2, 3, 3, 4, 5, 5, 8, 9, 12, 14, 20, 21, 35, 38, 41, 44, 70, 75, 80, 120, 230, 260];
+    const lap = (mau, n) => Array.from({ length: n }, (_, k) => {
+      const t = mau[k % mau.length]; const lui = LUI[k % LUI.length] + (k >= LUI.length ? 3 : 0); const d = new Date(HOM.getTime() - lui * 864e5); const ph = (k * 311 + 460) % 1440; d.setHours(Math.floor(ph / 60), ph % 60);
+      const xong = Object.assign({}, t, { ts: d.getTime(), lui }); if (lui > 0) { delete xong.pct; delete xong.viec; } return xong; })
+      .sort((x, y) => y.ts - x.ts).map((x, i) => Object.assign({ i }, x));
+    const laAnh = s.tab === 'anh';
+    const LIST = laAnh ? lap(ANH_MAU, 36) : lap(VID_MAU, 14);
+    const locOpts = [{ v: 'all', label: 'Mọi model' }].concat(Array.from(new Set(LIST.map((x) => x.m))).sort((x, y) => x.localeCompare(y, 'vi')).map((m) => ({ v: m, label: m })));
+    const loc = locOpts.some((o) => o.v === s.loc) ? s.loc : 'all';
+    let rows = LIST.filter((x) => loc === 'all' || x.m === loc);
+    if (s.xep === 'cu') rows = rows.slice().reverse();
+    const selI = s.sel[s.tab];
+    const cur = rows.find((x) => x.i === selI) || rows[0];
+    const nameOf = (x) => (laAnh ? 'Ảnh ' : x.loai + ' ') + (x.i + 1);
+    const closeAll = { xem: null, play: false };
+    const THU = ['Chủ nhật', 'Thứ Hai', 'Thứ Ba', 'Thứ Tư', 'Thứ Năm', 'Thứ Sáu', 'Thứ Bảy'];
+    const p2 = (n) => String(n).padStart(2, '0');
+    const nhanNgay = (d) => { const lech = Math.round((HOM.getTime() - new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime()) / 864e5);
+      return lech === 0 ? 'Hôm nay' : lech === 1 ? 'Hôm qua' : d.getFullYear() === HOM.getFullYear() ? THU[d.getDay()] + ', ' + d.getDate() + ' thg ' + (d.getMonth() + 1) : d.getDate() + ' thg ' + (d.getMonth() + 1) + ', ' + d.getFullYear(); };
+    const cell = (x) => {
+      const [w, h] = x.r.split(':').map(Number); const ar = w / h; const busy = !!x.pct; const gio = (() => { const d = new Date(x.ts); return p2(d.getHours()) + ':' + p2(d.getMinutes()); })();
+      const chon = () => Object.assign({ xem: x.i }, { sel: Object.assign({}, s.sel, { [s.tab]: x.i }) });
+      return { label: nameOf(x), busy, d: laAnh ? IC.image : IC.video, badge: x.dur ? x.dur : '', canPlay: !busy && !laAnh,
+        line1: laAnh ? x.m : x.loai + ' · ' + x.m,
+        line2: x.pct ? x.viec : x.r + (x.dur ? ' · ' + x.dur : '') + ' · ' + gio,
+        badgeStyle: x.dur ? 'position:absolute;left:6px;bottom:6px;padding:1px 8px;border-radius:10px;background:rgba(24,24,22,0.78);color:#fff;font-size:12px;pointer-events:none' : 'display:none',
+        wrap: 'position:relative;min-width:0;height:var(--h);flex:' + Math.round(ar * 100) + ' 1 calc(var(--h) * ' + ar.toFixed(3) + ')',
+        style: 'box-sizing:border-box;width:100%;height:100%;padding:0;border:0;border-radius:6px;display:flex;align-items:center;justify-content:center;color:#8F8D86;background:' + (busy ? '#E3E1DA' : '#EFEDE8') + ';cursor:pointer',
+        tile: () => this.setState(Object.assign(chon(), { play: !laAnh && !busy })),
+        open: () => this.setState(Object.assign(chon(), { play: false })),
+        play: () => this.setState(Object.assign(chon(), { play: true })) };
+    };
+    // nhóm theo NGÀY (giữ thứ tự đang xếp), mỗi nhóm có nhãn kiểu Google Photos
+    const nhomTho = []; rows.forEach((x) => { const d = new Date(x.ts); const k = d.getFullYear() + '-' + p2(d.getMonth() + 1) + '-' + p2(d.getDate());
+      const g = nhomTho.length && nhomTho[nhomTho.length - 1].k === k ? nhomTho[nhomTho.length - 1] : (nhomTho.push({ k, d, y: d.getFullYear(), m: d.getMonth() + 1, ym: d.getFullYear() + '-' + (d.getMonth() + 1), xs: [] }), nhomTho[nhomTho.length - 1]); g.xs.push(x); });
+    const gi0 = Math.max(0, Math.min(s.tuNhom || 0, nhomTho.length - 1));
+    const groups = nhomTho.slice(gi0).map((g) => ({ label: nhanNgay(g.d), sub: g.xs.length + (laAnh ? ' ảnh' : ' video'), cells: g.xs.map(cell) }));
+    // thanh thời gian bên phải: năm + tháng, bấm để nhảy tới tháng đó (bản thật: cuộn tới nhóm)
+    const rail = []; { let ly = null, lm = null; const dau = [];
+      nhomTho.forEach((g, gi) => { if (g.ym !== lm) { if (g.y !== ly) { rail.push({ isYear: true, isMonth: false, label: String(g.y) }); ly = g.y; } dau.push(rail.length); rail.push({ isYear: false, isMonth: true, label: 'Thg ' + g.m, gi, aria: 'Tới tháng ' + g.m + ' năm ' + g.y }); lm = g.ym; } });
+      const ms = rail.filter((r) => r.isMonth);
+      ms.forEach((r, k) => { const toi = k + 1 < ms.length ? ms[k + 1].gi : nhomTho.length; r.on = gi0 >= r.gi && gi0 < toi;
+        r.style = 'min-height:26px;border:0;border-radius:13px;padding:0 2px;font-size:11px;font-weight:' + (r.on ? '700' : '500') + ';cursor:pointer;background:' + (r.on ? '#181816' : 'transparent') + ';color:' + (r.on ? '#fff' : '#66645F');
+        r.pick = () => this.setState({ tuNhom: r.gi }); }); }
+
+    // ---- xem toàn màn hình
+    const vi = s.xem === null ? -1 : rows.findIndex((x) => x.i === s.xem);
+    const vcur = vi >= 0 ? rows[vi] : null;
+    const goto = (k) => { const x = rows[k]; if (x) this.setState({ xem: x.i, play: false, sel: Object.assign({}, s.sel, { [s.tab]: x.i }) }); };
+    let v = { title: '', chips: [], busy: false, busyText: '', primaryStyle: '', stageStyle: '', stageLabel: '', isImage: false, isVideo: false, showPlay: false, playing: false, noPrev: true, noNext: true, arrowStyle: '', infoBtnStyle: '' };
+    if (vcur) {
+      const [w, h] = vcur.r.split(':').map(Number);
+      const isVideo = !laAnh;
+      const canPlay = isVideo && !vcur.pct;
+      const playing = canPlay && s.play;
+      v = Object.assign({}, {
+        title: nameOf(vcur), busy: !!vcur.pct, busyText: vcur.viec || '',
+        stageStyle: 'position:relative;overflow:hidden;display:flex;align-items:center;justify-content:center;color:#B9B7B0;background:#2A2927;border:1px solid #3A3935;border-radius:14px;padding:0;width:min(100%, calc((100vh - 140px) * ' + (w / h) + '));aspect-ratio:' + w + ' / ' + h + ';cursor:' + (canPlay ? 'pointer' : 'default'),
+        stageLabel: canPlay ? (playing ? 'Tạm dừng video' : 'Phát video') : 'Xem trước',
+        isImage: !isVideo, isVideo, showPlay: canPlay && !playing, playing,
+        noPrev: vi <= 0, noNext: vi >= rows.length - 1,
+        arrowStyle: 'flex:0 0 44px;align-self:center;width:44px;height:44px;border-radius:50%;border:1px solid #3A3935;background:transparent;color:#fff;display:flex;align-items:center;justify-content:center'
+      });
+    }
+
+    const tabStyleCu = (on) => 'display:flex;align-items:center;gap:8px;height:44px;padding:0 18px;background:transparent;border:0;border-bottom:2px solid ' + (on ? '#181816' : 'transparent') + ';color:' + (on ? '#181816' : '#66645F') + ';font-size:15px;font-weight:' + (on ? '600' : '400') + ';margin-bottom:-1px';
+    const dsBat = (() => { try { const j = JSON.parse(localStorage.getItem('web2api_ds') || 'null'); return !j || ['youtube', 'chitieu', 'sgk'].some((k) => j[k] !== false); } catch (e) { return true; } })();
+    const nhaBat = (() => { try { const j = JSON.parse(localStorage.getItem('web2api_nha') || 'null'); return !j || ['camera', 'mang', 'pin', 'mat', 'hoc'].some((k) => j[k] !== false); } catch (e) { return true; } })();
+    // ---- Menu chính: Nhà, Hệ thống, Nhật ký có danh sách xổ khi bấm; chọn mục nào thì vào mục đó (khung khác thì nhớ mục rồi chuyển khung).
+    const SUBNAV = {"Nhà": [{"id": "camera", "label": "Camera", "d": "M3 8h4l2-3h6l2 3h4v11H3z M12 11a3 3 0 1 0 0 6 3 3 0 0 0 0-6z", "bao": 0}, {"id": "mang", "label": "Mạng", "d": "M12 4a2 2 0 1 0 0 .01 M5 19a2 2 0 1 0 0 .01 M19 19a2 2 0 1 0 0 .01 M12 6v6 M12 12l-6 5 M12 12l6 5", "bao": 2}, {"id": "pin", "label": "Pin", "d": "M3 8h15v8H3z M18 11h3v2h-3z M6 11v2 M9 11v2", "bao": 0}, {"id": "mat", "label": "Khuôn mặt", "d": "M4 8V5a1 1 0 0 1 1-1h3 M16 4h3a1 1 0 0 1 1 1v3 M20 16v3a1 1 0 0 1-1 1h-3 M8 20H5a1 1 0 0 1-1-1v-3 M9 10v1 M15 10v1 M9 15c1.5 1.5 4.5 1.5 6 0", "bao": 0}, {"id": "hoc", "label": "Học hỏi", "d": "M5 4h12a2 2 0 0 1 2 2v14H7a2 2 0 0 1-2-2z M5 18a2 2 0 0 1 2-2h12", "bao": 0}], "Đời sống": [{"id": "gt", "label": "Giải trí", "d": "M9 18V5l12-2v13 M9 18a3 3 0 1 1-6 0 3 3 0 0 1 6 0z M21 16a3 3 0 1 1-6 0 3 3 0 0 1 6 0z", "bao": 0}, {"id": "ct", "label": "Chi tiêu", "d": "M3 7a2 2 0 0 1 2-2h13v4 M3 7v11a2 2 0 0 0 2 2h14V9H5a2 2 0 0 1-2-2z M16 14h2", "bao": 0}, {"id": "gv", "label": "Giáo viên", "d": "M2 9l10-5 10 5-10 5z M6 11v5c3 2.5 9 2.5 12 0v-5", "bao": 0}], "Tác phẩm": [{"id": "anh", "label": "Ảnh", "d": "M4 5h16v14H4z M4 16l5-5 4 4 3-3 4 4 M9 9.5h.01", "bao": 0}, {"id": "video", "label": "Video", "d": "M3 6h12v12H3z M15 10l6-3v10l-6-3", "bao": 0}]};
+    SUBNAV['Đời sống'] = SUBNAV['Đời sống'].filter((u) => { try { const j = JSON.parse(localStorage.getItem('web2api_ds') || 'null'); return !j || j[{ gt: 'youtube', ct: 'chitieu', gv: 'sgk' }[u.id]] !== false; } catch (e) { return true; } });
+    const SELF_L = 'Tác phẩm';
+    const iStyle = (on) => 'display:flex;align-items:center;gap:10px;width:100%;box-sizing:border-box;min-height:38px;padding:0 10px;border:0;border-radius:9px;text-align:left;font:inherit;font-size:14px;text-decoration:none;cursor:pointer;color:#181816;background:' + (on ? '#EFEDE8' : 'transparent') + ';font-weight:' + (on ? '600' : '400');
+    const navX = nav.filter((n) => (n.label !== 'Nhà' || nhaBat) && (n.label !== 'Đời sống' || dsBat)).map((n, ni, arr) => { const L = SUBNAV[n.label]; const open = !!L && s.menuMo === n.label; const same = n.label === SELF_L;
+      const subs = (L || []).map((u) => { const on = same && (s.tab === u.id);
+        return { label: u.label, d: u.d, coBao: !!u.bao, bao: u.bao, on, ext: !same, inner: same, href: n.href, style: iStyle(on),
+          pick: same ? () => { doiTab(u.id); this.setState({ menuMo: null }); } : () => { try { localStorage.setItem('web2api_muc', JSON.stringify({ khung: n.label, muc: u.id })); } catch (e) { /* trình duyệt chặn */ } this.setState({ menuMo: null }); } }; });
+      const bst = 'flex:1 1 0;min-width:0;display:flex;flex-direction:column;align-items:center;gap:2px;padding:8px 2px;font-size:10px;font-weight:500;text-align:center;color:' + (/#EFEDE8/.test(n.style) || open ? '#0F766E' : '#66645F');
+      const ownL2 = false;
+      return Object.assign({}, n, { wst: n.wst || '', bLink: !L || ownL2, bSub: !!L && !ownL2, pos: 'left:clamp(8px,calc(' + (((ni + 0.5) / arr.length) * 100).toFixed(3) + '% - 100px),calc(100% - 208px))', arrow: 'left:calc(' + (((ni + 0.5) / arr.length) * 100).toFixed(3) + '% - 6px)', bstyle: bst, link: !L, hasSub: !!L, open, subs,
+        btnStyle: 'border:0;background:transparent;font:inherit;' + n.style, bbtn: 'border:0;background:transparent;font-family:inherit;' + bst,
+        chev: 'flex:0 0 auto;transition:transform .15s;transform:rotate(' + (open ? 180 : 0) + 'deg)',
+        toggle: () => this.setState({ menuMo: open ? null : n.label, accMo: false }), dong: () => { if (n.label === 'Hệ thống') { const cur0 = nav.find((x) => x.style === navOn); try { localStorage.setItem('web2api_tu', JSON.stringify({ label: cur0 ? cur0.label : 'Studio' })); } catch (e) { /* trình duyệt chặn */ } } this.setState({ menuMo: null, accMo: false }); } }); });
+    const sheet = navX.find((n) => n.open && n.bSub);
+    const ddBtn = 'display:flex;align-items:center;gap:8px;border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:20px;padding:0 12px 0 14px;font-size:14px;font-weight:500;white-space:nowrap;cursor:pointer;font-family:inherit';
+    const mkDd = (id, nhan, items, rong, web) => { const cur = items.find((u) => u.on); const open = s.ddMo === id;
+      return { isDd: true, webDd: web !== false, isPlus: false, id, nhan, cur: cur ? cur.label : rong, open, toggle: () => this.setState({ ddMo: open ? null : id }), btn: ddBtn,
+        chev: 'flex:0 0 auto;color:var(--mute);transition:transform .15s;transform:rotate(' + (open ? 180 : 0) + 'deg)',
+        items: items.map((u) => ({ label: u.label, on: u.on, coSo: !!u.coSo, so: u.so, soStyle: u.soStyle || '', style: iStyle(u.on), cstyle: 'flex:0 0 auto;display:flex;align-items:center;gap:6px;border-radius:18px;font-size:13px;font-weight:500;white-space:nowrap;cursor:pointer;font-family:inherit;' + (u.on ? 'border:0;background:#181816;color:#fff' : 'border:1px solid #E4E2DC;background:#fff;color:#181816'), pick: () => { u.pick(); this.setState({ ddMo: null }); } })) }; };
+    const doiTab = (t) => this.setState({ tab: t, loc: 'all', xem: null, play: false, tuNhom: 0 });
+    const ctx = [];
+    ctx.push(mkDd('model', 'Lọc theo model', locOpts.map((o) => ({ label: o.label, on: o.v === loc, pick: () => this.setState({ loc: o.v, tuNhom: 0 }) })), ''));
+    ctx.push(mkDd('xep', 'Sắp xếp', [{ label: 'Mới nhất', on: s.xep === 'moi', pick: () => this.setState({ xep: 'moi', tuNhom: 0 }) }, { label: 'Cũ nhất', on: s.xep === 'cu', pick: () => this.setState({ xep: 'cu', tuNhom: 0 }) }], ''));
+    ctx.forEach((x, i) => { x.sep = 'display:flex;flex-wrap:wrap;align-items:center;gap:6px' + (i ? ';padding-left:14px;border-left:1px solid var(--line)' : ''); });
+    { let kw = 0; ctx.forEach((x) => { x.sepW = 'display:flex;flex-wrap:wrap;align-items:center;gap:6px' + (x.webDd && kw++ ? ';padding-left:20px;border-left:2px solid #A8A59D' : ''); }); }
+    const coCtxW = ctx.some((x) => x.webDd || x.isPlus);
+
+    return {
+      sinCtx: false, ctx, coCtxW, coCtx: true, ddMo: s.ddMo, ddDong: () => this.setState({ ddMo: null }), menuMo: s.menuMo, accMo: !!s.accMo, backdrop: !!(s.menuMo || s.accMo), accToggle: () => this.setState({ accMo: !s.accMo, menuMo: null }), dangXuat: () => this.setState({ accMo: false }), menuDong: () => this.setState({ menuMo: null, accMo: false }), sheet: sheet || { label: '', subs: [] }, coSheet: !!sheet,
+      navStyle: 'flex:0 0 auto;position:sticky;top:0;z-index:20;box-sizing:border-box;display:flex;align-items:center;gap:20px;height:60px;padding:0 24px;border-bottom:1px solid #E4E2DC;background:#FBFAF8',
+      logo: IC.logo, plus: IC.plus, iImage: IC.image, iExpand: IC.expand, nav: navX,
+      laAnh, laVideo: !laAnh, groups, coVe: gi0 > 0, veDau: () => this.setState({ tuNhom: 0 }), rail, coRail: rail.length > 2, trongTP: rows.length === 0, iImage: IC.image,
+      open: !!vcur, v,
+      close: () => this.setState(closeAll),
+      prev: () => goto(vi - 1), next: () => goto(vi + 1),
+      toggle: () => { if (vcur && !laAnh && !vcur.pct) this.setState({ play: !s.play }); },
+      onKey: (e) => {
+        if (!vcur) return;
+        if (e.key === 'Escape') this.setState(closeAll);
+        else if (e.key === 'ArrowLeft') goto(vi - 1);
+        else if (e.key === 'ArrowRight') goto(vi + 1);
+      }
+    };
+  }
+}
+</script>
+</body>
+</html>

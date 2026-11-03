@@ -1,0 +1,116 @@
+{
+ "v": 3,
+ "createdOnFiles": {
+  "v": 1,
+  "at": "2026-10-08T15:00:00Z"
+ },
+ "title": "Thiết kế lại web2api",
+ "launch": {
+  "view": "canvas"
+ },
+ "pages": [],
+ "boards": {
+  "Main.dc.html": {
+   "x": 1380,
+   "y": 0,
+   "w": 1280,
+   "h": 860,
+   "title": "1 · Studio — một cửa cho chat, ảnh, video",
+   "expand": "fill",
+   "is_interactive": true
+  },
+  "Tien-ich.dc.html": {
+   "x": 6820,
+   "y": 0,
+   "w": 1280,
+   "h": 900,
+   "title": "5 · Tiện ích — cắm thêm như lego",
+   "expand": "fill",
+   "is_interactive": true
+  },
+  "He-thong.dc.html": {
+   "x": 8180,
+   "y": 0,
+   "w": 1280,
+   "h": 860,
+   "title": "6 · Hệ thống — vận hành, ít khi phải mở",
+   "expand": "fill",
+   "is_interactive": true
+  },
+  "Studio-dien-thoai.dc.html": {
+   "x": 10900,
+   "y": 0,
+   "w": 390,
+   "h": 844,
+   "title": "8 · Studio trên điện thoại (bản cũ)",
+   "is_interactive": true
+  },
+  "Kien-truc.dc.html": {
+   "x": 0,
+   "y": 0,
+   "w": 1280,
+   "h": 3000,
+   "title": "0 · Ý tưởng và kiến trúc lego",
+   "expand": "fill"
+  },
+  "Tac-pham.dc.html": {
+   "x": 2740,
+   "y": 0,
+   "w": 1280,
+   "h": 860,
+   "title": "2 · Tác phẩm — ảnh và video tách riêng",
+   "expand": "fill",
+   "is_interactive": true
+  },
+  "Nha.dc.html": {
+   "x": 4100,
+   "y": 0,
+   "w": 1280,
+   "h": 860,
+   "title": "3 · Nhà — camera, mạng, pin, khuôn mặt, học hỏi",
+   "expand": "fill",
+   "is_interactive": true
+  },
+  "Nhat-ky.dc.html": {
+   "x": 9540,
+   "y": 0,
+   "w": 1280,
+   "h": 860,
+   "title": "7 · Nhật ký — mọi nhật ký, chia theo loại",
+   "expand": "fill",
+   "is_interactive": true
+  },
+  "Doi-song.dc.html": {
+   "x": 5460,
+   "y": 0,
+   "w": 1280,
+   "h": 860,
+   "title": "4 · Đời sống — giải trí, chi tiêu, giáo viên",
+   "expand": "fill",
+   "is_interactive": true
+  },
+  "Bo-nao.dc.html": {
+   "x": 11400,
+   "y": 0,
+   "w": 1280,
+   "h": 860,
+   "title": "6b · AI (bộ não) — tài khoản, provider, combo",
+   "expand": "fill",
+   "is_interactive": true
+  }
+ },
+ "order": [
+  "Kien-truc.dc.html",
+  "Main.dc.html",
+  "Tac-pham.dc.html",
+  "Nha.dc.html",
+  "Doi-song.dc.html",
+  "Tien-ich.dc.html",
+  "He-thong.dc.html",
+  "Bo-nao.dc.html",
+  "Nhat-ky.dc.html",
+  "Studio-dien-thoai.dc.html"
+ ],
+ "notes": {},
+ "designSystems": []
+}

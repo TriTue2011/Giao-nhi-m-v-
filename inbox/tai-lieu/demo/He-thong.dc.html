@@ -1,0 +1,1026 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<title>Hệ thống web2api</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600&family=Newsreader:opsz,wght@6..72,400;6..72,500&display=swap">
+<style>
+body{margin:0}
+button{font:inherit;cursor:pointer}
+a{color:inherit;text-decoration:none}
+select,input{font:inherit}
+input:focus{outline:none}
+button:focus-visible,a:focus-visible,select:focus-visible,input:focus-visible{outline:2px solid #0F766E;outline-offset:2px}
+.cuon{scrollbar-width:thin;scrollbar-color:#B9B6AE transparent}
+.cuon::-webkit-scrollbar{width:8px;height:8px}
+.cuon::-webkit-scrollbar-thumb{background:#B9B6AE;border-radius:4px}
+.o .nutto{opacity:0;transition:opacity .15s}
+.o:hover .nutto,.o:focus-within .nutto{opacity:1}
+.bn{display:none}
+.wmp{display:none}
+.ctxt{display:none}
+.tm a>svg:first-child,.tm button>svg:first-child{display:none}
+@media (max-width:1023px){
+.tb{min-height:52px !important;height:auto !important;padding:6px 14px !important;gap:10px !important}
+.tm{display:none !important}
+.wmd{display:none}.wmp{display:block}
+.ctxt{display:flex !important}
+.ctxb{display:none !important}
+.tao{display:none !important}
+.bn{display:flex !important;position:relative;z-index:20;flex:0 0 auto;align-items:stretch;border-top:1px solid #E4E2DC;background:#FBFAF8;padding:0 4px env(safe-area-inset-bottom,0px)}
+.bn > a,.bn > button{min-height:52px;justify-content:center}
+main.pg{padding:12px 16px 0 !important}
+}
+.dg2{display:grid;grid-template-columns:minmax(0,2fr) minmax(0,1fr);gap:12px;align-items:stretch}
+.dg1{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:12px}
+@media (max-width:1023px){.dg2,.dg1{grid-template-columns:minmax(0,1fr)}.dls{flex:0 0 auto !important;max-height:360px !important}}
+@media (pointer:coarse){input,select,textarea{font-size:16px !important}[role=menuitem]{min-height:44px !important}}
+</style>
+</helmet>
+<div style="--ink:#181816;--mute:#66645F;--line:#E4E2DC;--bg:#F6F5F2;--card:#FFFFFF;--acc:#0F766E;--accsoft:#E2F0ED;height:100vh;height:100dvh;min-height:560px;overflow-x:hidden;display:flex;flex-direction:column;flex-wrap:nowrap;background:var(--bg);color:var(--ink);font-family:'Be Vietnam Pro',system-ui,sans-serif;font-size:14px;line-height:1.5">
+
+<nav aria-label="Điều hướng chính" class="tb" style="{{navStyle}}">
+<div style="display:flex;align-items:center;gap:12px;flex:0 0 auto">
+<a href="{{back.href}}" aria-label="Quay lại {{back.ten}}" title="Quay lại {{back.ten}}" style="display:flex;align-items:center;gap:6px;height:40px;padding:0 16px 0 12px;box-sizing:border-box;border:1px solid var(--line);border-radius:20px;background:var(--card);color:var(--ink);font-size:14px;font-weight:500;white-space:nowrap"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 12H5 M11 6l-6 6 6 6"></path></svg><span>Quay lại</span></a>
+</div>
+<div class="tm" style="display:flex;flex-wrap:wrap;align-items:center;gap:2px 2px;flex:1 1 auto;min-width:0">
+<sc-for list="{{nav}}" as="n" hint-placeholder-count="6">
+<div style="position:relative;flex:0 0 auto">
+<sc-if value="{{n.link}}" hint-placeholder-val="{{true}}"><a href="{{n.href}}" aria-label="{{n.label}}" onClick="{{n.dong}}" style="{{n.style}}"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="{{n.d}}"></path></svg><span>{{n.label}}</span></a></sc-if>
+<sc-if value="{{n.hasSub}}" hint-placeholder-val="{{false}}"><button type="button" aria-haspopup="menu" aria-expanded="{{n.open}}" onClick="{{n.toggle}}" style="{{n.btnStyle}}"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="{{n.d}}"></path></svg><span>{{n.label}}</span><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="{{n.chev}}"><path d="M6 9l6 6 6-6"></path></svg></button>
+<sc-if value="{{n.open}}" hint-placeholder-val="{{false}}">
+<div role="menu" aria-label="Mục trong {{n.label}}" style="position:absolute;top:calc(100% + 8px);left:50%;transform:translateX(-50%);z-index:30;width:200px;box-sizing:border-box;background:var(--card);border:1px solid var(--line);border-radius:14px;box-shadow:0 12px 32px rgba(24,24,22,0.14);padding:4px;display:flex;flex-direction:column;gap:1px">
+<sc-for list="{{n.subs}}" as="u" hint-placeholder-count="5">
+<sc-if value="{{u.ext}}" hint-placeholder-val="{{false}}"><a role="menuitem" href="{{u.href}}" onClick="{{u.pick}}" style="{{u.style}}"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="{{u.d}}"></path></svg><span>{{u.label}}</span><sc-if value="{{u.coBao}}" hint-placeholder-val="{{false}}"><span style="margin-left:auto;min-width:20px;height:20px;box-sizing:border-box;padding:0 6px;border-radius:10px;background:#B42318;color:#fff;font-size:12px;font-weight:600;display:flex;align-items:center;justify-content:center">{{u.bao}}</span></sc-if></a></sc-if>
+<sc-if value="{{u.inner}}" hint-placeholder-val="{{false}}"><button type="button" role="menuitem" aria-current="{{u.on}}" onClick="{{u.pick}}" style="{{u.style}}"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="{{u.d}}"></path></svg><span>{{u.label}}</span><sc-if value="{{u.coBao}}" hint-placeholder-val="{{false}}"><span style="margin-left:auto;min-width:20px;height:20px;box-sizing:border-box;padding:0 6px;border-radius:10px;background:#B42318;color:#fff;font-size:12px;font-weight:600;display:flex;align-items:center;justify-content:center">{{u.bao}}</span></sc-if></button></sc-if>
+</sc-for>
+</div>
+</sc-if></sc-if>
+</div>
+</sc-for>
+</div>
+<div class="acc" style="position:relative;flex:0 0 auto;margin-left:auto">
+<button type="button" aria-haspopup="menu" aria-expanded="{{accMo}}" aria-label="Tài khoản" onClick="{{accToggle}}" style="width:36px;height:36px;padding:0;border-radius:50%;border:0;background:var(--accsoft);color:#0B5A53;display:flex;align-items:center;justify-content:center;font:inherit;font-weight:600;cursor:pointer">C</button>
+<sc-if value="{{accMo}}" hint-placeholder-val="{{false}}">
+<div role="menu" aria-label="Tài khoản" style="position:absolute;top:calc(100% + 8px);right:0;z-index:30;width:248px;max-width:calc(100vw - 24px);box-sizing:border-box;background:var(--card);border:1px solid var(--line);border-radius:14px;box-shadow:0 12px 32px rgba(24,24,22,0.14);padding:6px;display:flex;flex-direction:column;gap:2px">
+<div style="display:flex;align-items:center;gap:12px;padding:10px 10px 12px">
+<div style="flex:0 0 auto;width:40px;height:40px;border-radius:50%;background:var(--accsoft);color:#0B5A53;display:flex;align-items:center;justify-content:center;font-weight:600;font-size:16px">C</div>
+<div style="display:flex;flex-direction:column;line-height:1.35;min-width:0"><span style="font-weight:600">Chủ nhà</span><span style="font-size:12px;color:var(--mute)">Quản trị viên</span></div>
+</div>
+<div style="height:1px;background:var(--line);margin:0 4px 4px"></div>
+<button type="button" role="menuitem" onClick="{{dangXuat}}" style="display:flex;align-items:center;gap:10px;width:100%;box-sizing:border-box;min-height:44px;padding:0 12px;border:0;border-radius:10px;background:transparent;color:#B42318;font:inherit;font-size:14px;font-weight:500;text-align:left;cursor:pointer"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 4H5v16h5 M15 8l4 4-4 4 M19 12H9"></path></svg>Đăng xuất</button>
+</div>
+</sc-if>
+</div>
+</nav>
+
+<main class="pg" style="flex:1 1 0;min-width:0;min-height:0;overflow-x:hidden;display:flex;flex-direction:column;gap:16px;box-sizing:border-box;padding:20px 32px 0">
+
+<div class="cuon" style="flex:1 1 0;min-width:0;min-height:0;overflow-y:auto;display:flex;flex-direction:column;gap:16px;padding:0 8px 24px 0">
+
+
+<sc-if value="{{coDash}}" hint-placeholder-val="{{true}}">
+<div style="display:flex;flex-direction:column;gap:12px">
+<div style="display:flex;align-items:center;justify-content:space-between;gap:10px 16px;flex-wrap:wrap">
+<span style="font-size:11px;font-weight:600;letter-spacing:.14em;text-transform:uppercase;color:var(--mute)">Số liệu sử dụng</span>
+<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+<div role="group" aria-label="Kỳ xem" style="display:inline-flex;gap:2px;padding:3px;border-radius:20px;border:1px solid var(--line);background:var(--card)">
+<sc-for list="{{dash.ky}}" as="k" hint-placeholder-count="5"><button type="button" aria-pressed="{{k.on}}" onClick="{{k.pick}}" style="{{k.st}}">{{k.nhan}}</button></sc-for>
+</div>
+<button type="button" aria-label="Làm mới số liệu" title="Làm mới" onClick="{{dash.lamMoi}}" style="width:40px;height:40px;border-radius:50%;border:1px solid var(--line);background:var(--card);color:var(--mute);display:flex;align-items:center;justify-content:center;padding:0"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 11a8 8 0 0 0-14.5-4M4 4v4h4 M4 13a8 8 0 0 0 14.5 4M20 20v-4h-4"></path></svg></button>
+</div>
+</div>
+
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(220px,100%),1fr));gap:12px">
+<sc-for list="{{dash.cards}}" as="c" hint-placeholder-count="4">
+<div style="position:relative;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px;display:flex;flex-direction:column;gap:4px;min-width:0">
+<span style="font-size:11px;font-weight:600;letter-spacing:.12em;text-transform:uppercase;color:var(--mute)">{{c.nhan}}</span>
+<span style="font-family:Newsreader,Georgia,serif;font-size:32px;line-height:1.1">{{c.gt}}</span>
+<span style="font-size:12px;color:var(--mute)">{{c.ghi}}</span>
+<span aria-hidden="true" style="position:absolute;top:14px;right:14px;width:34px;height:34px;border-radius:10px;display:flex;align-items:center;justify-content:center;background:{{c.bg}};color:{{c.fg}}"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="{{c.d}}"></path></svg></span>
+</div>
+</sc-for>
+</div>
+
+<div style="background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px 18px;display:flex;align-items:center;gap:14px 28px;flex-wrap:wrap">
+<div style="display:flex;flex-direction:column;gap:2px;padding-right:28px;border-right:1px solid var(--line)">
+<span style="font-size:11px;font-weight:600;letter-spacing:.12em;text-transform:uppercase;color:var(--mute)">Tổng yêu cầu</span>
+<span style="font-family:Newsreader,Georgia,serif;font-size:36px;line-height:1.05">{{dash.dai.gt}}</span>
+</div>
+<div style="display:flex;align-items:center;gap:14px 36px;flex-wrap:wrap;flex:1 1 280px;min-width:0">
+<sc-for list="{{dash.dai.cac}}" as="m" hint-placeholder-count="4">
+<div style="display:flex;flex-direction:column;gap:3px"><span style="font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--mute)">{{m.nhan}}</span><span style="font-size:22px;font-weight:600;line-height:1.1;color:{{m.mau}}">{{m.gt}}</span></div>
+</sc-for>
+</div>
+</div>
+
+<div class="dg2">
+<section aria-label="Dùng theo nhà cung cấp" style="background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px 16px;display:flex;flex-direction:column;gap:10px;min-width:0">
+<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">
+<span style="font-size:11px;font-weight:600;letter-spacing:.12em;text-transform:uppercase;color:var(--mute)">Dùng theo nhà cung cấp <span style="text-transform:none;letter-spacing:0;font-weight:400">{{dash.prov.ghiGio}}</span></span>
+<sc-if value="{{dash.prov.coGran}}" hint-placeholder-val="{{true}}"><div role="group" aria-label="Chia theo" style="display:inline-flex;gap:2px;padding:3px;border-radius:20px;border:1px solid var(--line);background:var(--card)">
+<sc-for list="{{dash.prov.gran}}" as="g" hint-placeholder-count="3"><button type="button" aria-pressed="{{g.on}}" onClick="{{g.pick}}" style="{{g.st}}">{{g.nhan}}</button></sc-for>
+</div></sc-if>
+</div>
+<sc-if value="{{dash.prov.trong}}" hint-placeholder-val="{{false}}"><div style="height:240px;display:flex;align-items:center;justify-content:center;text-align:center;color:var(--mute);padding:0 16px;border:1px dashed #CFCCC3;border-radius:12px">Chưa đủ mốc để vẽ — chọn kỳ dài hơn hoặc chia theo ngày.</div></sc-if>
+<sc-if value="{{dash.prov.ve}}" hint-placeholder-val="{{true}}">
+<div style="display:flex;gap:8px;height:240px">
+<div style="position:relative;flex:0 0 40px"><sc-for list="{{dash.prov.y}}" as="t" hint-placeholder-count="5"><span style="position:absolute;right:0;top:{{t.top}};transform:translateY(-50%);font-size:10px;color:var(--mute);white-space:nowrap">{{t.t}}</span></sc-for></div>
+<div style="position:relative;flex:1 1 0;min-width:0">
+<svg viewBox="0 0 100 100" preserveAspectRatio="none" role="img" aria-label="Biểu đồ token theo nhà cung cấp" style="position:absolute;top:0;left:0;width:100%;height:100%;overflow:visible">
+<sc-for list="{{dash.prov.grid}}" as="g" hint-placeholder-count="5"><line x1="0" x2="100" y1="{{g.y}}" y2="{{g.y}}" stroke="#E4E2DC" stroke-width="1" stroke-dasharray="3 3" vector-effect="non-scaling-stroke"></line></sc-for>
+<sc-for list="{{dash.prov.areas}}" as="a" hint-placeholder-count="9"><path d="{{a.area}}" fill="{{a.color}}" fill-opacity="0.2" stroke="none"></path><path d="{{a.line}}" fill="none" stroke="{{a.color}}" stroke-width="1.8" stroke-linejoin="round" vector-effect="non-scaling-stroke"></path></sc-for>
+</svg>
+<div style="position:absolute;top:0;left:0;right:0;bottom:0;display:flex"><sc-for list="{{dash.prov.hover}}" as="h" hint-placeholder-count="8"><div title="{{h.tit}}" style="{{h.st}}"></div></sc-for></div>
+</div>
+</div>
+<div style="position:relative;height:14px;margin-left:48px"><sc-for list="{{dash.prov.x}}" as="t" hint-placeholder-count="6"><span style="position:absolute;top:0;left:{{t.left}};transform:translateX(-50%);font-size:10px;color:var(--mute);white-space:nowrap">{{t.t}}</span></sc-for></div>
+<div style="display:flex;flex-wrap:wrap;gap:4px 14px;font-size:11px;color:var(--mute)"><sc-for list="{{dash.prov.leg}}" as="l" hint-placeholder-count="9"><span title="{{l.tong}} token trong kỳ" style="display:inline-flex;align-items:center;gap:5px"><i style="{{l.st}}"></i>{{l.ten}}</span></sc-for></div>
+</sc-if>
+</section>
+
+<section aria-label="Yêu cầu gần đây" style="background:var(--card);border:1px solid var(--line);border-radius:14px;display:flex;flex-direction:column;min-width:0;min-height:0;overflow:hidden">
+<div style="display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border-bottom:1px solid var(--line)"><span style="font-size:11px;font-weight:600;letter-spacing:.12em;text-transform:uppercase;color:var(--mute)">Yêu cầu gần đây</span><span style="font-size:11px;color:var(--mute)">{{dash.nGan}}</span></div>
+<div class="cuon dls" style="flex:1 1 0;min-height:0;max-height:392px;overflow-y:auto">
+<sc-for list="{{dash.gan}}" as="g" hint-placeholder-count="8">
+<div style="display:flex;align-items:center;gap:10px;padding:9px 16px;border-top:1px solid #F0EEE9">
+<span aria-hidden="true" style="{{g.dot}}"></span>
+<span style="flex:1 1 0;min-width:0;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="{{g.model}}">{{g.model}}</span>
+<span style="flex:0 0 auto;text-align:right;line-height:1.35"><span style="font-size:12px;color:#075985">{{g.vao}}↑</span> <span style="font-size:12px;color:#0B5A53">{{g.ra}}↓</span><br><span style="font-size:11px;color:var(--mute)">{{g.truoc}}</span></span>
+</div>
+</sc-for>
+</div>
+</section>
+</div>
+
+<div class="dg1">
+<section aria-label="14 ngày gần nhất" style="background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px 16px;display:flex;flex-direction:column;gap:10px;min-width:0">
+<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;flex-wrap:wrap">
+<div style="display:flex;flex-direction:column;gap:2px"><span style="font-size:11px;font-weight:600;letter-spacing:.12em;text-transform:uppercase;color:var(--mute)">14 ngày gần nhất</span><span style="font-size:18px;font-weight:600">{{dash.ngay.tong}}</span><span style="font-size:11px;color:var(--mute)">{{dash.ngay.ghi}}</span></div>
+<div role="group" aria-label="Đơn vị" style="display:inline-flex;gap:2px;padding:3px;border-radius:20px;border:1px solid var(--line);background:var(--card)"><sc-for list="{{dash.ngay.che}}" as="g" hint-placeholder-count="2"><button type="button" aria-pressed="{{g.on}}" onClick="{{g.pick}}" style="{{g.st}}">{{g.nhan}}</button></sc-for></div>
+</div>
+<div style="display:flex;gap:8px;height:220px">
+<div style="position:relative;flex:0 0 40px"><sc-for list="{{dash.ngay.y}}" as="t" hint-placeholder-count="5"><span style="position:absolute;right:0;top:{{t.top}};transform:translateY(-50%);font-size:10px;color:var(--mute);white-space:nowrap">{{t.t}}</span></sc-for></div>
+<div style="position:relative;flex:1 1 0;min-width:0">
+<svg viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true" style="position:absolute;top:0;left:0;width:100%;height:100%;overflow:visible"><sc-for list="{{dash.ngay.grid}}" as="g" hint-placeholder-count="5"><line x1="0" x2="100" y1="{{g.y}}" y2="{{g.y}}" stroke="#E4E2DC" stroke-width="1" stroke-dasharray="3 3" vector-effect="non-scaling-stroke"></line></sc-for></svg>
+<div style="position:absolute;top:0;left:0;right:0;bottom:0;display:flex;align-items:flex-end;gap:4px"><sc-for list="{{dash.ngay.cot}}" as="b" hint-placeholder-count="14"><div title="{{b.tit}}" style="flex:1 1 0;min-width:0;height:100%;display:flex;align-items:flex-end;justify-content:center"><span style="display:block;width:100%;max-width:26px;border-radius:4px 4px 0 0;background:#C28A00;height:{{b.h}}"></span></div></sc-for></div>
+</div>
+</div>
+<div style="display:flex;gap:4px;margin-left:48px"><sc-for list="{{dash.ngay.cot}}" as="b" hint-placeholder-count="14"><span style="flex:1 1 0;min-width:0;text-align:center;font-size:10px;color:var(--mute);height:14px;white-space:nowrap;overflow:visible">{{b.nhan}}</span></sc-for></div>
+</section>
+
+<section aria-label="Xu hướng sử dụng" style="background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px 16px;display:flex;flex-direction:column;gap:10px;min-width:0">
+<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;flex-wrap:wrap">
+<div style="display:flex;flex-direction:column;gap:2px"><span style="font-size:11px;font-weight:600;letter-spacing:.12em;text-transform:uppercase;color:var(--mute)">Xu hướng sử dụng</span><span style="font-size:18px;font-weight:600">{{dash.xu.tong}}</span></div>
+<div role="group" aria-label="Đơn vị" style="display:inline-flex;gap:2px;padding:3px;border-radius:20px;border:1px solid var(--line);background:var(--card)"><sc-for list="{{dash.xu.che}}" as="g" hint-placeholder-count="2"><button type="button" aria-pressed="{{g.on}}" onClick="{{g.pick}}" style="{{g.st}}">{{g.nhan}}</button></sc-for></div>
+</div>
+<sc-if value="{{dash.xu.trong}}" hint-placeholder-val="{{false}}"><div style="height:220px;display:flex;align-items:center;justify-content:center;text-align:center;color:var(--mute);padding:0 16px;border:1px dashed #CFCCC3;border-radius:12px">Chưa đủ mốc để vẽ — chọn kỳ dài hơn hoặc chia theo ngày.</div></sc-if>
+<sc-if value="{{dash.xu.ve}}" hint-placeholder-val="{{true}}">
+<div style="display:flex;gap:8px;height:220px">
+<div style="position:relative;flex:0 0 40px"><sc-for list="{{dash.xu.y}}" as="t" hint-placeholder-count="5"><span style="position:absolute;right:0;top:{{t.top}};transform:translateY(-50%);font-size:10px;color:var(--mute);white-space:nowrap">{{t.t}}</span></sc-for></div>
+<div style="position:relative;flex:1 1 0;min-width:0">
+<svg viewBox="0 0 100 100" preserveAspectRatio="none" role="img" aria-label="Xu hướng sử dụng" style="position:absolute;top:0;left:0;width:100%;height:100%;overflow:visible">
+<sc-for list="{{dash.xu.grid}}" as="g" hint-placeholder-count="5"><line x1="0" x2="100" y1="{{g.y}}" y2="{{g.y}}" stroke="#E4E2DC" stroke-width="1" stroke-dasharray="3 3" vector-effect="non-scaling-stroke"></line></sc-for>
+<path d="{{dash.xu.area}}" fill="{{dash.xu.color}}" fill-opacity="0.12" stroke="none"></path><path d="{{dash.xu.line}}" fill="none" stroke="{{dash.xu.color}}" stroke-width="2.4" stroke-linejoin="round" vector-effect="non-scaling-stroke"></path>
+</svg>
+<div style="position:absolute;top:0;left:0;right:0;bottom:0;display:flex"><sc-for list="{{dash.xu.hover}}" as="h" hint-placeholder-count="8"><div title="{{h.tit}}" style="{{h.st}}"></div></sc-for></div>
+</div>
+</div>
+<div style="position:relative;height:14px;margin-left:48px"><sc-for list="{{dash.xu.x}}" as="t" hint-placeholder-count="6"><span style="position:absolute;top:0;left:{{t.left}};transform:translateX(-50%);font-size:10px;color:var(--mute);white-space:nowrap">{{t.t}}</span></sc-for></div>
+</sc-if>
+</section>
+</div>
+</div>
+</sc-if>
+<sc-if value="{{coCd}}" hint-placeholder-val="{{false}}">
+<div style="display:flex;flex-direction:column;gap:12px">
+<sc-if value="{{cdCoLevels}}" hint-placeholder-val="{{true}}"><div style="display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px">
+<sc-for list="{{cdLevels}}" as="lv" hint-placeholder-count="2">
+<sc-if value="{{lv.coVach}}" hint-placeholder-val="{{false}}"><span aria-hidden="true" style="flex:0 0 auto;width:1px;height:28px;background:#CFCCC3"></span></sc-if>
+<sc-if value="{{lv.isDd}}" hint-placeholder-val="{{false}}"><div style="position:relative;flex:0 0 auto"><button type="button" aria-haspopup="listbox" aria-expanded="{{lv.dd.open}}" aria-label="{{lv.ten}}: {{lv.dd.cur}}" onClick="{{lv.dd.toggle}}" style="{{lv.dd.btn}}"><span>{{lv.dd.cur}}</span><span style="font-size:12px;opacity:.7">{{lv.dd.curDem}}</span><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="{{lv.dd.chev}}"><path d="M6 9l6 6 6-6"></path></svg></button>
+<sc-if value="{{lv.dd.open}}" hint-placeholder-val="{{false}}"><div aria-hidden="true" onClick="{{lv.dd.dong}}" style="position:fixed;inset:0;z-index:14"></div>
+<div role="listbox" aria-label="{{lv.ten}}" style="position:absolute;top:calc(100% + 6px);left:0;z-index:15;min-width:260px;max-width:calc(100vw - 32px);max-height:70vh;overflow-y:auto;box-sizing:border-box;background:var(--card);border:1px solid var(--line);border-radius:14px;box-shadow:0 12px 32px rgba(24,24,22,0.14);padding:6px;display:flex;flex-direction:column;gap:2px">
+<sc-for list="{{lv.dd.items}}" as="u" hint-placeholder-count="6"><button type="button" role="option" aria-selected="{{u.on}}" onClick="{{u.pick}}" style="{{u.st}}"><span style="flex:1 1 auto;text-align:left">{{u.nhan}}</span><span style="font-size:12px;color:var(--mute)">{{u.dem}}</span></button></sc-for></div></sc-if></div></sc-if>
+<sc-if value="{{lv.isChips}}" hint-placeholder-val="{{true}}"><div role="tablist" aria-label="{{lv.ten}}" style="display:flex;flex-wrap:wrap;gap:8px"><sc-for list="{{lv.chips}}" as="c" hint-placeholder-count="4"><button type="button" role="tab" aria-selected="{{c.on}}" onClick="{{c.pick}}" style="{{c.st}}">{{c.nhan}}</button></sc-for></div></sc-if>
+</sc-for>
+</div></sc-if>
+<div style="display:flex;flex-wrap:wrap;align-items:center;gap:8px"><label style="flex:1 1 240px;max-width:420px;height:44px;box-sizing:border-box;padding:0 14px;border-radius:22px;border:1px solid var(--line);background:var(--card);display:flex;align-items:center;gap:8px"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#66645F" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="{{iSearch}}"></path></svg><input type="search" aria-label="Tìm mục cài đặt" placeholder="Tìm mục cài đặt (mọi trang)" value="{{cdQ}}" onInput="{{cdOnQ}}" style="border:0;background:transparent;color:var(--ink);font-size:16px;flex:1;min-width:0;height:100%"></label><sc-if value="{{cdCoQ}}" hint-placeholder-val="{{false}}"><button type="button" onClick="{{cdXoaQ}}" style="min-height:44px;padding:0 14px;border-radius:22px;border:1px solid var(--line);background:var(--card);color:var(--ink);font-size:13px;font-weight:500;white-space:nowrap">Xoá tìm kiếm</button></sc-if></div>
+<sc-if value="{{cdCoTin}}" hint-placeholder-val="{{false}}"><div role="status" style="display:flex;align-items:center;gap:10px;padding:8px 8px 8px 14px;border-radius:12px;border:1px solid #BFE0D9;background:#E8F4F1;color:#0B5A53;font-size:13px"><span style="flex:1 1 0;min-width:0;text-wrap:pretty">{{cdTin}}</span><button type="button" aria-label="Đóng thông báo" onClick="{{cdDongTin}}" style="flex:0 0 auto;width:44px;height:44px;border:0;background:transparent;color:#0B5A53;font-size:18px">×</button></div></sc-if>
+<div style="display:flex;flex-direction:column;gap:8px">
+<sc-for list="{{cdRows}}" as="r" hint-placeholder-count="4">
+<div style="background:var(--card);border:1px solid var(--line);border-radius:14px;overflow:hidden">
+<div style="display:flex;flex-wrap:wrap;align-items:center;gap:8px 16px;padding:8px 12px 8px 16px;min-height:60px;box-sizing:border-box">
+<button type="button" aria-expanded="{{r.open}}" aria-label="{{r.label}}" onClick="{{r.pick}}" style="flex:1 1 240px;min-width:0;min-height:44px;border:0;background:transparent;color:var(--ink);text-align:left;padding:0;display:flex;flex-direction:column;justify-content:center;line-height:1.35;cursor:pointer;font:inherit">
+<sc-if value="{{r.coTren}}" hint-placeholder-val="{{false}}"><span style="font-size:11px;color:var(--mute);letter-spacing:.04em;text-transform:uppercase">{{r.tren}}</span></sc-if>
+<span style="font-weight:500;overflow-wrap:anywhere">{{r.title}}</span>
+<span style="font-size:12px;color:var(--mute);overflow-wrap:anywhere">{{r.sub}}</span>
+</button>
+<span style="{{r.pillStyle}}">{{r.pill}}</span>
+</div>
+<sc-if value="{{r.open}}" hint-placeholder-val="{{false}}">
+<div style="border-top:1px solid var(--line);background:#FBFAF8;padding:14px 16px 16px;display:flex;flex-direction:column;gap:14px">
+<div style="display:flex;flex-wrap:wrap;gap:12px">
+<sc-for list="{{r.fields}}" as="f" hint-placeholder-count="4">
+<sc-if value="{{f.isTieu}}" hint-placeholder-val="{{false}}"><span style="flex:1 1 100%;font-size:12px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--mute);padding-top:6px">{{f.tieu}}</span></sc-if>
+<sc-if value="{{f.isInfo}}" hint-placeholder-val="{{false}}"><div style="flex:1 1 100%;display:flex;flex-wrap:wrap;gap:2px 12px;font-size:13px;line-height:1.45"><span style="color:var(--mute)">{{f.nhan}}</span><span style="overflow-wrap:anywhere;text-wrap:pretty">{{f.v}}</span></div></sc-if>
+<sc-if value="{{f.isIn}}" hint-placeholder-val="{{true}}"><label style="flex:1 1 260px;min-width:0;display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--mute)">{{f.nhan}}<input type="{{f.type}}" autocomplete="new-password" placeholder="{{f.ph}}" value="{{f.val}}" onInput="{{f.onIn}}" style="min-height:44px;box-sizing:border-box;border:1px solid var(--line);border-radius:10px;background:var(--bg);color:var(--ink);font-size:16px;padding:0 12px"><sc-if value="{{f.coHint}}" hint-placeholder-val="{{false}}"><span style="font-size:11px;line-height:1.4">{{f.hint}}</span></sc-if></label></sc-if>
+<sc-if value="{{f.isArea}}" hint-placeholder-val="{{false}}"><label style="flex:1 1 100%;min-width:0;display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--mute)">{{f.nhan}}<textarea rows="4" placeholder="{{f.ph}}" value="{{f.val}}" onInput="{{f.onIn}}" style="box-sizing:border-box;border:1px solid var(--line);border-radius:10px;background:var(--bg);color:var(--ink);font-size:16px;padding:10px 12px;font-family:inherit;line-height:1.45;resize:vertical"></textarea><sc-if value="{{f.coHint}}" hint-placeholder-val="{{false}}"><span style="font-size:11px;line-height:1.4">{{f.hint}}</span></sc-if></label></sc-if>
+<sc-if value="{{f.isSel}}" hint-placeholder-val="{{false}}"><label style="flex:1 1 260px;min-width:0;display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--mute)">{{f.nhan}}<select value="{{f.selVal}}" onChange="{{f.onSel}}" style="min-height:44px;box-sizing:border-box;border:1px solid var(--line);border-radius:10px;background:var(--bg);color:var(--ink);font-size:16px;padding:0 10px"><sc-for list="{{f.opts}}" as="o" hint-placeholder-count="3"><option value="{{o.v}}">{{o.label}}</option></sc-for></select><sc-if value="{{f.coHint}}" hint-placeholder-val="{{false}}"><span style="font-size:11px;line-height:1.4">{{f.hint}}</span></sc-if></label></sc-if>
+<sc-if value="{{f.isTog}}" hint-placeholder-val="{{false}}"><div style="flex:1 1 100%;display:flex;align-items:center;gap:10px;min-width:0"><button type="button" role="switch" aria-checked="{{f.on}}" aria-label="{{f.al}}" onClick="{{f.tog}}" style="width:52px;height:44px;border:0;background:transparent;padding:0;display:flex;align-items:center;justify-content:center;flex:0 0 auto"><span style="{{f.mt}}"><span style="{{f.mk}}"></span></span></button><span style="font-size:13px;color:var(--ink);line-height:1.4;text-wrap:pretty">{{f.nhan}}</span></div></sc-if>
+<sc-if value="{{f.isKenh}}" hint-placeholder-val="{{false}}"><div style="flex:1 1 100%;display:flex;flex-direction:column;gap:6px;padding:8px 0;border-top:1px solid var(--line)"><div style="display:flex;align-items:center;gap:10px;min-width:0"><button type="button" role="switch" aria-checked="{{f.on}}" aria-label="{{f.al}}" onClick="{{f.tog}}" style="width:52px;height:44px;border:0;background:transparent;padding:0;display:flex;align-items:center;justify-content:center;flex:0 0 auto"><span style="{{f.mt}}"><span style="{{f.mk}}"></span></span></button><div style="display:flex;flex-direction:column;min-width:0;line-height:1.4"><span style="font-size:14px;font-weight:500">{{f.nhan}}</span><span style="font-size:12px;color:var(--mute);text-wrap:pretty">{{f.mota}}</span></div></div>
+<div role="group" aria-label="Nơi nhận: {{f.nhan}}" style="display:flex;flex-wrap:wrap;align-items:center;gap:6px;padding-left:62px"><sc-for list="{{f.kenh}}" as="k" hint-placeholder-count="3"><button type="button" aria-pressed="{{k.on}}" aria-label="{{k.al}}" onClick="{{k.pick}}" style="{{k.st}}">{{k.nhan}}</button></sc-for><button type="button" onClick="{{f.guiThu}}" style="min-height:40px;padding:0 14px;border-radius:20px;border:1px solid var(--line);background:var(--card);color:var(--ink);font-size:13px;font-weight:500;white-space:nowrap">Gửi thử</button></div><sc-if value="{{f.coCanh}}" hint-placeholder-val="{{false}}"><span style="padding-left:62px;font-size:12px;color:#7A4B00">Đang bật nhưng chưa chọn nơi nhận — thông báo này sẽ không tới ai.</span></sc-if></div></sc-if>
+</sc-for>
+</div>
+<sc-if value="{{r.coActs}}" hint-placeholder-val="{{true}}"><div style="display:flex;flex-wrap:wrap;gap:8px"><sc-for list="{{r.acts}}" as="a" hint-placeholder-count="2"><button type="button" onClick="{{a.pick}}" style="{{a.st}}">{{a.nhan}}</button></sc-for></div></sc-if>
+</div>
+</sc-if>
+</div>
+</sc-for>
+<sc-if value="{{cdTrong}}" hint-placeholder-val="{{false}}"><div style="border:1px dashed #CFCCC3;border-radius:14px;padding:32px 16px;text-align:center;color:var(--mute)">{{cdTrongTxt}}</div></sc-if>
+</div>
+</div>
+</sc-if>
+<sc-if value="{{coCanChu}}" hint-placeholder-val="{{true}}"><span style="font-size:11px;font-weight:600;letter-spacing:.12em;text-transform:uppercase;color:var(--mute);margin-top:4px">Cần chú ý</span></sc-if>
+<sc-if value="{{coBar}}" hint-placeholder-val="{{true}}">
+<div style="display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;justify-content:space-between">
+<sc-if value="{{coLoc}}" hint-placeholder-val="{{true}}">
+<div style="display:flex;flex-wrap:wrap;gap:8px;flex:1 1 320px;min-width:0">
+<label style="flex:1 1 220px;max-width:360px;height:44px;box-sizing:border-box;padding:0 14px;border-radius:22px;border:1px solid var(--line);background:var(--card);display:flex;align-items:center;gap:8px">
+<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#66645F" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="{{iSearch}}"></path></svg>
+<input type="search" aria-label="Tìm trong danh sách" placeholder="Tìm…" value="{{q}}" onInput="{{onQ}}" style="border:0;background:transparent;color:var(--ink);font-size:14px;flex:1;min-width:0;height:100%">
+</label>
+<label style="height:44px;box-sizing:border-box;padding:0 8px 0 14px;border-radius:22px;border:1px solid var(--line);background:var(--card);display:flex;align-items:center">
+<select aria-label="Lọc theo tình trạng" value="{{tt}}" onChange="{{onTt}}" style="border:0;background:transparent;color:var(--ink);font-size:13px;font-weight:500;height:100%;cursor:pointer">
+<option value="all">Mọi tình trạng</option>
+<option value="ok">Bình thường</option>
+<option value="warn">Cần chú ý</option>
+<option value="err">Hỏng</option>
+</select>
+</label>
+</div>
+</sc-if>
+<sc-if value="{{cur.coNut}}" hint-placeholder-val="{{true}}">
+<button type="button" onClick="{{bamNut}}" style="margin-left:auto;min-height:44px;padding:0 18px;border-radius:22px;border:0;background:var(--ink);color:#fff;font-weight:500">{{cur.nut}}</button>
+</sc-if>
+</div>
+</sc-if>
+
+<div style="display:flex;flex-direction:column;gap:8px">
+<sc-for list="{{rows}}" as="r" hint-placeholder-count="5">
+<div class="o" style="background:var(--card);border:1px solid var(--line);border-radius:14px;overflow:hidden">
+<div style="display:flex;flex-wrap:wrap;align-items:center;gap:8px 16px;padding:8px 12px 8px 16px;min-height:60px;box-sizing:border-box">
+<button type="button" aria-expanded="{{r.open}}" aria-label="{{r.label}}" onClick="{{r.pick}}" style="flex:1 1 240px;min-width:0;min-height:44px;border:0;background:transparent;color:var(--ink);text-align:left;padding:0;display:flex;flex-direction:column;justify-content:center;line-height:1.35">
+<span style="font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{r.title}}</span>
+<span style="font-size:12px;color:var(--mute);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{r.sub}}</span>
+</button>
+<sc-if value="{{r.coChip}}" hint-placeholder-val="{{false}}">
+<span style="font-size:12px;color:var(--mute);padding:3px 10px;border-radius:12px;background:var(--bg);border:1px solid var(--line)">{{r.chip}}</span>
+</sc-if>
+<span style="{{r.pillStyle}}">{{r.pill}}</span>
+<div class="nutto" style="display:flex;flex-wrap:nowrap;gap:6px">
+<sc-for list="{{r.acts}}" as="a" hint-placeholder-count="2">
+<button type="button" aria-label="{{a.aria}}" style="min-height:44px;padding:0 14px;border-radius:22px;border:1px solid var(--line);background:var(--card);color:var(--ink);font-size:13px;font-weight:500;white-space:nowrap">{{a.label}}</button>
+</sc-for>
+</div>
+<sc-if value="{{r.coTog}}" hint-placeholder-val="{{false}}">
+<button type="button" role="switch" aria-checked="{{r.on}}" aria-label="{{r.togLabel}}" onClick="{{r.tog}}" style="width:52px;height:44px;border:0;background:transparent;padding:0;display:flex;align-items:center;justify-content:center">
+<span style="{{r.trackStyle}}"><span style="{{r.knobStyle}}"></span></span>
+</button>
+</sc-if>
+</div>
+<sc-if value="{{r.open}}" hint-placeholder-val="{{false}}">
+<div style="border-top:1px solid var(--line);background:#FBFAF8;padding:12px 16px">
+<span style="font-size:13px;color:var(--mute);text-wrap:pretty">{{r.detail}}</span>
+</div>
+</sc-if>
+</div>
+</sc-for>
+<sc-if value="{{trong}}" hint-placeholder-val="{{false}}">
+<div style="border:1px dashed #CFCCC3;border-radius:14px;padding:32px 16px;text-align:center;color:var(--mute)">Không có mục nào khớp bộ lọc.</div>
+</sc-if>
+</div>
+
+<div style="font-size:12px;color:var(--mute);text-wrap:pretty">Bản mẫu minh hoạ. Tên, số liệu và tình trạng trong trang này là ví dụ, bản thật lấy từ máy chủ.</div>
+</div>
+</main>
+<nav aria-label="Điều hướng chính (điện thoại)" class="bn">
+<sc-for list="{{nav}}" as="n" hint-placeholder-count="6">
+<sc-if value="{{n.bLink}}" hint-placeholder-val="{{true}}"><a href="{{n.href}}" aria-label="{{n.label}}" onClick="{{n.dong}}" style="{{n.bstyle}}"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="{{n.d}}"></path></svg><span>{{n.ngan}}</span></a></sc-if>
+<sc-if value="{{n.bSub}}" hint-placeholder-val="{{false}}"><button type="button" aria-haspopup="menu" aria-expanded="{{n.open}}" aria-label="{{n.label}}" onClick="{{n.toggle}}" style="{{n.bbtn}}"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="{{n.d}}"></path></svg><span>{{n.ngan}}</span></button></sc-if>
+</sc-for>
+<sc-if value="{{coSheet}}" hint-placeholder-val="{{false}}">
+<div aria-hidden="true" style="position:absolute;{{sheet.arrow}};bottom:calc(100% + 4px);z-index:31;width:12px;height:12px;box-sizing:border-box;background:var(--card);border-right:1px solid var(--line);border-bottom:1px solid var(--line);transform:rotate(45deg)"></div>
+<div role="menu" aria-label="Mục trong {{sheet.label}}" style="position:absolute;{{sheet.pos}};width:200px;bottom:calc(100% + 10px);z-index:30;box-sizing:border-box;background:var(--card);border:1px solid var(--line);border-radius:14px;box-shadow:0 -6px 24px rgba(24,24,22,0.16);padding:4px;display:flex;flex-direction:column;gap:1px;max-height:60vh;overflow-y:auto">
+<sc-for list="{{sheet.subs}}" as="u" hint-placeholder-count="5">
+<sc-if value="{{u.ext}}" hint-placeholder-val="{{false}}"><a role="menuitem" href="{{u.href}}" onClick="{{u.pick}}" style="{{u.style}}"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="{{u.d}}"></path></svg><span>{{u.label}}</span><sc-if value="{{u.coBao}}" hint-placeholder-val="{{false}}"><span style="margin-left:auto;min-width:20px;height:20px;box-sizing:border-box;padding:0 6px;border-radius:10px;background:#B42318;color:#fff;font-size:12px;font-weight:600;display:flex;align-items:center;justify-content:center">{{u.bao}}</span></sc-if></a></sc-if>
+<sc-if value="{{u.inner}}" hint-placeholder-val="{{false}}"><button type="button" role="menuitem" aria-current="{{u.on}}" onClick="{{u.pick}}" style="{{u.style}}"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="{{u.d}}"></path></svg><span>{{u.label}}</span><sc-if value="{{u.coBao}}" hint-placeholder-val="{{false}}"><span style="margin-left:auto;min-width:20px;height:20px;box-sizing:border-box;padding:0 6px;border-radius:10px;background:#B42318;color:#fff;font-size:12px;font-weight:600;display:flex;align-items:center;justify-content:center">{{u.bao}}</span></sc-if></button></sc-if>
+</sc-for>
+</div>
+</sc-if>
+</nav>
+<sc-if value="{{backdrop}}" hint-placeholder-val="{{false}}"><div aria-hidden="true" onClick="{{menuDong}}" style="position:fixed;top:0;right:0;bottom:0;left:0;z-index:19"></div></sc-if>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1280,"height":860}}'>
+// ===== Hệ thống › các trang cấu hình (Cấu hình · Liên lạc & giọng nói · Lưu trữ & sao lưu · Tìm kiếm & dịch · MCP · Bảo mật & người dùng).
+// ĐỐI CHIẾU TỪNG THẺ CODE THẬT: web/src/app/settings/components/*, web/src/app/mcp, web/src/app/search, web/src/app/dich (đọc 10/10/2026).
+// QUY TẮC: chỉ đưa vào ô nào CÓ trong giao diện thật; khoá có trong config.json mà giao diện thật không có ô thì KHÔNG đưa.
+// Giá trị mẫu là DEMO (không phải cấu hình thật). Bí mật luôn che; đã lưu thì ô để trống = giữ nguyên.
+const CD_THREADS = [['tg', 'Chủ nhà · Telegram (chat riêng)'], ['zb', 'Admin · Zalo bot'], ['zp', 'Nhóm gia đình · Zalo cá nhân']];
+const cT = (k, nhan, o) => Object.assign({ k, nhan, type: 'text', def: '' }, o);
+const cP = (k, nhan, o) => Object.assign({ k, nhan, type: 'password', mat: true }, o);
+const cN = (k, nhan, def, o) => Object.assign({ k, nhan, type: 'number', def: String(def) }, o);
+const cS = (k, nhan, opts, o) => Object.assign({ k, nhan, type: 'sel', opts: opts.map((x) => (Array.isArray(x) ? x : [x, x])), def: Array.isArray(opts[0]) ? opts[0][0] : opts[0] }, o);
+const cG = (k, nhan, def, o) => Object.assign({ k, nhan, type: 'tog', def: !!def }, o);
+const cA = (k, nhan, def, o) => Object.assign({ k, nhan, type: 'area', def: def || '' }, o);
+const cH = (tieu, o) => Object.assign({ tieu }, o);
+const cI = (nhan, v, o) => Object.assign({ info: true, nhan, v }, o);
+const cK = (k, nhan, mota, bat, kenh) => ({ k, nhan, mota, type: 'kenh', defBat: !!bat, defKenh: kenh || [] });
+const cR = (id, ten, sub, f, acts, o) => Object.assign({ id, ten, sub, f, acts: acts || [] }, o);
+const cNeu = (f, k, v) => Object.assign({}, f, { neu: (f.neu ? (Array.isArray(f.neu[0]) ? f.neu : [f.neu]) : []).concat([[k, v]]) });
+const CD_COMBO = ['AI text', 'AI khó', 'AI nhẹ', 'AI vision'];
+const CD_MODEL_AI = [['', 'Dùng model mặc định'], 'AI text', 'AI khó', 'AI nhẹ', 'AI vision'];
+const CD_MODEL_HINT = [['', '-- Mặc định --'], 'AI text', 'AI khó', 'AI nhẹ', 'AI vision'];
+const CD_LOAI = [['group', 'Nhóm'], ['user', 'Cá nhân']];
+const CD_GIONG = [['g0', 'Giọng mặc định'], ['g1', 'Giọng khác (chưa tải)']];
+// Nhóm chức năng của bộ lọc theo thread — PHẢI khớp FUNCTION_GROUPS ở telegram-cloudflare-card.tsx (24 nhóm)
+const CD_FUNCS = [['homeassistant', 'Nhà (HA)'], ['server', 'Server'], ['image', 'Ảnh'], ['video', 'Video'], ['music', 'Nhạc'], ['web', 'Web'], ['code', 'Code'], ['memory', 'Ghi nhớ'], ['rag', 'RAG / tài liệu'], ['word', 'PDF → Word'], ['office', 'Tài liệu Office (Word · Excel · PowerPoint)'], ['chi_tieu', 'Sổ chi tiêu (mỗi người một sổ)'], ['device', 'Thiết bị (chụp màn hình · tắt/mở máy)'], ['camera', 'Camera nhà (go2rtc · RTSP)'], ['summary', 'Tổng hợp thông tin'], ['schedule', 'Nhắc hẹn / định kỳ'], ['skills', 'Skill / Workflow'], ['wiki', 'Wiki / Ingest'], ['contacts', 'Danh bạ / gửi tin'], ['kho_dam_may', 'Cho phép dùng kho đám mây'], ['tts_reply', 'Trả lời bằng giọng nói'], ['tts_speaker', 'Được ra lệnh phát loa'], ['teacher', 'Giáo viên (tiểu học · THCS · THPT)'], ['facebook', 'Đăng Facebook Page']];
+const cFuncs = (pre, macDinh) => CD_FUNCS.map(([k, t]) => cG(pre + k, t, macDinh.indexOf(k) >= 0));
+
+// ---- các khối dùng chung cho Telegram / Zalo bot / Zalo cá nhân ----
+const cBotRow = (id, tenKenh, tokenPh, canhBao) => cR(id, 'Bot ' + tenKenh, 'Danh sách bot — mỗi bot một token riêng', [].concat(canhBao ? [cI('Lưu ý', canhBao)] : []).concat([
+  cG('bat', 'Bật', true), cP('token', 'Token', { ph: tokenPh }), cT('ten', 'Tên dễ nhớ', { ph: 'Bot nhà', hint: 'Tự lấy từ bot lúc đầu — bạn đổi được.' }),
+  cI('Model AI', 'Cài theo từng thread ở tab «Lọc thread». Thread không cài riêng thì dùng mặc định hệ thống.'),
+  cH('Admin #1, #2… — nơi NHẬN thông báo (lỗi · log · cập nhật · chat mới)'), cT('adm_ten', 'Tên', { ph: 'Chủ nhà' }), cT('adm_id', 'Chat ID', { ph: '-100… / user id' }), cS('adm_loai', 'Loại', [['private', 'Cá nhân'], ['group', 'Nhóm']]),
+  cI('Muốn admin chat / ra lệnh', 'Thêm thread admin vào tab «Lọc thread» — không có thì bot im lặng, chỉ nhận thông báo.')]),
+  ['Lưu|Đã lưu bot ' + tenKenh + ' (minh hoạ).', 'Lấy tên bot|Đã lấy tên bot từ ' + tenKenh + ' (minh hoạ).', '+ Thêm admin|Đã thêm một dòng admin (minh hoạ).', '+ Thêm bot|Đã thêm một thẻ bot mới (minh hoạ).', 'Xóa|Cần bấm lần nữa để xoá bot (minh hoạ).']);
+const cHoatDong = (id) => cR(id, 'Hoạt động gần đây và blacklist', 'Ai vừa nhắn · chặn nhóm hoặc người', [
+  cS('bot', 'Bot / tài khoản', [['all', 'Tất cả (xem blacklist + hoạt động)'], ['b1', 'Bot nhà']]),
+  cI('Ai vừa nhắn', 'Nhóm gia đình — Chat ID …1234 — vừa xong · Chủ nhà — User ID …5678 — 5 phút trước (minh hoạ)'),
+  cI('Cách lấy ID', 'Vào nhóm, @tag bot rồi nhắn /id để bot báo Chat ID nhóm và User ID người gửi.'),
+  cH('Blacklist'), cS('loai', 'Loại', [['chat', 'Nhóm/Chat'], ['user', 'Cá nhân']]), cT('id', 'Chat ID hoặc User ID cần chặn', { ph: 'Nhập Chat ID hoặc User ID để chặn' }), cI('Đang chặn', 'Chưa chặn ai.')],
+  ['Chặn|Đã thêm vào blacklist (minh hoạ).', 'Làm mới|Đã làm mới hoạt động gần đây (minh hoạ).']);
+const cDanBa = (id, tenKenh) => cR(id, 'Danh bạ — ' + tenKenh, 'Bot · Thread ID · loại · tên · nguồn', [
+  cI('Chỉ hiện mục', 'bạn đã đồng ý lưu (trả lời khi báo chat mới) hoặc đã thêm trong Admin #N / Lọc thread. Tin lạ không tự vào danh bạ.'),
+  cI('Nhóm gia đình', 'Bot nhà · …1234 · nhóm · nguồn: Lọc thread'), cI('Chủ nhà', 'Bot nhà · …5678 · cá nhân · nguồn: Admin #1'), cI('Gợi ý', 'Chưa có mục nào — cấu hình Admin / Lọc thread, hoặc chờ bot nhận tin.')], ['Làm mới|Đã làm mới danh bạ (minh hoạ).']);
+const cNhanh = (id, tenKenh) => [cR(id + '_kenh', 'Nhánh Agent — ' + tenKenh, 'Cài RIÊNG kênh này — mục nào để trống thì dùng «Mặc định chung»', [
+  cI('Cách hoạt động', 'Mỗi loại việc dùng model ở đây (chọn combo để có dự phòng tự động: model đầu chạy trước, lỗi xoay tiếp). Bot không hỏi lại người dùng.'),
+  cS('image_gen', 'Vẽ / tạo ảnh', CD_MODEL_HINT), cS('vision', 'Phân tích ảnh', CD_MODEL_HINT), cS('music_gen', 'Tạo nhạc', CD_MODEL_HINT), cS('video_gen', 'Tạo video', CD_MODEL_HINT), cS('code', 'Viết / sửa code', CD_MODEL_HINT), cS('teacher', 'Dạy học / gia sư', CD_MODEL_HINT), cS('default', 'Mặc định chung (chữ)', CD_MODEL_HINT)], ['Lưu|Đã lưu nhánh agent của kênh ' + tenKenh + ' (minh hoạ).']),
+  cR(id + '_chung', 'Mặc định chung', 'Mọi kênh + tab chat / Home Assistant / API ngoài', [
+    cS('image_gen', 'Vẽ / tạo ảnh', CD_MODEL_HINT, { hint: 'Mặc định: gma/image' }), cS('vision', 'Phân tích ảnh', CD_MODEL_HINT, { hint: 'Mặc định: gma/auto' }), cS('music_gen', 'Tạo nhạc', CD_MODEL_HINT, { hint: 'Mặc định: gma/auto' }), cS('video_gen', 'Tạo video', CD_MODEL_HINT, { hint: 'Mặc định: flow/veo-3.1-fast' }),
+    cS('code', 'Viết / sửa code', CD_MODEL_HINT, { hint: 'Mặc định: claude/auto' }), cS('teacher', 'Dạy học / gia sư', CD_MODEL_HINT), cS('default', 'Mặc định chung (chữ)', CD_MODEL_HINT),
+    cH('Kiểm duyệt code (Reviewer)'), cS('reviewer', 'Model soi lại code do «Viết / sửa code» tạo ra', [['', '-- Tắt review (để trống) --'], 'AI khó', 'AI text'], { hint: 'Để trống = tắt review. Đây là cài đặt chung, không theo kênh.' })], ['Lưu|Đã lưu mặc định chung của nhánh agent (minh hoạ).'])];
+// ---- Lọc thread: MỘT thẻ cho mỗi thread, theo lọc chức năng thật ----
+const cLocThread = (id, kenh, ten, kind) => {
+  const zalop = kenh === 'zp'; const gr = (x) => cNeu(x, 'loai', 'group'); const f = [
+    cS('bot', 'Bot / tài khoản', kenh === 'tg' ? [['b1', 'Bot nhà (Telegram)']] : kenh === 'zb' ? [['b1', 'Bot nhà (Zalo bot)']] : [['b1', 'Tài khoản chính (Zalo cá nhân)']]),
+    cT('id', 'Thread / Chat ID', { ph: kenh === 'tg' ? '-100… / chat id' : 'ID nhóm hoặc người', def: kind === 'group' ? '…1234' : '…5678' }),
+    cS('loai', 'Loại thread', CD_LOAI, { def: kind, hint: 'Thread này là nhóm hay chat cá nhân — cá nhân thì không cần lọc user/tag.' }), cT('ten', 'Tên hiển thị (tự điền sau Nhận diện — hoặc gõ tay)', { ph: 'Vd: Nhóm gia đình / Nguyễn Văn A', def: ten }),
+    cS('model', 'Model AI riêng cho thread này (trống = dùng model mặc định của bot/kênh)', CD_MODEL_AI),
+    cS('fast', 'Đường tắt điều khiển nhà — nhanh hơn; tắt = lệnh nhà đi qua AI', [['', 'Theo mặc định của bot/tài khoản'], ['on', 'Bật đường tắt (nhanh)'], ['off', 'Tắt — đi qua AI']]),
+    cH('Nhóm chức năng — thread này được dùng'), ].concat(cFuncs('fn_', ['homeassistant', 'image', 'web', 'memory', 'camera', 'tts_reply'])).concat([
+    cI('Chưa tích nhóm nào', 'Thread này bị chặn mọi chức năng (chỉ chat).'), cG('aioff', 'Không dùng ChatGPT ở thread này — chuyển tiếp webhook và nhật ký vẫn chạy', false),
+    cH('Tâm hồn — chat 1-1 cũng nhận thơ / văn / nói chuyện phiếm'), cG('th_tho', 'Thơ', false), cG('th_van', 'Văn', false), cG('th_phiem', 'Nói chuyện phiếm', false),
+    cH('Persona riêng thread này (nhóm = dự phòng cho user chưa cài riêng; thread cá nhân = persona của chính chat 1-1 đó)'), cG('pe_bat', 'Bật persona (chọn 4 mục → tự sinh mô tả đầy đủ, nén token)', false),
+    cS('pe_vung', 'Vùng miền', [['', 'Vùng miền…'], ['bac', 'Miền Bắc'], ['trung', 'Miền Trung'], ['nam', 'Miền Nam']]), cS('pe_gt', 'Giới tính', [['', 'Giới tính…'], ['nu', 'Nữ'], ['nam', 'Nam']]), cS('pe_tuoi', 'Độ tuổi', [['', 'Độ tuổi…'], ['20', '20 tuổi'], ['40', '40 tuổi']]),
+    cS('pe_nghe', 'Nghề nghiệp', [['', 'Nghề nghiệp…'], ['tro_ly', 'Trợ lý gia đình']]), cS('pe_tong', 'Tông', [['', 'Tông…'], ['am', 'Ấm áp'], ['vui', 'Vui vẻ']]),
+    cA('pe_tu', 'Tự viết — dán nguyên văn persona', '', { ph: 'NHÂN VẬT: Mộc Miên, 20t… GIỌNG & NGÔN NGỮ: …' }),
+    cH('Giọng nói riêng thread này'), cS('gi_doc', 'Giọng đọc', [['', '(theo persona)'], ['g0', 'Giọng mặc định']]), cG('gi_tat', 'Tắt giọng nói (TTS)', false),
+    cG('gi_vi', 'Tiếng nghe: Việt', false), cG('gi_en', 'Tiếng nghe: Anh', false), cG('gi_ja', 'Tiếng nghe: Nhật', false), cG('gi_zh', 'Tiếng nghe: Trung', false), cG('gi_ko', 'Tiếng nghe: Hàn', false)]).concat([
+    cH('Nhóm: tag và danh sách người'), cG('tag', 'Bắt buộc tag mới trả lời (nhóm) — không bật = trả lời mọi tin', true), cNeu(cT('tag_kw', 'Từ khóa tag, vd: @Bot Bến Bắp (Telegram tự nhận @username; Zalo dùng từ khóa này)', { def: kenh === 'tg' ? '' : '@Bot Bến Bắp' }), 'tag', true)].concat(zalop ? [
+    cG('tu_toi', 'Trả lời cả tin của CHÍNH TÔI (bot chạy trên tài khoản của tôi)', false), cNeu(cT('tu_toi_kw', 'Từ khóa RIÊNG cho tin của tôi, vd: @tôi (khác ô «bắt buộc tag»)', { hint: 'Bắt buộc nhập từ khóa riêng — bỏ trống thì bot không phân biệt được câu bạn gõ với câu chính nó vừa gửi và sẽ tự trả lời mình không dứt; để trống là không lưu được cả thẻ thread này.' }), 'tu_toi', true),
+    cG('tag_hoi', 'Tag người hỏi khi bot trả lời — câu trả lời mở đầu bằng @tên người vừa hỏi', false)] : []).concat([cG('chi_ds', 'Chỉ người trong danh sách mới được giao tiếp — ai không có tên bên dưới thì bot bỏ qua im lặng', false)]).map(gr)).concat([
+    cH('Chuyển tiếp webhook (HA / n8n / URL bất kỳ)'), cG('fw', 'Chuyển tiếp webhook', false), cNeu(cT('fw_url', 'URL webhook', { ph: 'https://ha.local/api/webhook/xxx — POST JSON {platform, bot, chat_id, user_id, sender, text…}' }), 'fw', true),
+    cNeu(cG('fw_tag', 'Chỉ chuyển khi tin có TAG — tin thường thì ChatGPT trả lời', false), 'fw', true), cNeu(cT('fw_tag_kw', 'Tag RIÊNG để chuyển tiếp, vd @n8n — bỏ trống thì dùng chung từ khóa «bắt buộc tag»'), 'fw_tag', true),
+    cI('Hai việc ngược nhau', 'Tin chứa tag chuyển tiếp chỉ đi webhook, ChatGPT im lặng; tin không có tag thì ChatGPT trả lời như thường — nên đừng dùng chung một từ khóa với «bắt buộc tag».')]);
+  return cR(id, 'Thread: ' + ten, (kind === 'group' ? 'Nhóm' : 'Chat cá nhân') + ' · {id}', f, ['Lưu|Đã lưu bộ lọc thread (minh hoạ).', 'Nhận diện|Đã nhận diện tên và loại thread (minh hoạ).', '+ Thêm thread|Đã thêm một dòng thread mới (minh hoạ).', 'Xóa thread|Cần bấm lần nữa để xoá thread (minh hoạ).']);
+};
+const cLocUser = (id, kenh) => cR(id, 'Lọc theo User ID trong nhóm', 'User KHÔNG có trong danh sách = ai nhắn cũng được, hưởng full quyền của nhóm', [
+  cT('uid', 'User ID (gõ /id trong nhóm để lấy)', { def: '…5678' }), cT('ten', 'Tên user (tự điền / gõ tay)', { def: 'Chủ nhà' }), cS('model', 'Model AI riêng cho user này', CD_MODEL_AI),
+  cI('Quyền', 'Mỗi user tích tập con quyền của nhóm (nhóm chưa cho phép mục nào thì user không có gì để tích).'),
+  cG('pe', 'Persona riêng user này trong thread/topic', false),
+  cG('fw', 'Chuyển tiếp webhook (URL riêng của user)', false), cNeu(cT('fw_url', 'URL webhook riêng cho user này (HA / n8n / URL bất kỳ)'), 'fw', true), cNeu(cG('fw_tag', 'Chỉ chuyển webhook khi TAG bot — không tag thì ChatGPT trả lời', false), 'fw', true), cNeu(cT('fw_tag_kw', 'Tag RIÊNG để chuyển tiếp, vd @n8n — bỏ trống thì dùng chung từ khóa tag của thread'), 'fw_tag', true)],
+  ['Lưu|Đã lưu bộ lọc user (minh hoạ).', 'Nhận diện|Đã nhận diện tên user (minh hoạ).', '+ Thêm user|Đã thêm một dòng user mới (minh hoạ).']);
+const cLocTopic = (id) => cR(id, 'Lọc theo Topic (nhóm bật Topics)', 'Topic KHÔNG có trong danh sách = hưởng full quyền của nhóm', [
+  cI('Cách hoạt động', 'Mỗi topic tích tập con quyền của nhóm, có model / đường tắt nhà / bắt tag / webhook riêng (mỗi topic một loại log), bên trong lại có lớp user riêng. Lấy Topic ID: gõ /id ngay trong topic đó.'),
+  cT('tid', 'Topic ID (số — gõ /id trong topic để lấy)', { def: '638' }), cT('ten', 'Tên topic (gõ tay — Bot API không trả tên topic)', { def: 'Nhà cửa' }), cS('model', 'Model AI riêng cho topic này (trống = theo nhóm)', CD_MODEL_AI),
+  cS('fast', 'Đường tắt điều khiển nhà cho topic này', [['', 'Theo nhóm / mặc định'], ['on', 'Bật đường tắt (nhanh)'], ['off', 'Tắt — đi qua AI']]), cG('tag', 'Trong topic này: bắt buộc tag bot mới trả lời', false), cG('chi_ds', 'Chỉ người trong danh sách mới được giao tiếp', false),
+  cG('fw', 'Chuyển tiếp webhook riêng cho topic này', false), cNeu(cT('fw_url', 'URL webhook', { ph: 'https://ha.local/api/webhook/xxx — POST JSON có cả topic_id' }), 'fw', true), cI('Khi chuyển tiếp', 'Mọi tin trong topic này đi tới URL trên và ChatGPT KHÔNG trả lời — dùng để mỗi topic ghi một loại log riêng.')],
+  ['Lưu|Đã lưu bộ lọc topic (minh hoạ).', '+ Thêm topic|Đã thêm một dòng topic mới (minh hoạ).']);
+const cTamHon = (id) => cR(id, 'Tâm hồn của bot — gốc, tâm trạng, ký ức', 'Bật theo từng thread ở «Lọc thread»', [
+  cI('Cách hoạt động', 'Bot đọc chuyện THẬT trong ngày (camera thấy ai về lúc nào, lời người nhà nhắn, thời tiết) rồi tự cảm. Chưa tích thì bot không làm gì.'), cI('Đang bật ở', 'Chưa thread nào bật — tích «Tâm hồn» ở Lọc thread của từng thread.'),
+  cA('goc', 'Gốc của bot (chỉ chủ nhà sửa được — bot là ai trong nhà, gọi từng người thế nào, điều gì không bao giờ nói)', '', { ph: 'Vd: Em là trợ lý sống cùng nhà. Gọi chủ nhà là bố, vợ chủ nhà là mẹ, các con gọi bằng tên. Không bao giờ nói chuyện tiền bạc…' }),
+  cI('Tâm trạng', 'Bình thường (minh hoạ)'), cI('Ký ức bot giữ', 'Bot tự chọn điều đáng nhớ; chủ nhà bỏ được từng mục (chưa có ký ức).')], ['Lưu gốc|Đã lưu gốc của bot (minh hoạ).']);
+
+const CD_PAGES = [
+  // ================= CẤU HÌNH (ConfigCard) =================
+  { id: 'cd', ten: 'Cấu hình', rows: [
+    cR('chung', 'Làm mới tài khoản và proxy', 'Làm mới mỗi {phut} phút · proxy {proxy|chưa dùng}', [
+      cN('phut', 'Khoảng thời gian làm mới tài khoản (phút)', 5, { hint: 'Tính bằng phút, kiểm soát tần suất tự động làm mới tài khoản.' }), cT('proxy', 'Proxy toàn cầu', { ph: 'http://127.0.0.1:7890', hint: 'Để trống nếu không sử dụng proxy.' }),
+      cG('lam_moi', 'Tự động làm mới tài khoản — tự kiểm tra và làm mới hạn mức token định kỳ mỗi 5 phút (như 9router)', true)], ['Lưu|Đã lưu cấu hình chung (minh hoạ).']),
+    cR('hinh', 'Hình ảnh', 'Dọn ảnh sau {giu} ngày · {luong} luồng mỗi tài khoản · chờ {cho} giây', [
+      cT('base', 'Địa chỉ truy cập hình ảnh', { ph: 'https://example.com', hint: 'Tiền tố địa chỉ được sử dụng để tạo kết quả hình ảnh.' }), cN('giu', 'Tự động dọn dẹp hình ảnh (ngày)', 30, { hint: 'Tự động xóa hình ảnh cục bộ từ bao nhiêu ngày trước.' }),
+      cS('kich', 'Kích thước ảnh mặc định', [['1792x1024', '1792×1024 (16:9) — Mặc định'], ['1344x768', '1344×768 (16:9)'], ['1024x1792', '1024×1792 (9:16)'], ['768x1344', '768×1344 (9:16)'], ['1024x1024', '1024×1024 (1:1)'], ['768x768', '768×768 (1:1)'], ['512x512', '512×512 (1:1)'], ['256x256', '256×256 (1:1)'], ['1792x1344', '1792×1344 (4:3)'], ['1200x896', '1200×896 (4:3)'], ['1536x1024', '1536×1024 (3:2)'], ['1264x848', '1264×848 (3:2)'], ['768x1024', '768×1024 (3:4)'], ['1024x768', '1024×768 (4:3)']], { hint: 'Áp dụng cho tất cả model: GPT, Gemini, NVIDIA, SD, FLUX…' }),
+      cN('cho', 'Thời gian chờ thăm dò hình ảnh (giây)', 120, { hint: 'Chờ quá lâu mà ảnh chưa xong thì bỏ lượt đó, mặc định 120.' }), cN('luong', 'Số luồng hình ảnh trên mỗi tài khoản', 3, { hint: 'Giới hạn số yêu cầu hình ảnh xử lý đồng thời bởi mỗi tài khoản, mặc định là 3.' })], ['Lưu|Đã lưu cài đặt hình ảnh (minh hoạ).']),
+    cR('taikhoan', 'Tài khoản lỗi', 'Tự xoá tài khoản lỗi: {loi} · bị giới hạn: {gh}', [cG('loi', 'Tự động xóa tài khoản lỗi', false), cG('gh', 'Tự động xóa tài khoản bị giới hạn', false)], ['Lưu|Đã lưu cài đặt tài khoản (minh hoạ).']),
+    cR('chedo', 'Chế độ làm việc và nén tin nhắn', 'RTK ChatGPT {rtk} · Karpathy mode {kar}', [
+      cG('kar', 'Karpathy Mode — AI sẽ suy nghĩ trước khi code, đơn giản hóa, chỉ sửa đúng chỗ cần sửa', false), cG('rtk', 'RTK - Nén tin nhắn (ChatGPT) — giảm 60–90% payload cho ChatGPT, mặc định bật', true), cG('rtk2', 'RTK - Nén tin nhắn (AI khác) — áp dụng cho OpenCode, Gemini, Codex, NVIDIA, mặc định tắt', false),
+      cT('web_model', 'Model mặc định cho Web Session (OpenAI API)', { ph: 'gpt-4o', hint: 'Dùng khi chatgpt/auto route qua api.openai.com. Ví dụ: gpt-4o, gpt-4.1-mini.' }),
+      cH('Mức độ nhật ký console — nếu không chọn, mặc định là info / warning / error'), cG('lv_debug', 'debug', false), cG('lv_info', 'info', true), cG('lv_warning', 'warning', true), cG('lv_error', 'error', true)], ['Lưu|Đã lưu chế độ làm việc (minh hoạ).']),
+    cR('chithi', 'Chỉ thị bổ sung toàn cầu (System Prompt)', 'Thêm vào đầu mọi cuộc trò chuyện', [
+      cA('prompt', 'Chỉ thị bổ sung toàn cầu (System Prompt)', '', { ph: 'Ví dụ: Đầu tiên hãy xác định xem prompt của người dùng có tuân thủ quy định hay không; từ chối trả lời khi gặp các yêu cầu vi phạm pháp luật, khiêu dâm, bạo lực, thù hận, v.v.' })], ['Lưu|Đã lưu chỉ thị toàn cầu (minh hoạ).']),
+    cR('kiemduyet', 'Kiểm duyệt', 'Từ nhạy cảm · kiểm duyệt AI: {kd}', [
+      cA('tu', 'Từ nhạy cảm', '', { ph: 'Mỗi dòng một từ, nếu khớp sẽ từ chối', hint: 'Chỉ cần yêu cầu của người dùng chứa bất kỳ từ nhạy cảm nào, yêu cầu đó sẽ bị từ chối trực tiếp.' }),
+      cG('kd', 'Bật kiểm duyệt AI', false), cT('kd_url', 'Base URL', { ph: 'https://api.openai.com' }), cP('kd_key', 'API Key', { ph: 'sk-…' }), cT('kd_model', 'Model', { ph: 'gpt-5.4-mini' }),
+      cA('kd_prompt', 'Prompt kiểm duyệt', '', { ph: 'Xác định xem yêu cầu của người dùng có được phép hay không. Chỉ trả lời ALLOW hoặc REJECT.' })], ['Lưu|Đã lưu kiểm duyệt (minh hoạ).']),
+    cR('workflow', 'Workflow (chuỗi nhiều bước)', 'Tối đa {buoc} bước · chờ {cho} giây mỗi bước', [
+      cI('Workflow là gì', 'Chuỗi bước gọi model nối tiếp nhau, viết thành tệp .md đặt trong data/agent/workflows/. Tệp nào khai trigger: tin_nhan kèm danh sách từ khoá khi: thì tin nhắn chứa từ khoá ấy chạy thẳng workflow, không chờ model tự nhớ gọi công cụ. Tắt ô này là tắt cả đường tự chạy lẫn công cụ run_workflow.'),
+      cG('bat', 'Bật workflow (chuỗi nhiều bước)', true), cN('dong_thoi', 'Chạy cùng lúc tối đa', 2), cN('buoc', 'Số bước tối đa', 5, { hint: 'Tệp .md khai nhiều bước hơn thì phần dư bị cắt bỏ. Mặc định 5.' }), cN('cho', 'Thời gian chờ mỗi bước (giây)', 90, { hint: 'Mặc định 90. Nhân với số bước ra thời gian xấu nhất người dùng phải chờ.' })], ['Lưu|Đã lưu cài đặt workflow (minh hoạ).'])
+  ] },
+
+  // ================= LIÊN LẠC & GIỌNG NÓI =================
+  { id: 'lh', ten: 'Liên lạc & giọng nói', subs: [
+    { id: 'tg', ten: 'Telegram', subs: [
+      { id: 'cai', ten: 'Cài đặt kênh', rows: [cBotRow('tg_bot', 'Telegram', '123456:ABC-DEF1234ghikl...', 'Domain HTTPS / Tunnel chỉ cấu hình ở mục Cloudflare (hạ tầng chung) — một lần cho mọi bot, không lặp theo kênh.'), cHoatDong('tg_hd')] },
+      { id: 'dir', ten: 'Danh bạ', rows: [cDanBa('tg_dir', 'Telegram')] },
+      { id: 'loc', ten: 'Lọc thread', rows: [cLocThread('tg_loc1', 'tg', 'Nhóm gia đình', 'group'), cLocThread('tg_loc2', 'tg', 'Chủ nhà', 'user'), cLocUser('tg_user', 'tg'), cLocTopic('tg_topic'), cTamHon('tg_tamhon')] },
+      { id: 'nhanh', ten: 'Nhánh agent', rows: cNhanh('tg_nh', 'Telegram') }
+    ] },
+    { id: 'zalo', ten: 'Zalo', subs: [
+      { id: 'canhan', ten: 'Cá nhân', subs: [
+        { id: 'tk', ten: 'Tài khoản & QR', rows: [
+          cR('zp_tk', 'Tài khoản đã đăng nhập', 'Bot server zca-js · kết nối OK', [
+            cI('Bot server', 'Kết nối bot server OK'), cI('Tài khoản chính', 'Đã đăng nhập · Proxy: không'), cH('Gửi tin test'), cT('thread', 'Thread ID (user/nhóm)', { ph: 'ID người hoặc nhóm' }), cS('loai', 'Loại', [['user', 'Cá nhân'], ['group', 'Nhóm']]), cT('noi_dung', 'Nội dung thử', { def: 'Xin chào' })],
+            ['Gửi test|Đã gửi tin test (minh hoạ).', 'Làm mới|Đã làm mới danh sách tài khoản (minh hoạ).']),
+          cR('zp_qr', 'Đăng nhập Zalo bằng QR', 'Mã hết hạn sau khoảng 60 giây', [cI('Cách đăng nhập', 'Bấm tạo mã, mở Zalo trên điện thoại → biểu tượng QR → quét. Mã hết hạn sau khoảng 60 giây. Cookie được bot server lưu lại, tự đăng nhập lại khi khởi động.')], ['Tạo mã QR đăng nhập|Đã tạo mã QR — quét bằng ứng dụng Zalo trong 60 giây (minh hoạ).'])] },
+        { id: 'kenh', ten: 'Cài đặt kênh', rows: [
+          cR('zp_kenh', 'Bật/tắt kênh', 'Kênh Zalo cá nhân {bat}', [
+            cG('bat', 'Bật kênh Zalo Cá Nhân', true), cS('mac_dinh', 'Tài khoản gửi mặc định (trống = tài khoản đầu danh sách)', [['', '-- Tài khoản đầu trong danh sách --'], ['a1', 'Tài khoản chính']]),
+            cI('Cài ở đâu', 'Model AI, đường tắt điều khiển nhà và bật/tắt AI theo thread cài ở tab «Lọc thread». Hoạt động và blacklist xem ở tab «Event & Blacklist».')], ['Lưu|Đã lưu cài đặt kênh Zalo cá nhân (minh hoạ).']),
+          cR('zp_acc', 'Từng tài khoản', 'Màu tô đậm · bot dự phòng khi gửi không được', [
+            cG('bat', 'Bật tài khoản này', true), cS('mau', 'Màu tô đậm khi trả lời', [['', 'Không màu'], ['xanh', 'Xanh'], ['do', 'Đỏ'], ['cam', 'Cam'], ['tim', 'Tím']], { hint: 'Mỗi tài khoản một màu riêng. Zalo chỉ tô được 4 màu này; «Không màu» = chữ thường.' }),
+            cH('Fallback khi tài khoản này gửi không được (dùng bot khác)'), cS('fb_bot', 'Gửi qua bot nào (chọn từ bot đang có)', [['', '— Chọn bot —'], ['b1', 'Bot nhà (Telegram)']]), cT('fb_thread', 'Thread nhận fallback (chat ID nơi gửi tới)', { ph: '-100… / user id' })], ['Lưu|Đã lưu tài khoản Zalo (minh hoạ).'])] },
+        { id: 'admin', ten: 'Admin', rows: [
+          cR('zp_admin', 'Admin của tài khoản', 'Nơi nhận thông báo (log · hệ thống · cập nhật · chat mới)', [
+            cI('Admin là gì', 'Admin = nơi nhận thông báo. Chức năng AI của thread do «Lọc thread» quyết định — admin không thêm trong lọc thì bot im lặng, chỉ nhận thông báo. Lấy Thread ID ở tab «Event & Blacklist».'),
+            cT('id', 'Admin mới — nhập Thread ID', { ph: 'Thread ID admin' }), cS('loai', 'Loại', [['private', 'Cá nhân'], ['group', 'Nhóm']])], ['Thêm admin|Đã thêm admin (minh hoạ).', 'Lưu|Đã lưu admin (minh hoạ).'])] },
+        { id: 'hook', ten: 'Webhook', rows: [
+          cR('zp_hook', 'Hạ tầng zca-js và webhook', 'Tự đăng ký webhook: {auto}', [
+            cG('auto', 'Tự đăng ký webhook mọi tài khoản về gateway', true), cI('URL do hệ thống tự sinh', 'Chỉ đọc — bấm biểu tượng để copy. zca-js nhúng cùng container nên dùng URL nội bộ là nhanh nhất.'),
+            cI('Nội bộ (LAN / trong container)', 'http://127.0.0.1:80/…'), cI('Qua domain (từ ngoài)', 'Chưa cấu hình domain → chỉ có webhook nội bộ. Đặt domain ở mục Cloudflare.'),
+            cT('noi_bo', 'Webhook base nội bộ (trống = trong container, http://127.0.0.1:80)', { ph: 'Trống = 127.0.0.1:80' }), cT('user', 'User bot server', { ph: 'admin' }), cP('pass', 'Mật khẩu bot server')], ['Lưu|Đã lưu hạ tầng zca-js (minh hoạ).', 'Tải lại URL|Đã lấy lại URL webhook (minh hoạ).']),
+          cR('zp_hook_acc', 'Webhook theo tài khoản', 'Message · Group event · Reaction', [
+            cI('Receiver của gateway', 'http://127.0.0.1:80/… (chỉ đọc)'), cT('msg', 'Message webhook URL'), cT('grp', 'Group event webhook URL'), cT('rea', 'Reaction webhook URL')], ['Lưu|Đã lưu webhook của tài khoản (minh hoạ).', 'Trỏ tất cả về chatgpt2api|Đã trỏ cả ba loại sự kiện về gateway (minh hoạ).'])] },
+        { id: 'proxy', ten: 'Proxy', rows: [cR('zp_proxy', 'Proxy cho đăng nhập Zalo (tùy chọn)', 'Chưa có proxy nào — đăng nhập trực tiếp', [cT('url', 'Địa chỉ proxy', { ph: 'http://user:pass@host:port' })], ['Thêm|Đã thêm proxy (minh hoạ).'])] },
+        { id: 'event', ten: 'Event & Blacklist', rows: [cHoatDong('zp_hd'), cR('zp_dirs', 'Danh bạ — lấy Thread ID', 'Bạn bè và nhóm của tài khoản', [
+          cT('tim', 'Tìm theo tên hoặc ID...', { ph: 'Tìm theo tên hoặc ID...' }), cI('Mỗi dòng có', 'Copy Thread ID · Cho phép AI trả lời thread này · Thêm thread vào webhook chuyển tiếp đầu tiên')], ['Tải bạn bè|Đã tải danh sách bạn bè (minh hoạ).', 'Tải nhóm|Đã tải danh sách nhóm (minh hoạ).'])] },
+        { id: 'dir', ten: 'Danh bạ', rows: [cDanBa('zp_dir', 'Zalo Cá Nhân')] },
+        { id: 'loc', ten: 'Lọc thread', rows: [cLocThread('zp_loc1', 'zp', 'Nhóm gia đình', 'group'), cLocThread('zp_loc2', 'zp', 'Chủ nhà', 'user'), cLocUser('zp_user', 'zp'), cTamHon('zp_tamhon')] },
+        { id: 'nhanh', ten: 'Nhánh agent', rows: cNhanh('zp_nh', 'Zalo Cá Nhân') }
+      ] },
+      { id: 'bot', ten: 'Bot', subs: [
+        { id: 'cai', ten: 'Cài đặt kênh', rows: [cBotRow('zb_bot', 'Zalo', '1946930502...:HxGk...', 'Kênh này dùng long-polling (gateway tự gọi getUpdates ra ngoài), không dùng webhook: Cloudflare chặn /zalo/webhook (403). Nền tảng cũng chỉ cho getUpdates khi webhook TẮT nên không chạy song song webhook + long-polling được.'), cHoatDong('zb_hd')] },
+        { id: 'hook', ten: 'Webhook', rows: [
+          cR('zb_hook', 'Chế độ nhận tin', 'Webhook ⟷ long-polling', [
+            cI('Hai chế độ loại trừ nhau', 'webhook để Zalo tự POST tin vào server, còn long-polling thì server chủ động hỏi Zalo. getUpdates không hoạt động khi đã đặt webhook nên hệ thống chỉ chạy đúng một chế độ tại một thời điểm.'),
+            cI('Đang chạy', 'long-polling (minh hoạ)'), cT('url', 'URL webhook gốc — mỗi bot còn có URL riêng …/webhook/<bot_id>', { ph: 'https://[domain]/api/zalo-bot' }),
+            cI('Chưa bật được webhook', 'Zalo yêu cầu URL dạng HTTPS công khai (đặt zalo_webhook_url hoặc CHATGPT2API_BASE_URL). Bấm «Bật webhook» lúc này sẽ thất bại và hệ thống tự quay lại long-polling — bot vẫn nhận tin bình thường.'),
+            cS('che_do', 'Chế độ của bot này', [['chung', 'Theo chung'], ['webhook', 'Webhook'], ['poll', 'Long-polling']], { hint: '«Theo chung» = xoá cài đặt riêng, theo công tắc chung.' }), cI('Zalo đang giữ URL nào (getWebhookInfo)', 'đang poll')], ['Áp lại chế độ|Đã áp lại chế độ nhận tin cho các bot (minh hoạ).', 'Tải lại|Đã tải lại trạng thái webhook (minh hoạ).'])] },
+        { id: 'dir', ten: 'Danh bạ', rows: [cDanBa('zb_dir', 'Zalo Bot')] },
+        { id: 'loc', ten: 'Lọc thread', rows: [cLocThread('zb_loc1', 'zb', 'Nhóm gia đình', 'group'), cLocThread('zb_loc2', 'zb', 'Chủ nhà', 'user'), cLocUser('zb_user', 'zb'), cTamHon('zb_tamhon')] },
+        { id: 'nhanh', ten: 'Nhánh agent', rows: cNhanh('zb_nh', 'Zalo Bot') }
+      ] }
+    ] },
+    { id: 'email', ten: 'Email', rows: [
+      cR('em_hop', 'Hộp mail', '{user|chưa khai} · kiểm tra mỗi {poll} giây', [
+        cT('ten', 'Tên hiển thị', { ph: 'Gmail chính' }), cG('bat', 'Bật hộp này', true), cI('Gmail / Outlook bật 2FA', 'Mật khẩu thường KHÔNG dùng được — phải tạo App Password (mật khẩu ứng dụng 16 ký tự). Mail công ty: mật khẩu đăng nhập thường — hỏi IT lấy IMAP/SMTP host; server dùng chứng chỉ tự ký thì tick «Chấp nhận mọi chứng chỉ».'),
+        cT('imap', 'IMAP host', { ph: 'imap.gmail.com', def: 'imap.gmail.com' }), cN('imap_p', 'IMAP port', 993), cT('smtp', 'SMTP host (trống = tự đoán từ IMAP)', { ph: 'smtp.gmail.com', def: 'smtp.gmail.com' }), cN('smtp_p', 'SMTP port', 465),
+        cS('bao_mat', 'Loại bảo mật', [['ssl', 'SSL/TLS (IMAP 993 · SMTP 465)'], ['starttls', 'STARTTLS (IMAP 143 · SMTP 587)'], ['plain', 'Không mã hóa (không khuyến nghị)']]), cG('verify', 'Chấp nhận mọi chứng chỉ (server nội bộ tự ký)', false),
+        cT('user', 'Địa chỉ email', { ph: 'ban@gmail.com hoặc ten@congty.vn' }), cP('mk', 'Mật khẩu (Gmail/Outlook: App Password)', { ph: 'Gmail: 16 ký tự · mail công ty: mật khẩu thường' }),
+        cT('cho_phep', 'Người gửi được nhận (phẩy; * = tất cả; trống = chặn hết)', { ph: 'ban@gmail.com, @congty.com, *' }), cN('poll', 'Poll (giây, ≥20)', 60), cG('tep', 'Tóm tắt CẢ nội dung tệp đính kèm (PDF/Word/Excel/txt…)', false), cG('tra_loi', 'AI trả lời thẳng vào email (tắt = chỉ tóm tắt gửi kênh)', false),
+        cH('Nhịp gửi tóm tắt — chọn NƠI NHẬN ở Thông báo'), cG('moi', 'Cứ có mới là tóm tắt gửi ngay', false), cT('gio', 'Mốc giờ định kỳ (phẩy, vd: 07:00, 18:30) — gom các mục mới, tới giờ gửi MỘT bản tổng hợp; trống = không gửi định kỳ', { ph: '07:00, 18:30' })],
+        ['Lưu|Đã lưu hộp mail (minh hoạ).', 'Kiểm tra kết nối|Nối được hộp thư (IMAP và SMTP) (minh hoạ).', 'Đọc thư thử|Đọc được 3 thư gần nhất (minh hoạ).', 'Gửi thử|Đã gửi thư thử (minh hoạ).', '+ Thêm hộp mail|Đã thêm một hộp mail mới (minh hoạ).', 'Xóa|Cần bấm lần nữa để xoá hộp mail (minh hoạ).']),
+      cR('em_hint', 'Model hints', 'Để trống = dùng telegram_ai_model / branch', [cS('chat', 'chat', CD_MODEL_HINT), cS('burst', 'burst (rẻ/nhanh — dùng tóm tắt email/lịch)', CD_MODEL_HINT), cS('reason', 'reason (agent)', CD_MODEL_HINT)], ['Lưu|Đã lưu model hints (minh hoạ).'])
+    ] },
+    { id: 'facebook', ten: 'Facebook', rows: [
+      cR('fb_app', 'Facebook Page', 'App ID {app_id|chưa khai}', [
+        cI('Cách dùng', 'Đăng bài lên Page qua chat (lệnh /facebook, gửi ảnh/video qua kênh). Cần một app Meta tự tạo (developers.facebook.com) — tự dùng thì khỏi App Review.'),
+        cT('app_id', 'App ID', { ph: 'Meta app ID' }), cP('secret', 'App Secret'), cP('token', 'User token (Graph API Explorer)', { hint: 'developers.facebook.com → Tools → Graph API Explorer → chọn app, cấp quyền pages_show_list, pages_manage_posts, pages_read_engagement, business_management (thêm publish_video nếu đăng video), nhớ chọn đúng Page.' })], ['Lưu|Đã lưu ứng dụng Meta (minh hoạ).']),
+      cR('fb_page', 'Page đã nối và gắn Page theo thread', '1 Page', [
+        cI('Page đã nối (1)', 'Trang của nhà (minh hoạ)'), cH('Gắn Page theo thread — thread nào đăng được lên Page nào'), cT('thread', 'Khoá dạng kenh:chat hoặc kenh:chat#topic', { ph: 'vd: tg:-1001234567890 hoặc zalop:zgr-abc…' }), cS('page', 'Page', [['p1', 'Trang của nhà (minh hoạ)']]),
+        cI('Nhớ', 'Bật nhóm «Đăng Facebook Page» trong «Lọc thread» của kênh. Gắn/bỏ Page hoặc thêm thread xong phải bấm Lưu mới có hiệu lực.')], ['Lưu|Đã lưu gắn Page theo thread (minh hoạ).', 'Thêm thread|Đã thêm một dòng thread (minh hoạ).'])
+    ] },
+    { id: 'lich', ten: 'Lịch', rows: [
+      cR('lich_1', 'Lịch', '{ten} · nhìn trước {ngay} ngày · nhắc {nhac}', [
+        cT('ten', 'Tên hiển thị', { ph: 'Lịch gia đình', def: 'Lịch gia đình' }), cG('bat', 'Bật lịch này', true), cP('ics', 'Link ICS (Google Calendar → Cài đặt lịch → «Địa chỉ bí mật ở định dạng iCal»)', { ph: 'https://calendar.google.com/calendar/ical/…/basic.ics' }),
+        cN('ngay', 'Nhìn trước (ngày)', 7), cT('nhac', 'Mốc nhắc trước sự kiện (phẩy — d=ngày, h=giờ, m=phút)', { ph: '7d, 1d, 2h, 30m', def: '7d, 1d, 2h, 30m', hint: 'Mỗi sự kiện nhắc 1 lần ở TỪNG mốc, gửi vào các kênh đã chọn ở Thông báo. Trống = không nhắc. Cửa sổ nhìn trước tự nới theo mốc xa nhất.' }),
+        cH('Nhịp gửi tóm tắt — chọn NƠI NHẬN ở Thông báo'), cG('moi', 'Cứ có mới là tóm tắt gửi ngay', false), cT('gio', 'Mốc giờ định kỳ (phẩy, vd: 07:00, 18:30)', { ph: '07:00, 18:30' })],
+        ['Lưu|Đã lưu lịch (minh hoạ).', 'Kiểm tra lịch|Đọc được link ICS — 14 sự kiện, 3 mục gần nhất (minh hoạ).', '+ Thêm lịch|Đã thêm một lịch mới (minh hoạ).', 'Xóa|Cần bấm lần nữa để xoá lịch (minh hoạ).'])
+    ] },
+    { id: 'bonho', ten: 'Kết nối bộ nhớ', rows: [
+      cR('bn_nhom', 'Kết nối bộ nhớ', 'Cho các nhóm / topic / người đọc chung điều đã ghi nhớ', [
+        cI('Mặc định', 'Mỗi nhóm / topic / người là một bộ nhớ riêng. Bình đẳng: các thành viên đọc được của nhau (hai chiều). Chính phụ: bên Chính đọc được bên Phụ, bên Phụ KHÔNG đọc được bên Chính (một chiều); các bên Chính độc lập với nhau, các bên Phụ cũng vậy — muốn hai bên Chính đọc được của nhau thì tạo thêm một kết nối bình đẳng riêng.'),
+        cT('ten', 'Tên kết nối', { ph: 'vd: Nhà mình', def: 'Nhà mình' }), cG('bat', 'Bật', true), cS('kieu', 'Kiểu', [['bd', 'Bình đẳng'], ['cp', 'Chính phụ']]),
+        cS('tv1', 'Thành viên 1 (nhóm / topic / người)', [['', '➕ Thêm nhóm / topic / người…'], ['t1', 'Nhóm gia đình'], ['t2', 'Chủ nhà']], { def: 't1' }), cT('nguoi1', 'Người (bỏ trống = cả nhóm)', { hint: 'Nhóm đã lọc theo từng người thì mỗi người là một thành viên riêng — để trống sẽ nối cả nhóm.' }),
+        cS('tv2', 'Thành viên 2', [['', '➕ Thêm nhóm / topic / người…'], ['t1', 'Nhóm gia đình'], ['t2', 'Chủ nhà']], { def: 't2' }),
+        cI('Cần', 'Ít nhất hai thành viên thì kết nối mới có tác dụng; chính phụ cần ít nhất một bên Chính và một bên Phụ.'), cI('Phạm vi', 'Kết nối chỉ mở đường ĐỌC — ghi vẫn vào bộ nhớ của chính nơi đó, nên gỡ kết nối là hết thấy ngay.')], ['Lưu|Đã lưu kết nối bộ nhớ (minh hoạ).', '➕ Bình đẳng|Đã thêm một kết nối bình đẳng (minh hoạ).', '➕ Chính phụ|Đã thêm một kết nối chính phụ (minh hoạ).', '🗑 Xoá|Cần bấm lần nữa để xoá kết nối (minh hoạ).'])
+    ] },
+    { id: 'kholinks', ten: 'Kết nối kho đám mây', rows: [
+      cR('kl_nhom', 'Kết nối kho đám mây', 'Sổ RIÊNG — không ăn theo kết nối bộ nhớ', [
+        cI('Khác kết nối bộ nhớ', 'Nối bộ nhớ là cho nhau đọc điều đã ghi nhớ; nối ở đây là cho nhau đọc tệp trong thư mục Drive (đọc và tải về). Nối bên kia KHÔNG tự mở kho bên này và ngược lại.'),
+        cT('ten', 'Tên kết nối', { ph: 'vd: Nhà mình', def: '' }), cG('bat', 'Bật', true), cS('tv1', 'Thành viên 1', [['', '➕ Thêm nhóm / topic / người…'], ['t1', 'Nhóm gia đình']]), cS('tv2', 'Thành viên 2', [['', '➕ Thêm nhóm / topic / người…'], ['t2', 'Chủ nhà']]),
+        cI('Lưu ý', 'Tải lên vẫn chỉ vào kho của chính nơi đó (khai ở tab «Lưu trữ online»), dù đã nối — nên gỡ kết nối là hết đọc được ngay, chưa từng có tệp nào chảy sang nhau. Trong cùng một kho, mỗi phạm vi chỉ thấy đúng thư mục của mình.')], ['Lưu|Đã lưu kết nối kho đám mây (minh hoạ).', '🗑 Xoá|Cần bấm lần nữa để xoá kết nối (minh hoạ).'])
+    ] },
+    { id: 'nhatky', ten: 'Nhật ký nhóm', rows: [
+      cR('nk_pv', 'Nhật ký nhóm', 'Mặc định TẮT — bật theo kênh / nhóm / topic / người', [
+        cI('Cách hoạt động', 'Bật ở đây để bot GHI LẠI mọi tin nó nghe được trong một phạm vi (để sau tóm tắt / tìm «việc nhắc tới tôi»). Bot vẫn chỉ trả lời khi được tag — ghi ≠ trả lời. Chỉ ghi được ở nơi bot NGHE được tin không-tag: Zalo Cá Nhân, và Telegram khi bot là admin (hoặc tắt privacy mode). Zalo Bot API chỉ nhận tin có tag nên nhật ký sẽ thưa. Đặt độc lập theo kênh / nhóm / topic / người, khoá hẹp đè khoá rộng.'),
+        cS('pham_vi', 'Thêm phạm vi để bật/tắt nhật ký', [['', '➕ Thêm phạm vi để bật/tắt nhật ký…'], ['zp', 'Cả kênh Zalo Cá Nhân'], ['t1', 'Nhóm gia đình']]), cT('thread', 'Hoặc thêm thread chưa có ở «Lọc thread»: Chat / Thread ID', { ph: 'Chat / Thread ID' }), cT('topic', 'Topic (Telegram, bỏ trống nếu không)'), cT('nguoi', 'Người (bỏ trống = cả nhóm)'),
+        cH('Phạm vi đang ghi — Nhóm gia đình (Zalo cá nhân)'), cG('bat', 'Ghi nhật ký', true), cN('ngay', 'Giữ lại (ngày)', 30), cG('chi_tag', 'Chỉ ghi tin có tag bot (bỏ tick = ghi cả tin không tag, mặc định)', false), cH('Ghi hoạt động của bot — chọn bớt')].concat(cFuncs('hd_', CD_FUNCS.map((x) => x[0])))
+        , ['Lưu|Đã lưu nhật ký nhóm (minh hoạ).', '➕ Thêm|Đã thêm phạm vi (minh hoạ).', '🗑 Bỏ|Cần bấm lần nữa để bỏ phạm vi (minh hoạ).'])
+    ] },
+    { id: 'cloudflare', ten: 'Cloudflare', rows: [
+      cR('cf_tunnel', 'Cloudflare (hạ tầng chung)', 'Cấu hình MỘT LẦN cho cả Telegram Bot và Zalo Bot', [
+        cI('Dùng chung', 'Không phải cài riêng từng kênh — domain HTTPS + tunnel dùng chung.'), cT('base', 'Public base URL (HTTPS) — webhook Telegram + Zalo', { ph: 'https://your-domain.com', hint: 'Domain public (Cloudflare Tunnel hoặc IP + HTTPS). Hệ thống đăng ký /telegram/webhook trên cùng base URL; mỗi bot phân biệt bằng secret token.' }),
+        cP('token', 'Cloudflare Tunnel Token', { ph: 'eyJhIjoi...', hint: 'Zero Trust → Tunnels → token. Lưu xong cloudflared tự chạy trong container (nếu có binary).' })], ['Lưu|Đã lưu Cloudflare (minh hoạ).'])
+    ] },
+    { id: 'thongbao', ten: 'Thông báo', rows: [
+      cR('tb_nha', 'Nhà', '{tb_bat} thông báo đang bật', [
+        cI('Cách hoạt động', 'Mỗi thông báo bật/tắt và chọn kênh riêng. Chưa chọn kênh thì bot IM — không có mặc định ngầm nào cả. Kênh lấy từ «Lọc thread» ở tab Kênh chat.'),
+        cK('nha.canh_bao', 'Thiết bị nhà hỏng', 'Cảm biến mất tín hiệu, thiết bị không phản hồi.', true, ['zb']),
+        cK('nha.khoa_cua.hoi_ten', 'Khoá cửa — hỏi tên người lạ', 'Có người mở cửa bằng mã chưa đặt tên, bot hỏi đó là ai.', true, ['zb']),
+        cK('nha.khoa_cua.mo_khuya', 'Khoá cửa — mở lúc khuya', 'Cửa mở sau giờ cả nhà thường đi ngủ.', true, ['zb', 'tg']),
+        cK('nha.khoa_cua.tom_tat', 'Khoá cửa — tóm tắt cuối ngày', 'Hôm nay ai ra vào lúc mấy giờ.', false),
+        cK('camera.nguoi_la', 'Camera — người lạ', 'Camera thấy mặt không khớp ai đã dạy (kèm ảnh mặt).', true, ['zb']),
+        cK('camera.nguoi_quen', 'Camera — người quen về', 'Nhận ra mặt đã dạy ở camera được chọn (vd camera cửa).', false),
+        cK('camera.hoi_ten', 'Camera — hỏi tên mặt lạ hay gặp', 'Một mặt lạ xuất hiện nhiều lần, bot gửi ảnh hỏi đó là ai.', true, ['zb']),
+        cK('camera.thay_vat', 'Camera — thấy vật đã tích', 'Thấy thứ khác người mà bạn đã tích (chó, mèo, xe máy…). Gộp theo cùng cửa sổ thời gian với lượt người.', false),
+        cK('camera.trong_xe', 'Camera — trông xe', 'Chỉ khi được nhờ trông xe: xe bị dời mà không nhận ra người nhà (báo động), hoặc người nhà lấy xe. Tin luôn về chat người nhờ; kênh chọn ở đây nhận thêm.', false),
+        cK('nha.mat_dien', 'Mất điện / có điện', 'UPS chuyển sang chạy pin, có điện lại, pin yếu sắp tắt máy chủ Proxmox.', true, ['zb', 'tg']),
+        cK('nha.goi_y', 'Gợi ý bật thiết bị', 'Bot đoán nên bật gì theo nếp nhà, chờ chủ máy chấm đúng/sai.', true, ['zb']),
+        cK('nha.lech_nep', 'Nhắc lệch nếp', 'Thiết bị hôm nay không hoạt động vào giờ quen — bot hỏi nhẹ kèm nguyên nhân đo được. Chỉ chạy khi đã tích «Nhắc lệch nếp» ở tab Học hỏi.', false)], ['Lưu|Đã lưu thông báo nhà (minh hoạ).', 'Tải lại|Đã tải lại danh sách thông báo (minh hoạ).']),
+      cR('tb_hochoi', 'Học hỏi', 'Bản tin bài học và hiểu thiết bị', [
+        cK('hoc_hoi.ban_tin', 'Bản tin bài học', 'Những câu bot từng trả lời sai và đã rút kinh nghiệm.', false), cK('hoc_hoi.hieu_thiet_bi', 'Bot hiểu thiết bị', 'Kết luận mới của bot về thiết bị trong nhà, chờ chấm.', true, ['zb'])], ['Lưu|Đã lưu thông báo học hỏi (minh hoạ).']),
+      cR('tb_hethong', 'Hệ thống', 'Lỗi, tài khoản, chat mới', [
+        cK('he_thong.loi', 'Lỗi và cảnh báo hệ thống', 'Lỗi dịch vụ, tiến trình chết, sự cố nền tảng.', true, ['zb', 'tg']), cK('tai_khoan.log', 'Log tài khoản', 'Diễn biến đăng nhập/khôi phục tài khoản provider.', false),
+        cK('tai_khoan.cap_nhat', 'Cập nhật tài khoản', 'Tài khoản được thêm, sửa, hết hạn hoặc bị gỡ.', false), cK('chat.moi', 'Chat/nhóm mới', 'Có người hoặc nhóm mới nhắn tới bot lần đầu.', true, ['zb'])], ['Lưu|Đã lưu thông báo hệ thống (minh hoạ).']),
+      cR('tb_email', 'Email và lịch', 'Mỗi hộp mail, mỗi lịch một dòng riêng', [
+        cK('email.hop1', 'Email — Gmail chính', 'Tổng hợp thư mới của hộp này.', true, ['zb']), cK('lich.lich1', 'Lịch — Lịch gia đình', 'Sự kiện sắp tới và nhắc trước giờ.', true, ['zb'])], ['Lưu|Đã lưu thông báo email và lịch (minh hoạ).'])
+    ] },
+    { id: 'loa', ten: 'Loa', rows: [
+      cR('loa_ds', 'Loa đã kết nối', '4 loa · Cast, DLNA, Phicomm R1, qua Home Assistant', [
+        cI('Cách dùng', 'Đặt tên loa như đặt tên người (vd «loa phòng khách») để ra lệnh tự nhiên: «phát ra loa phòng khách». Cast/DLNA/R1 nối thẳng bằng IP.'),
+        cI('Loa phòng khách', 'Google Cast · giọng theo kênh/thread · âm lượng 40% · Bật · Dừng phát · Tắt · Đọc thử · Mở nhạc (YouTube)'), cI('Loa bếp', 'DLNA / UPnP'), cI('Loa R1', 'Phicomm R1 · âm lượng R1'), cI('Loa tivi', 'Qua Home Assistant'),
+        cH('Dò loa — quét cổng cố định (Cast 8009, R1 2847) trong LAN; loa DLNA cổng động thì nhập tay hoặc nhập từ Home Assistant'), cS('loai_do', 'Loại loa cần dò', [['all', 'Tất cả loại'], ['cast', 'Google Cast'], ['dlna', 'DLNA / UPnP'], ['r1', 'Loa R1']]), cT('dai', 'Dải mạng cần quét (trống = tự suy từ URL Home Assistant/gateway)', { ph: 'Dải: 172.16.10' })],
+        ['Dò loa|Quét xong: thấy 2 loa Cast, 1 loa R1; DLNA không thấy (mạng có thể chặn multicast — thử nhập từ Home Assistant) (minh hoạ).', 'Nhập từ Home Assistant|Đã nhập 1 loa từ Home Assistant (minh hoạ).']),
+      cR('loa_hen', 'Hẹn giờ đọc thông báo ra loa', 'Đọc bằng giọng TTS ra loa Cast/DLNA/HA', [
+        cS('loa', 'Loa', [['', '— chọn loa —'], ['l1', 'Loa phòng khách'], ['l2', 'Loa bếp'], ['l3', 'Loa R1']]), cT('noi_dung', 'Nội dung', { ph: 'Nội dung (vd: kiểm tra loa)' }), cT('lich', 'Lịch', { ph: '8h sáng mai / mỗi ngày 6h', hint: 'Điền mốc giờ-ngày hoặc lịch lặp → lưu vào DB, sống qua khởi động lại. Để trống thì dùng ô «Sau … phút» (hẹn nhẹ trong RAM, khởi động lại là mất).' }),
+        cN('sau', 'Sau … phút', 1), cN('vol', 'Âm lượng (%)', 20, { hint: 'Âm lượng chỉ áp cho loa Cast, và phát xong tự trả về mức cũ.' })], ['Đọc ngay|Đang đọc ra loa đã chọn (minh hoạ).', 'Hẹn giờ|Đã hẹn đọc ra loa (minh hoạ).']),
+      cR('loa_them', 'Thêm loa', 'Cast / DLNA / R1 nối thẳng bằng IP, hoặc qua Home Assistant', [
+        cT('ten', 'Tên loa', { ph: 'Tên loa (vd: loa phòng khách)' }), cS('loai', 'Loại loa', [['cast', 'Google Cast'], ['dlna', 'DLNA / UPnP'], ['r1', 'Loa R1 (Phicomm)'], ['ha', 'Qua Home Assistant']]),
+        cNeu(cT('ip', 'Địa chỉ IP', { ph: '192.168.1.60' }), 'loai', ['cast', 'dlna', 'r1']), cNeu(cS('entity', 'media_player từ Home Assistant', [['', '— chọn media_player từ HA —'], ['m1', 'media_player.phong_khach']]), 'loai', 'ha')], ['Thêm loa|Đã thêm loa (minh hoạ).'])
+    ] },
+    { id: 'stt', ten: 'Nghe (STT)', rows: [
+      cR('stt_may', 'Nghe (STT) — tin nhắn thoại gửi bot và API', 'Backend: {backend} · model: {model}', [
+        cS('backend', 'Backend nghe (STT)', [['local', 'Chỉ local (Zipformer / Parakeet)'], ['wyoming', 'Chỉ Wyoming (server STT sẵn có)']]),
+        cS('model', 'Model nghe tiếng Việt', [['zipformer', 'Zipformer 30M — nhanh (mặc định)'], ['gipformer', 'Gipformer 68M — chống ồn, hội thoại']], { hint: 'Chưa tải Gipformer thì đang nghe bằng Zipformer — tải bằng python scripts/download_stt_model.py --gipformer (xem «Model cần tải»).' }),
+        cS('lang', 'Ngôn ngữ nghe — dùng cho Home Assistant, và cho tin nhắn thoại khi hàng «Theo từng tính năng» để trống', [['vi', 'Tiếng Việt (vi) — Zipformer'], ['en', 'English (en) — Parakeet'], ['auto', 'Auto — thử VI rồi EN (cần cả 2 model)']]),
+        cG('en', 'Bật STT tiếng Anh (Parakeet)', false), cT('wy', 'Wyoming STT client (tuỳ chọn)', { ph: 'tcp://… (client; server nhúng đã có port riêng)' }),
+        cI('Lưu ý', 'Ngôn ngữ STT do chatgpt2api quyết định (ô «Ngôn ngữ nghe» bên trên). Assist / Wyoming gửi language gì cũng bị bỏ qua.')], ['Lưu cấu hình giọng nói|Đã lưu cấu hình giọng nói — nói thử được ngay, không cần Reload HA (minh hoạ).']),
+      cR('stt_dung', 'Theo từng tính năng — tiếng đem NGHE', 'Bỏ trống = mặc định của tính năng đó', [
+        cH('Tin nhắn thoại'), cG('tt_vi', 'Việt', true), cG('tt_en', 'Anh', false), cG('tt_ja', 'Nhật', false), cG('tt_zh', 'Trung', false), cG('tt_ko', 'Hàn', false),
+        cH('Phụ đề video'), cG('pd_vi', 'Việt', true), cG('pd_en', 'Anh', true), cG('pd_ja', 'Nhật', false), cG('pd_zh', 'Trung', false), cG('pd_ko', 'Hàn', false)], ['Lưu cấu hình giọng nói|Đã lưu cài đặt nghe theo từng tính năng (minh hoạ).'])
+    ] },
+    { id: 'tts', ten: 'Đọc (TTS)', rows: [
+      cR('tts_may', 'Cấu hình đọc (TTS)', 'Backend: {backend}', [
+        cS('backend', 'Backend đọc (TTS)', [['auto', 'Tự động (local trước, rồi Wyoming)'], ['local', 'Chỉ local (Piper trong image)'], ['wyoming', 'Chỉ Wyoming (server sẵn có)'], ['off', 'Tắt']]),
+        cS('giong', 'Giọng đọc mặc định', [['', '(chưa tải giọng nào)']].concat(CD_GIONG)), cT('wy', 'Wyoming TTS (tuỳ chọn)', { ph: 'tcp://192.0.2.10:10200' }),
+        cT('url', 'URL công khai của gateway (loa trong nhà kéo file từ đây — KHÔNG dùng localhost)', { ph: 'http://IP-GATEWAY:3030' })], ['Lưu cấu hình giọng nói|Đã lưu cấu hình giọng nói (minh hoạ).']),
+      cR('tts_thu', 'Nghe thử và chọn giọng', 'Chọn giọng, sửa đoạn muốn nghe rồi bấm nghe thử', [
+        cS('giong', 'Giọng cần nghe thử', CD_GIONG), cA('doan', 'Đoạn muốn nghe thử', 'Xin chào, đây là giọng đọc thử.', { ph: 'Nhập đoạn muốn nghe thử…' }), cI('Giọng chưa tải', 'Giọng này chưa tải — sau khi bấm «Chọn làm giọng mặc định», nhớ bấm «Lưu cấu hình giọng nói» ở trên để áp dụng.')],
+        ['Nghe thử|Đã đọc đoạn trong ô bằng giọng đang chọn (minh hoạ).', 'Dùng câu mẫu|Đã điền câu mẫu (minh hoạ).', 'Chọn làm giọng mặc định|Đã chọn làm giọng mặc định — nhớ lưu cấu hình giọng nói (minh hoạ).']),
+      cR('tts_nhip', 'Nhịp đọc', 'Áp cho mọi giọng', [
+        cN('doan', 'Nghỉ giữa hai đoạn (ms)', 600, { hint: '600 (mặc định)' }), cN('cau', 'Nghỉ giữa hai câu (ms)', 350, { hint: '350 (mặc định)' }), cN('phay', 'Nghỉ sau dấu phẩy (ms)', 0, { hint: '0 = tắt (thử 180)' }), cN('ngau', 'Dao động ngẫu nhiên (%)', 25, { hint: '25 (mặc định)' })], ['Lưu cấu hình giọng nói|Đã lưu nhịp đọc (minh hoạ).'])
+    ] },
+    { id: 'wyoming', ten: 'Wyoming server', rows: [
+      cR('wy_vi', 'Theo từng tiếng — Tiếng Việt', 'Giọng đọc · giọng lồng tiếng · cổng đọc / nghe', [
+        cI('Cách dùng', 'Theo từng tiếng: giọng đọc · giọng lồng tiếng · cổng Wyoming (đọc 106xx / nghe 107xx) · model. Tải xong model tiếng mới: khởi động lại c2a một lần để mở cổng Wyoming.'),
+        cS('giong', 'Giọng đọc', CD_GIONG), cS('long', 'Giọng lồng tiếng video', [['', 'Để máy tự chọn']].concat(CD_GIONG)), cN('tts', 'Cổng đọc (TTS)', 0, { hint: 'Đọc 106xx' }), cN('stt', 'Cổng nghe (STT)', 0, { hint: 'Nghe 107xx' })], ['Lưu cấu hình giọng nói|Đã lưu Wyoming server tiếng Việt (minh hoạ).']),
+      cR('wy_en', 'Theo từng tiếng — Tiếng Anh', 'Giọng đọc Kokoro', [cS('giong', 'Giọng đọc', [['', 'af (mặc định)'], ['am', 'am']]), cN('tts', 'Cổng đọc (TTS)', 0), cN('stt', 'Cổng nghe (STT)', 0)], ['Lưu cấu hình giọng nói|Đã lưu Wyoming server tiếng Anh (minh hoạ).']),
+      cR('wy_zh', 'Theo từng tiếng — Tiếng Trung', 'Giọng 0 (mặc định)', [cS('giong', 'Giọng', [['', 'Giọng 0 (mặc định)'], ['0', '(chưa tải model giọng Trung)']]), cN('tts', 'Cổng đọc (TTS)', 0), cN('stt', 'Cổng nghe (STT)', 0)], ['Lưu cấu hình giọng nói|Đã lưu Wyoming server tiếng Trung (minh hoạ).'])
+    ] },
+    { id: 'cachdoc', ten: 'Cách đọc', rows: [
+      cR('cd_so', 'Cách đọc', 'Dạy bot đọc chữ viết tắt', [
+        cI('Cách dạy', 'Trong chat gõ «dạy đọc: TBBH là trung tâm bảo hành», hoặc nhập ở đây.'), cT('chu', 'Chữ', { ph: 'Chữ (vd TBBH)' }), cT('doc', 'Đọc là', { ph: 'Đọc là (vd trung tâm bảo hành)' }), cI('Sổ cách đọc', 'Sổ đang trống.')], ['Dạy|Đã dạy bot cách đọc (minh hoạ).', 'Nghe thử|Đã đọc thử cách đọc vừa dạy (minh hoạ).'])
+    ] },
+    { id: 'modelcantai', ten: 'Model cần tải', rows: [
+      cR('mo_ds', 'Model giọng nói, nghe, camera, dịch', 'Model nào đã có, cái nào cần, lệnh tải để chép', [
+        cI('Ghi chú', 'Ảnh Docker không kèm model. Bấm «Tải xuống» để máy chủ tự tải, hoặc chép lệnh chạy trên MÁY CHỦ (nơi có container c2a).'), cI('Nghe tiếng Việt (Zipformer)', 'Đủ'), cI('Nghe tiếng Việt (Gipformer)', 'Đủ'), cI('Nghe tiếng Anh', 'Thiếu'), cI('Giọng đọc', 'Đủ'), cI('Nhận mặt, phát hiện vật (camera)', 'Đủ'), cI('Các bản', 'Chọn bản dùng ở thẻ Nhìn nhà')], ['Kiểm lại|Đã kiểm lại danh mục model (minh hoạ).', 'Tải xuống|Đã gửi lệnh tải model còn thiếu (minh hoạ).', 'Chép lệnh|Đã chép lệnh tải model còn thiếu (minh hoạ).'])
+    ] }
+  ] },
+
+  // ================= LƯU TRỮ & SAO LƯU =================
+  { id: 'lt', ten: 'Lưu trữ & sao lưu', subs: [
+    { id: 'kho', ten: 'Kho đám mây', rows: [
+      cR('kho_ds', 'Kho lưu trữ đám mây', 'Nối Google Drive, Google Photos, Cloudflare R2, MEGA, Swift, Drime qua rclone', [
+        cI('Cách dùng', 'Bot xem, tải về và gửi lên được. Tệp tải về nằm cùng chỗ với tệp Office bot soạn nên gửi lại qua chat được ngay.'), cH('Các kho đã khai'), cI('drive-nha', 'Google Drive'), cI('r2-bot', 'Cloudflare R2')], ['Thử|Nối được kho đã chọn (minh hoạ).', 'Xem|Đã liệt kê thư mục gốc của kho (minh hoạ).']),
+      cR('kho_them', 'Thêm kho mới', 'Tên gọi dùng khi ra lệnh cho bot', [
+        cT('ten', 'Tên gọi', { ph: 'vd: drive-nha', hint: 'Tên bạn gọi kho này khi ra lệnh cho bot.' }),
+        cS('loai', 'Loại kho', [['drive', 'Google Drive'], ['photos', 'Google Photos'], ['r2', 'Cloudflare R2'], ['s4', 'MEGA S4 (giao thức S3)'], ['drime', 'Drime'], ['mega', 'MEGA (tài khoản thường)'], ['swift', 'OpenStack Swift'], ['crypt', 'Mã hoá — bọc ngoài một kho đã khai'], ['union', 'Gộp nhiều tài khoản thành một']]),
+        cNeu(cT('client_id', 'Client ID', { hint: 'Cần Client ID và Client Secret riêng: Google Cloud → APIs & Services → Credentials → Create credentials → OAuth client ID → Desktop app.' }), 'loai', ['drive', 'photos']), cNeu(cP('client_secret', 'Client Secret'), 'loai', ['drive', 'photos']),
+        cNeu(cP('token', 'Token (nếu đã có sẵn)'), 'loai', ['drive', 'photos']), cNeu(cT('root', 'Mã thư mục gốc', { ph: '1AbCdEf…' }), 'loai', ['drive', 'drime']), cNeu(cS('scope', 'Phạm vi quyền', [['drive', 'drive']]), 'loai', 'drive'),
+        cNeu(cT('team_drive', 'Mã ổ chung (Shared Drive)'), 'loai', 'drive'), cNeu(cG('read_only', 'Chỉ đọc', true), 'loai', 'photos'),
+        cNeu(cT('akid', 'Access Key ID'), 'loai', ['r2', 's4']), cNeu(cP('sak', 'Secret Access Key'), 'loai', ['r2', 's4']), cNeu(cT('endpoint', 'Endpoint', { ph: 'https://{id}.r2.cloudflarestorage.com' }), 'loai', ['r2', 's4']), cNeu(cT('region', 'Vùng', { def: 'auto' }), 'loai', ['r2', 'swift']),
+        cNeu(cP('access_token', 'API Access Token'), 'loai', 'drime'), cNeu(cT('workspace', 'Mã không gian làm việc'), 'loai', 'drime'), cNeu(cG('hard_delete', 'Xoá hẳn thay vì bỏ vào thùng rác', false), 'loai', ['drime', 'mega']),
+        cNeu(cT('user', 'Email / tên đăng nhập'), 'loai', ['mega', 'swift']), cNeu(cP('pass', 'Mật khẩu'), 'loai', ['mega', 'swift', 'crypt']), cNeu(cT('tfa', 'Mã xác thực hai bước'), 'loai', 'mega'),
+        cNeu(cT('auth', 'Địa chỉ máy chủ xác thực'), 'loai', 'swift'), cNeu(cT('tenant', 'Tên dự án (tenant)'), 'loai', 'swift'), cNeu(cT('domain', 'Miền người dùng', { def: 'Default' }), 'loai', 'swift'),
+        cNeu(cT('remote', 'Kho bọc bên trong', { ph: 'drive:ThuMucMaHoa' }), 'loai', 'crypt'), cNeu(cS('fn_enc', 'Mã hoá tên tệp', [['standard', 'standard'], ['off', 'off'], ['obfuscate', 'obfuscate']]), 'loai', 'crypt'),
+        cNeu(cA('upstreams', 'Các kho thành viên (mỗi dòng một kho)', ''), 'loai', 'union'),
+        cH('Đăng nhập bằng trình duyệt (không cần dòng lệnh) — dành cho Google Drive / Photos'), cI('Cách làm', 'Điền Client ID và Client Secret ở trên rồi bấm nút đăng nhập. Cấp quyền xong, trình duyệt báo lỗi không kết nối được — đó là bình thường, cứ sao chép nguyên đường dẫn trên thanh địa chỉ (http://127.0.0.1:53682/?state=…&code=…) dán vào ô.'),
+        cA('conf', 'Cấu hình rclone.conf (nâng cao)', '', { hint: 'Token và mật khẩu hiển thị dạng ••• — chúng không rời khỏi máy chủ. Muốn giữ nguyên kho cũ thì đừng lưu đè bản đã che.' })],
+        ['Lưu kho|Đã lưu kho (minh hoạ).', 'Đăng nhập bằng trình duyệt|Đã mở cửa sổ đăng nhập — xong thì token tự lưu (minh hoạ).'])
+    ] },
+    { id: 'online', ten: 'Lưu trữ online theo thread', rows: [
+      cR('lo_th', 'Lưu trữ online theo thread', 'Mỗi nhóm/người lưu tệp vào một tài khoản đám mây riêng — mặc định tắt', [
+        cI('Cách hoạt động', 'Chưa khai kho nào thì lên «Kho đám mây» thêm tài khoản trước, rồi quay lại đây gán cho từng thread.'),
+        cS('pham_vi', 'Thêm phạm vi', [['', '— Chọn nhóm / người / cả kênh —'], ['t1', 'Nhóm gia đình'], ['t2', 'Chủ nhà']]), cH('Phạm vi đang bật — Nhóm gia đình'),
+        cS('kho', 'Tài khoản lưu', [['', '— chưa chọn —'], ['drive-nha', 'drive-nha'], ['r2-bot', 'r2-bot']], { def: 'drive-nha' }), cS('thu_muc', 'Thư mục gốc', [['', '— thư mục gốc của kho —'], ['f1', 'Tài liệu nhà']], { hint: 'Bấm biểu tượng thư mục để lấy danh sách thư mục có sẵn trên kho. Tệp tự vào thư mục con theo loại.' }),
+        cS('admin', 'Thread admin nhận xác nhận', [['', '— chưa chọn: sẽ không hỏi —'], ['t2', 'Chủ nhà · Telegram']], { hint: 'Nhiều admin thì phải chỉ rõ gửi cho ai. Bỏ trống = không hỏi, tệp không được lưu. Phải chọn thread CÙNG KÊNH với nơi nhận tệp — trả lời chéo kênh chưa hỗ trợ.' }),
+        cT('gio', 'Giờ đồng bộ nhật ký', { ph: '03:00', def: '03:00' }), cG('day', 'Đẩy nhật ký lên kho (bỏ tích thì thôi gửi nhật ký lên mây, tệp vẫn gửi bình thường)', true),
+        cG('hoi', 'Hỏi admin trước khi lưu mỗi tệp (bỏ tick = tự lưu, khỏi hỏi)', true), cN('giu', 'Giữ trên đám mây bao nhiêu ngày (0 = giữ mãi)', 0),
+        cI('Thread này đọc được', 'Kho của chính nó: xem, tải về, lưu lên · qua «Kết nối bộ nhớ»: xem và TẢI VỀ được, KHÔNG lưu lên · chưa nối với phạm vi nào — độc lập hoàn toàn.')], ['Lưu|Đã lưu lưu trữ online (minh hoạ). Thay đổi chỉ có hiệu lực sau khi lưu.', '🗑 Bỏ|Cần bấm lần nữa để bỏ phạm vi (minh hoạ).'])
+    ] },
+    { id: 'saoluu', ten: 'Sao lưu & phục hồi', rows: [
+      cR('sl_dk', 'Quản lý sao lưu R2', 'Mỗi {gio} phút · giữ {giu} bản · {bat}', [
+        cI('Cách hoạt động', 'Định kỳ sao lưu dữ liệu quan trọng lên Cloudflare R2, hỗ trợ mã hoá tùy chọn, xoay vòng, thực thi thủ công và dọn dẹp lịch sử.'),
+        cG('bat', 'Bật sao lưu định kỳ', false), cG('ma_hoa', 'Bật mã hóa sao lưu', false), cT('acc', 'Cloudflare Account ID'), cT('endpoint', 'R2 Endpoint (S3 API)', { ph: 'https://{id}.r2.cloudflarestorage.com', hint: 'Lấy từ R2 bucket → Settings → S3 API. Dùng cho cả backup và RAG online.' }),
+        cT('bucket', 'Tên Bucket'), cP('akey', 'Access Key ID'), cP('skey', 'Secret Access Key'), cT('tien_to', 'Tiền tố sao lưu', { ph: 'backups', def: 'backups', hint: 'Tiền tố đối tượng trong R2, ví dụ backups/prod.' }),
+        cN('gio', 'Khoảng thời gian sao lưu định kỳ (phút)', 360, { hint: 'Tính bằng phút, quá trình tự động thăm dò sẽ được thực hiện theo khoảng thời gian này sau khi dịch vụ khởi động.' }), cN('giu', 'Số lượng bản sao lưu giữ lại', 10, { hint: 'Tự động xóa các bản sao lưu cũ hơn sau khi tải lên thành công. Điền 0 để không tự động xoay vòng.' }),
+        cP('mat_ma', 'Mật khẩu mã hóa', { hint: 'Chỉ được sử dụng khi bật mã hóa. Vui lòng giữ an toàn, nếu không sẽ không thể giải mã nội dung sao lưu.' })], ['Lưu|Đã lưu cài đặt sao lưu (minh hoạ).', 'Sao lưu ngay|Đã bắt đầu sao lưu thủ công (minh hoạ).']),
+      cR('sl_nd', 'Nội dung sao lưu', 'Chọn các thành phần cần đưa vào gói sao lưu', [
+        cG('config', 'Cấu hình hệ thống', true), cG('register', 'Cấu hình đăng ký', true), cG('cpa', 'Cấu hình CPA', true), cG('sub2api', 'Cấu hình Sub2API', true), cG('logs', 'Nhật ký điều phối và cuộc gọi', false), cG('image_tasks', 'Nhật ký tác vụ hình ảnh', false),
+        cG('accounts', 'Bản chụp tài khoản', true), cG('auth_keys', 'Bản chụp mã khóa người dùng', true), cG('images', 'Thư mục tệp hình ảnh', false)], ['Lưu|Đã lưu nội dung sao lưu (minh hoạ).']),
+      cR('sl_ls', 'Lịch sử sao lưu', 'Xem thông tin đối tượng và xóa trực tiếp bản sao lưu từ xa', [
+        cI('Bắt đầu gần nhất', '[ngày] 03:00'), cI('Hoàn thành gần nhất', '[ngày] 03:06'), cI('Đối tượng gần nhất', 'backups/[ngày].tar.gz'), cI('Lỗi gần nhất', 'Không có'),
+        cI('Bản [ngày] · 03:00', '[dung lượng] · cập nhật lúc [giờ] · Đã mã hóa · Tải xuống · Xem chi tiết · Xóa'), cI('Chi tiết sao lưu', 'Tên đối tượng · Thời gian tạo · Cách thức kích hoạt · Phiên bản ứng dụng · Backend lưu trữ · Nội dung tệp (SHA256) · Nội dung bản chụp (số bản ghi)'),
+        cI('Khi chưa có', 'Chưa có bản sao lưu từ xa. Lưu cấu hình và thực hiện sao lưu thủ công một lần để nó xuất hiện ở đây.')], ['Sao lưu ngay|Đã bắt đầu sao lưu thủ công (minh hoạ).', 'Tải xuống|Đang tải bản sao lưu mới nhất (minh hoạ).', 'Xóa|Cần bấm lần nữa để xoá bản sao lưu (minh hoạ).'])
+    ] }
+  ] },
+
+  // ================= TÌM KIẾM & DỊCH =================
+  { id: 'ts', ten: 'Tìm kiếm & dịch', subs: [
+    { id: 'tim', ten: 'Tìm kiếm', rows: [
+      cR('tim_cfg', 'Cấu hình tìm kiếm', 'Dùng khi model không có search built-in (cx/, oc/…) · {bat}', [
+        cG('bat', 'Bật tìm kiếm tự động', true), cG('tu_nhan', 'Tự động phát hiện câu hỏi cần tìm kiếm và bổ sung kết quả', true),
+        cH('Thứ tự tìm kiếm (Combo) — backend đầu tiên được thử trước, lỗi thì thử backend tiếp theo; có thể thêm custom provider làm search backend'),
+        cS('b1', 'Backend thứ nhất', [['gemini', 'Gemini Google Search'], ['serper', 'Serper.dev'], ['searxng', 'SearXNG (tự cài)'], ['brave', 'Brave Search'], ['', '— không dùng —']], { hint: 'Gemini: Google Search qua Gemini API — cần API key AI Studio. Serper.dev: 2.500 req/tháng miễn phí. SearXNG: tự host, riêng tư, không giới hạn. Brave: 2.000 req/tháng miễn phí.' }),
+        cS('b2', 'Backend thứ hai', [['', '— không dùng —'], ['gemini', 'Gemini Google Search'], ['serper', 'Serper.dev'], ['searxng', 'SearXNG (tự cài)'], ['brave', 'Brave Search']]), cS('b3', 'Backend thứ ba', [['', '— không dùng —'], ['gemini', 'Gemini Google Search'], ['serper', 'Serper.dev'], ['searxng', 'SearXNG (tự cài)'], ['brave', 'Brave Search']]),
+        cI('Chưa chọn backend nào', 'Tìm kiếm sẽ bị tắt.'), cI('Khoá Serper / Brave / SearXNG', 'Đặt ở trang Providers; khoá, model mặc định và model tìm kiếm của Gemini đặt ở Cài đặt → Gemini AI Studio.')], ['Lưu|Đã lưu cấu hình tìm kiếm (minh hoạ).']),
+      cR('tim_gem', 'Gemini Google Search', 'Model và khoá', [
+        cS('model', 'Model cho Gemini Google Search', [['', '-- Dùng model mặc định của Gemini --'], ['f1', 'gemini-3.5-flash'], ['f2', 'gemini-3.5-flash-lite']], { hint: 'Danh sách lấy từ Quản lý Model (đã bỏ model vẽ ảnh). Khoá Gemini phục vụ cả chat và vision, không riêng tìm kiếm.' }),
+        cA('khoa', 'Khoá (mỗi dòng một khoá)', '', { ph: 'khoa-thu-nhat\nkhoa-thu-hai' })], ['Lưu|Đã lưu Gemini Google Search (minh hoạ).', '+ Thêm|Đã thêm khoá (minh hoạ).']),
+      cR('tim_cgp', 'ChatGPT và Custom API', 'Tìm kiếm qua chat model', [cI('Cách hoạt động', 'Model chatgpt/auto tự tìm kiếm web nội bộ. Custom provider (như geminiapi) gửi prompt search đến chat model — phù hợp với Gemini API có Google grounding.')], [])
+    ] },
+    { id: 'dich', ten: 'Dịch', rows: [
+      cR('dich_llm', 'Chỉnh nghĩa chuyên ngành bằng LLM (tùy chọn)', 'Đang {bat}', [
+        cG('bat', 'Bật LLM chỉnh nghĩa + mượt câu (sau khi thay thuật ngữ chuẩn)', true), cS('model', 'Model chỉnh dịch', [['', '— Chọn model (gồm cả model cục bộ) —'], ['m1', 'AI text'], ['m2', 'AI nhẹ']], { hint: 'Dùng model online cũng được, khi đó hệ thống tự chắt lọc thuật ngữ mới vào từ điển để lần sau bớt cần LLM. Cài đặt dùng chung cho mọi lượt dịch phụ đề.' })], ['Lưu|Đã lưu cài đặt chỉnh dịch (minh hoạ).']),
+      cR('dich_gg', 'Google Dịch (đối chiếu — tuỳ chọn)', 'Mặc định tắt', [
+        cG('bat', 'Cho phép máy chủ hỏi Google để hiện bản dịch đối chiếu', false), cI('Lưu ý', 'Bật thì sau mỗi lần dịch chữ sẽ có nút xem thêm bản của Google để so. Chữ được gửi sang máy chủ Google — đó là lý do mặc định tắt. Đường dịch chính vẫn là máy trong stack, Google hỏng hay bị chặn cũng không ảnh hưởng gì.')], ['Lưu|Đã lưu cài đặt Google Dịch (minh hoạ).']),
+      cR('dich_tu', 'Sửa thuật ngữ dịch', 'Khi thấy từ chuyên ngành dịch sai', [
+        cS('goc', 'Tiếng gốc', [['en', 'Anh'], ['ja', 'Nhật'], ['zh', 'Trung'], ['ko', 'Hàn']]), cT('linh_vuc', 'Lĩnh vực', { ph: 'vd: y tế, tin học' }), cT('tra', 'Tra một từ', { ph: 'tra một từ (vd: stroke)' }),
+        cT('tu_goc', 'Từ gốc (vd: cache)', { ph: 'từ gốc (vd: cache)' }), cT('tu_viet', 'Từ Việt đúng (vd: bộ nhớ đệm)', { ph: 'từ Việt đúng (vd: bộ nhớ đệm)' }),
+        cI('Kho thuật ngữ', 'chuẩn = từ điển dựng sẵn · máy học = máy tự chắt lọc khi lồng tiếng · bạn sửa = bạn tự đặt, thắng cả hai. Sửa ở đây thắng cả từ điển gốc, có hiệu lực ngay lượt dịch sau. Nút «Nhờ AI soát» chỉ đề xuất, nhận hay không là quyền bạn.')], ['Lưu|Đã lưu thuật ngữ (minh hoạ).', 'Nhờ AI soát|Đã nhờ AI soát phần máy học (minh hoạ).'])
+    ] }
+  ] },
+
+  // ================= MCP =================
+  { id: 'mcp', ten: 'MCP', subs: [
+    { id: 'servers', ten: 'MCP Servers', rows: [
+      cR('mcp_tk', 'Tìm kiếm', '6/6 đã cài · Search web, đọc URL, Wikipedia, paper, luật, federated', [cG('cai', 'Cài cả nhóm', true), cI('Gồm', 'Tìm kiếm Web · Đọc Web · Wikipedia · arXiv Paper · Federated Search · Tra cứu Luật')], ['Lưu|Đã cập nhật nhóm Tìm kiếm (minh hoạ).']),
+      cR('mcp_tt', 'Thời tiết', '1/1 đã cài · Thời tiết 4 nguồn quốc tế', [cG('cai', 'Cài cả nhóm', true), cI('Gồm', 'Thời tiết VN')], ['Lưu|Đã cập nhật nhóm Thời tiết (minh hoạ).']),
+      cR('mcp_tin', 'Tin tức', '1/1 đã cài · Tin VN + BBC + Google News', [cG('cai', 'Cài cả nhóm', true), cI('Gồm', 'Tin tức VN')], ['Lưu|Đã cập nhật nhóm Tin tức (minh hoạ).']),
+      cR('mcp_tc', 'Tài chính', '2/2 đã cài · Tỷ giá, vàng, cổ phiếu VN', [cG('cai', 'Cài cả nhóm', true), cI('Gồm', 'Tỷ giá & Vàng · Cổ phiếu VN')], ['Lưu|Đã cập nhật nhóm Tài chính (minh hoạ).']),
+      cR('mcp_kb', 'Knowledge Base', '8/8 đã cài · 7 kho tri thức RAG (điện nước, y tế, giáo dục, ngoại ngữ, khoa học, tự nhiên, xã hội)', [cG('cai', 'Cài cả nhóm', true), cI('Gồm', 'Kho Điện Nước · Kho Y Tế · Kho Giáo Dục · Kho Giáo Viên (5 kho) · Kho Ngoại Ngữ · Kho Khoa Học · Kho Tự Nhiên · Kho Xã Hội')], ['Lưu|Đã cập nhật nhóm Knowledge Base (minh hoạ).']),
+      cR('mcp_vn', 'VN Khác', '1/1 đã cài · Lịch âm', [cG('cai', 'Cài cả nhóm', true), cI('Gồm', 'Lịch Âm')], ['Lưu|Đã cập nhật nhóm VN Khác (minh hoạ).']),
+      cR('mcp_may', 'Máy & Server', '1/3 đã cài (một phần) · Thiết bị đã cài c2a-agent · SFTP · SSH', [cG('cai', 'Cài cả nhóm', false), cI('Gồm', 'Thiết bị của tôi · File Server (SFTP) · SSH Server'), cI('Ghi chú', 'Thiết bị của tôi: thêm máy ở mục Bảo mật & người dùng › Máy trạm.')], ['Lưu|Đã cập nhật nhóm Máy & Server (minh hoạ).']),
+      cR('mcp_khac', 'Khác', '3/3 đã cài · Web Agent, YouTube Transcript, HA Helper', [cG('cai', 'Cài cả nhóm', true), cI('Gồm', 'Web Agent · YouTube Transcript · HA Helper')], ['Lưu|Đã cập nhật nhóm Khác (minh hoạ).'])
+    ] },
+    { id: 'kb', ten: 'Knowledge Base', rows: [
+      cR('kb_tao', 'Tạo Knowledge Base mới', 'Từ nội dung markdown hoặc tệp', [
+        cT('ten', 'Tên collection (slug: a-z0-9_)', { ph: 'Tên collection (slug: a-z0-9_)' }), cT('nhan', 'Nhãn hiển thị', { ph: 'Nhãn hiển thị' }), cA('nd', 'Nội dung markdown', '', { ph: 'Dán nội dung markdown...' }),
+        cI('Chọn tệp', 'PDF/Word/PPT/Excel/HTML/CSV/EPUB → markdown (markitdown), chèn vào ô nội dung.')], ['Tạo KB|Đã tạo Knowledge Base (minh hoạ).', 'Chọn tệp|Đã chuyển tệp sang markdown và chèn vào ô nội dung (minh hoạ).']),
+      cR('kb_ha', 'Tài liệu nhà (Home Assistant)', 'Quét HA rồi nạp vào KB ha_docs', [cI('Cách hoạt động', 'Quét khu vực, thiết bị, automation, cảm biến… từ HA rồi nạp vào KB ha_docs để AI hiểu cấu trúc nhà.')], ['Tạo / Cập nhật|Đã quét Home Assistant và cập nhật KB ha_docs (minh hoạ).']),
+      cR('kb_ds', 'Danh sách Knowledge Base', 'Nguồn, khoá API từng nguồn, Update, Xoá', [
+        cI('ha_docs', 'Tài liệu nhà · 1 nguồn · Update · Xoá'), cI('kb_dien_nuoc', 'Kho Điện Nước · 3 nguồn · Update · Xoá'), cI('Mỗi nguồn', 'Bật/tắt (ON/OFF) và API key riêng (✓ Đã lưu key — nhập để thay).'), cI('Khi chưa có', 'Chưa có MCP/KB.')], ['Update|Đã kích hoạt tổng hợp AI cho KB đã chọn (minh hoạ).', 'Xoá|Cần bấm lần nữa để xoá KB (minh hoạ).'])
+    ] },
+    { id: 'rag', ten: 'Cài đặt RAG', rows: [
+      cR('rag_vong', 'RAG Lifecycle', 'Đồng bộ R2 mỗi {r2} phút · chế độ {che_do}', [
+        cN('r2', 'Đồng bộ R2 (phút)', 360), cS('che_do', 'Chế độ lưu trữ', [['local', 'Local only (ChromaDB)'], ['cloud', 'Cloud only (R2)'], ['both', 'Cả hai (Local + Cloud)']], { def: 'local' }),
+        cN('auto', 'Kiểm tra auto-update (giờ)', 1), cN('refresh', 'Số ngày giữa mỗi lần refresh KB', 90), cN('soft', 'Gợi ý refresh khi KB cũ hơn (ngày)', 60), cN('gio_bd', 'Khung giờ bắt đầu', 0), cN('gio_kt', 'Khung giờ kết thúc', 0)], ['Lưu cài đặt|Đã lưu cài đặt RAG (minh hoạ).']),
+      cR('rag_ai', 'AI tổng hợp RAG', 'Gateway nội bộ', [
+        cT('url', 'API Base URL', { ph: 'http://127.0.0.1:80/v1', def: 'http://127.0.0.1:80/v1', hint: 'Hub chạy cùng container với gateway, và gateway nghe cổng bên trong — 3030 chỉ là cổng publish ra host nên gọi từ trong container sẽ không tới.' }),
+        cP('key', 'API Key', { hint: 'Chính khoá admin bạn dùng đăng nhập trang này. Để trống thì gateway trả 401 và mọi lượt tổng hợp trượt, nhưng nạp RAG vẫn ra chunks (văn bản gốc chưa qua AI) nên rất dễ tưởng là bình thường.' }),
+        cS('model', 'AI Model', [['', '— chọn model —'], ['m1', 'AI text'], ['m2', 'AI nhẹ']])], ['Lưu cài đặt|Đã lưu AI tổng hợp RAG (minh hoạ).', 'Tải model|Đã tải danh sách model (minh hoạ).'])
+    ] },
+    { id: 'r2', ten: 'R2 Storage', rows: [
+      cR('r2_cfg', 'Cloudflare R2', 'Kho RAG online', [cT('endpoint', 'Endpoint (S3 API)', { ph: 'https://{id}.r2.cloudflarestorage.com' }), cT('bucket', 'Bucket', { ph: 'vn-mcp-hub-rag' }), cT('akid', 'Access Key ID'), cP('sak', 'Secret Access Key')], ['Lưu cấu hình R2|Đã lưu cấu hình R2 (minh hoạ).']),
+      cR('r2_col', 'RAG Collections', 'Các kho RAG', [cI('Danh sách', 'ha_docs · kb_dien_nuoc — mỗi kho có nút Upload R2'), cI('Khi chưa có', 'Chưa có collection.')], ['Upload R2|Đã đẩy collection lên R2 (minh hoạ).'])
+    ] },
+    { id: 'external', ten: 'External MCP', rows: [
+      cR('ex_them', 'Thêm MCP khác', 'URL, xác thực, transport', [
+        cT('url', 'URL MCP', { ph: 'https://example.com/mcp' }), cT('ten', 'Tên MCP'), cT('mo_ta', 'Mô tả', { ph: 'Giúp AI biết khi nào nên dùng MCP này' }),
+        cS('xac_thuc', 'Xác thực', [['manual', 'Không xác thực / API key / Headers'], ['oauth', 'OAuth — đăng nhập tài khoản']]),
+        cNeu(cI('OAuth', 'Đăng nhập trên trang nhà cung cấp để cấp quyền cho MCP qua Streamable HTTP. Token được lưu mã hóa trên máy chủ và tự gia hạn nếu nhà cung cấp hỗ trợ.'), 'xac_thuc', 'oauth'),
+        cNeu(cH('Cấu hình OAuth nâng cao — để trống nếu nhà cung cấp cho phép tự đăng ký; với client riêng, đăng ký callback tại origin API + /api/mcp/oauth/callback'), 'xac_thuc', 'oauth'), cNeu(cT('cid', 'Client ID'), 'xac_thuc', 'oauth'), cNeu(cP('csec', 'Client Secret (nếu cần)'), 'xac_thuc', 'oauth'), cNeu(cT('scope', 'Scope (cách nhau bằng dấu cách)', { ph: 'Để trống: dùng quyền nhà cung cấp yêu cầu' }), 'xac_thuc', 'oauth'),
+        cS('transport', 'Transport', [['auto', 'Tự nhận dạng (khuyên dùng)'], ['streamable_http', 'Streamable HTTP'], ['sse', 'HTTP + SSE cũ']]),
+        cNeu(cP('bearer', 'Bearer/API Key (nếu cần)'), 'xac_thuc', 'manual'), cNeu(cA('headers', 'Custom headers (JSON)', '', { hint: 'Để headers rỗng để giữ các header đã lưu.' }), 'xac_thuc', 'manual')],
+        ['Thêm MCP|Đã thêm MCP ngoài (minh hoạ).', 'Mở trang đăng nhập|Đã mở trang đăng nhập của nhà cung cấp (minh hoạ).']),
+      cR('ex_ds', 'External MCPs đã thêm', 'Làm mới · Kiểm tra · Xoá', [cI('Chưa có', 'Chưa có.'), cI('Mỗi MCP', 'OAuth · Đang tắt · Token hết hạn · Quyền · Kiểm tra · Xoá')], ['Làm mới|Đã làm mới danh sách MCP ngoài (minh hoạ).', 'Kiểm tra|MCP ngoài trả lời bình thường (minh hoạ).'])
+    ] },
+    { id: 'ingest', ten: 'Nạp RAG', rows: [
+      cR('ing_ai', 'Nạp dữ liệu bằng AI', 'Tải tệp hoặc điền URL để AI đọc, phân tích rồi tổng hợp vào kho RAG', [
+        cI('Cách làm', 'Tải file (PDF/Word/PPT/Excel/HTML/CSV/EPUB/TXT/MD) hoặc điền URL để AI đọc, phân tích rồi tổng hợp vào kho RAG. Tài liệu dài được chia nhiều lượt — đọc hết, không cắt. Tài liệu vài chục trang mất vài phút; cứ để tab này mở.'),
+        cT('url', 'Từ URL', { ph: 'https://...' }), cI('Từ File', 'Chọn tệp .txt .md .pdf .docx .pptx .xlsx .html .htm .csv .epub')], ['AI Đọc & Phân Tích|Đang đọc và phân tích tài liệu (minh hoạ).']),
+      cR('ing_ket', 'Kiến thức trích được', 'Chọn mục cần nạp', [cI('Mỗi mục', 'Tiêu đề mục · Nội dung Markdown · Xoá mục · ✍️ trích / 🔍 qua OCR'), cI('Thao tác', 'Chọn tất cả · Bỏ chọn · ＋ Thêm mục · Về danh sách (tách lại theo heading, chọn lại tất cả)')], []),
+      cR('ing_dich', 'Nạp vào đâu', 'Tạo kho mới hoặc chọn kho có sẵn', [
+        cT('ten', 'Tên kho (chữ thường, số, gạch dưới — dùng làm tên collection)', { ph: 'vd: pccc_bxd' }), cT('nhan', 'Tên hiển thị (để AI biết kho này về gì)', { ph: 'vd: Giải pháp PCCC — Bộ Xây dựng' }),
+        cI('Kho mới', 'Kho mới thành một MCP riêng. Sau khi tạo, bật nó ở tab «MCP Servers» rồi restart container để bot dùng được.'), cS('chon', 'Chọn kho', [['', '(Chưa có kho — bấm «Tạo kho mới»)'], ['ha_docs', 'ha_docs']])], ['Tạo kho mới|Đã tạo kho và nạp nội dung đã chọn (minh hoạ).', 'Nạp vào kho|Đang nạp vào ChromaDB/R2… (minh hoạ).'])
+    ] }
+  ] },
+
+  // ================= BẢO MẬT & NGƯỜI DÙNG =================
+  { id: 'bm', ten: 'Bảo mật & người dùng', subs: [
+    { id: 'khoa', ten: 'Khoá người dùng', rows: [
+      cR('khoa_ds', 'Quản lý khoá người dùng', 'Tạo khoá riêng cho người dùng thường — user thường chỉ vào các tab Studio', [
+        cI('Bạn thiết kế', 'Tạo lúc [ngày] · Dùng gần nhất [giờ] · Sửa · Xoá'), cI('Bạn vận hành', 'Tạo lúc [ngày] · Dùng gần nhất [giờ] · Sửa · Xoá'), cI('Khi chưa có', 'Chưa có khóa người dùng nào. Nhấn nút ở góc trên bên phải để tạo và phân phối cho người khác.')], ['Sửa|Đã mở sửa tên ghi chú hoặc đổi khoá mới (minh hoạ).', 'Xóa|Cần bấm lần nữa để xoá khoá người dùng (minh hoạ).']),
+      cR('khoa_tao', 'Tạo khóa người dùng', 'Khóa mới chỉ hiện một lần, hãy lưu lại ngay', [
+        cT('ten', 'Tên (tùy chọn)', { ph: 'VD: Bạn thiết kế, bạn vận hành...', hint: 'Có thể điền tên ghi chú để dễ phân biệt người dùng. Sau khi tạo, khóa chỉ hiện một lần duy nhất.' }), cP('khoa', 'Khóa mới (tùy chọn)', { ph: 'VD: sk-your-custom-user-key', hint: 'Sau khi lưu, khóa cũ hết hiệu lực, khóa mới có hiệu lực ngay. Hệ thống chỉ lưu hash, không hiển thị lại khóa hiện tại.' })], ['Tạo khóa|Đã tạo khoá — chỉ hiện một lần, hãy chép ngay (minh hoạ).'])
+    ] },
+    { id: 'maytram', ten: 'Máy trạm', rows: [
+      cR('mt_ds', 'Thiết bị của tôi', 'Cho bot đọc/sửa tệp trên máy tính, điện thoại Android, VPS — qua Internet, không cần mở cổng', [
+        cI('Cách hoạt động', 'Agent tự quay ra nên máy sau NAT/4G vẫn dùng được. Đọc tệp + tra cứu máy (thông tin, CPU/RAM/ổ đĩa, tiến trình, service, màn hình) luôn có sẵn, không cần tích gì.'),
+        cI('laptop-win — Laptop Windows', 'đang kết nối · quyền: thêm/xoá/sửa tệp · thư mục: C:\\Users\\Viet\\Downloads'), cI('vps-nha — VPS', 'chưa kết nối — chạy agent trên máy đó (tự nối lại sau 5–120 giây) · thư mục: /home/me/project'),
+        cI('Khi chưa có', 'Chưa có thiết bị nào. Thêm ở khung dưới.')], ['Làm mới|Đã làm mới danh sách thiết bị (minh hoạ).', 'Lệnh cài mới|Đã xoay token mới và dựng lệnh cài (minh hoạ).', 'Xoá|Gỡ agent NGAY TRÊN MÁY đó trước (xoá lịch tự chạy, thư mục cài, token), rồi mới xoá khỏi dự án — token mất hiệu lực (minh hoạ).']),
+      cR('mt_them', 'Thêm thiết bị', 'Tên, thư mục được phép, quyền cấp', [
+        cT('ten', 'Tên (a-z 0-9 _ -)', { ph: 'laptop-win' }), cT('nhan', 'Nhãn hiển thị', { ph: 'Laptop Windows' }), cA('paths', 'Thư mục được phép — mỗi dòng một đường dẫn TUYỆT ĐỐI', '', { ph: 'C:\\Users\\Viet\\Downloads\n/home/me/project', hint: 'Khai càng hẹp càng an toàn — đừng khai C:\\ hay /. Mở rộng sau lúc nào cũng được.' }),
+        cH('Quyền cấp cho thiết bị — mỗi ô còn phải kèm cờ tương ứng khi chạy agent; hai phía đều phải bật, để sơ suất một chỗ không mở quyền'),
+        cG('w', 'Cho phép thêm · xoá · sửa tệp — chỉ trong các thư mục khai ở trên; ghi đè luôn tạo bản sao .c2a.bak (cờ --allow-write)', false),
+        cG('x', 'Cho phép chạy lệnh — PowerShell · cmd · sh, và tắt ứng dụng. Bật cái này là allowlist thư mục hết ý nghĩa: một lệnh shell đọc/ghi/xoá được mọi thứ tài khoản chạy agent với tới (cờ --allow-exec)', false),
+        cG('p', 'Cho phép khoá màn hình · ngủ · đăng xuất · tắt máy · khởi động lại — người đang dùng máy sẽ mất phiên làm việc và agent mất kết nối (cờ --allow-power)', false),
+        cG('c', 'Cho phép chụp webcam · chụp ảnh màn hình — nhóm duy nhất nhìn thấy NGƯỜI đang ngồi trước máy và VIỆC họ đang làm; ở phía bot chỉ admin gọi được và mỗi lần chụp đều phải bạn duyệt (cờ --allow-capture)', false)], ['Tạo thiết bị|Đã tạo thiết bị — token chỉ hiện lúc này, hãy chép lệnh cài (minh hoạ).']),
+      cR('mt_cai', 'Hướng dẫn cài', 'Bước A: kết nối kiểu nào · Bước B: thiết bị loại gì · Bước C: làm lần lượt', [
+        cI('Bước A — Kết nối kiểu nào?', 'Qua Internet (domain): máy ở đâu cũng dùng được — 4G, wifi nhà, quán cà phê, đi qua domain công khai · Trong mạng LAN: chỉ khi thiết bị CÙNG mạng với máy chủ, nhanh hơn, không qua Internet.'),
+        cS('kieu', 'Kết nối', [['net', 'Qua Internet (domain)'], ['lan', 'Trong mạng LAN']]), cNeu(cT('dia_chi', 'Địa chỉ', { hint: 'Tự lấy từ địa chỉ bạn đang mở trang này. Máy chủ có nhiều card mạng thì sửa lại IP cho đúng.' }), 'kieu', 'lan'),
+        cI('Chưa cấu hình base_url', 'Chọn LAN, hoặc điền base_url trong Cấu hình (không dựng được lệnh cài vì không biết domain công khai của dự án).'),
+        cS('os', 'Bước B — Thiết bị loại gì?', [['win', 'Windows (PowerShell)'], ['mac', 'macOS (Terminal)'], ['linux', 'Linux / VPS (Terminal, SSH)'], ['termux', 'Android (Termux)']]),
+        cI('Bước C', 'Làm lần lượt trên máy đã chọn; token chỉ hiện lúc tạo — ẩn đi rồi cần lại thì bấm «Lệnh cài mới» ở danh sách (sẽ xoay token khác).')], ['Chép lệnh|Đã chép lệnh cài (minh hoạ).'])
+    ] }
+  ] }
+];
+const cdBo = (t) => String(t || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd');
+const CD_RONG = { coCd: false, cdQ: '', cdOnQ: () => {}, cdCoQ: false, cdXoaQ: () => {}, cdLevels: [], cdCoLevels: false, cdRows: [], cdTrong: false, cdTrongTxt: '', cdCoTin: false, cdTin: '', cdDongTin: () => {} };
+
+class Component extends DCLogic {
+  state = { 
+    cdNav: {}, cdMo: null, cdV: {}, cdLuu: {}, cdTin: null, cdQ: '', cdDd: false,
+    dKy: '7d', dGran: 'day', dNgay: 'requests', dXu: 'tokens', tab: (() => { try { const j = JSON.parse(localStorage.getItem('web2api_muc') || 'null'); if (j && j.khung === 'Hệ thống' && ["tong", "cd", "lh", "lt", "ts", "mcp", "bm"].includes(j.muc)) { localStorage.removeItem('web2api_muc'); return j.muc; } } catch (e) { /* trình duyệt chặn */ } return 'tong'; })(), menuMo: null, accMo: false, q: '', tt: 'all', open: null, tg: {}, ghi: '' };
+
+  // Bấm menu từ khung khác khi khung này ĐÃ mở sẵn: nó không dựng lại nên không đọc được «mục cần mở» lúc khởi tạo — nghe thêm khi đang chạy.
+  caiMuc() { this._tm = true; try { const f = () => this.tuMuc(); window.addEventListener('storage', f); window.addEventListener('focus', f); window.addEventListener('pageshow', f); document.addEventListener('visibilitychange', f); } catch (e) { /* không có cửa sổ */ } }
+  tuMuc() { try { const j = JSON.parse(localStorage.getItem('web2api_muc') || 'null'); if (j && j.khung === "Hệ thống" && ["tong", "cd", "lh", "lt", "ts", "mcp", "bm"].includes(j.muc)) { localStorage.removeItem('web2api_muc'); this.setState(Object.assign({ tab: j.muc, menuMo: null, accMo: false, ddMo: null }, {})); } } catch (e) { /* trình duyệt chặn */ } }
+
+  renderVals() {
+    if (!this._tm) this.caiMuc();
+    const s = this.state;
+    const IC = {
+      logo: 'M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z',
+      plus: 'M12 5v14 M5 12h14',
+      chat: 'M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z',
+      home: 'M3 11l9-8 9 8 M5 10v10h14V10 M10 20v-6h4v6',
+      plug: 'M9 3v5 M15 3v5 M6 8h12v3a6 6 0 0 1-12 0z M12 17v4',
+      sliders: 'M4 7h10 M18 7h2 M4 17h2 M10 17h10 M16 5v4 M8 15v4',
+      folder: 'M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z',
+      search: 'M11 4a7 7 0 1 0 0 14 7 7 0 0 0 0-14z M20 20l-4-4',
+      pulse: 'M3 12h4l3-7 4 14 3-7h4',
+      users: 'M9 11a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7z M2.5 20a6.5 6.5 0 0 1 13 0 M16 4.5a3.5 3.5 0 0 1 0 6.5 M18 14a6.5 6.5 0 0 1 3.5 6',
+      cloud: 'M7 18a4 4 0 0 1-.6-8 5.5 5.5 0 0 1 10.7 1.2A3.4 3.4 0 0 1 17 18z',
+      cpu: 'M7 7h10v10H7z M10 3v4 M14 3v4 M10 17v4 M14 17v4 M3 10h4 M3 14h4 M17 10h4 M17 14h4',
+      layers: 'M12 3l9 5-9 5-9-5z M3 13l9 5 9-5',
+      run: 'M5 4l14 8-14 8z',
+      log: 'M6 3h9l4 4v14H6z M9 12h7 M9 16h7 M9 8h3',
+      save: 'M5 4h12l3 3v13H5z M8 4v5h8V4 M8 20v-6h8v6',
+      gear: 'M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z M19 12a7 7 0 0 0-.1-1.2l2-1.6-2-3.4-2.4 1a7 7 0 0 0-2-1.2L14 3h-4l-.5 2.6a7 7 0 0 0-2 1.2l-2.4-1-2 3.4 2 1.6A7 7 0 0 0 5 12c0 .4 0 .8.1 1.2l-2 1.6 2 3.4 2.4-1a7 7 0 0 0 2 1.2L10 21h4l.5-2.6a7 7 0 0 0 2-1.2l2.4 1 2-3.4-2-1.6c.1-.4.1-.8.1-1.2z'
+    };
+    const navBase = 'flex:0 0 auto;display:flex;align-items:center;gap:8px;height:40px;padding:0 10px;border-radius:20px;white-space:nowrap;';
+    const navOn = navBase + 'background:#EFEDE8;color:#181816;font-weight:500';
+    const navOff = navBase + 'color:#66645F';
+
+    // ---- dữ liệu mẫu theo từng trang. tone: ok | warn | err | off
+    const TONE = {
+      ok: ['Bình thường', 'background:#E2F0ED;color:#0B5A53'],
+      warn: ['Cần chú ý', 'background:#FBEFD5;color:#7A4B00'],
+      err: ['Hỏng', 'background:#FDECEA;color:#8A1C12'],
+      off: ['Đã tắt', 'background:#EFEDE8;color:#4A4944']
+    };
+    const R = (key, title, sub, tone, o) => Object.assign({ key, title, sub, tone, detail: '', acts: [], chip: '', tog: false }, o || {});
+    const PAGES = {
+      tong: { label: 'Tổng quan', d: IC.pulse, title: 'Tổng quan', sub: 'Sức khoẻ của cả hệ thống trong một màn hình.',
+        rows: [
+          R('c1', 'Hai tài khoản hết hạn mức', 'Tự nghỉ, sẽ dùng lại sau 00:00', 'warn', { detail: 'Hệ thống tự chuyển sang tài khoản còn hạn mức, không cần làm gì.', acts: ['Xem tài khoản'] }),
+          R('c2', 'Một nhà cung cấp đang ngắt mạch', 'Thử lại tự động sau vài phút', 'warn', { detail: 'Nhà cung cấp trả lỗi liên tiếp nên bị tạm ngắt để khỏi làm chậm các yêu cầu khác.', acts: ['Xem nhà cung cấp'] }),
+          R('c3', 'Ổ đĩa còn ít chỗ', '[GB trống] trên [GB tổng]', 'warn', { detail: 'Mỗi ảnh hệ thống chiếm vài GB. Dọn ảnh cũ trước khi dựng bản mới.', acts: ['Mở Lưu trữ và sao lưu'] })
+        ] },
+      cd: { label: 'Cấu hình', d: IC.gear, title: 'Cấu hình', sub: 'Cấu hình hệ thống.', rows: [] },
+      lh: { label: 'Liên lạc & giọng nói', d: IC.chat, title: 'Liên lạc & giọng nói', sub: 'Kênh chat, thông báo, loa, nghe và đọc.', rows: [] },
+      lt: { label: 'Lưu trữ & sao lưu', d: IC.cloud, title: 'Lưu trữ & sao lưu', sub: 'Kho đám mây, lưu trữ theo thread, sao lưu.', rows: [] },
+      ts: { label: 'Tìm kiếm & dịch', d: IC.search, title: 'Tìm kiếm & dịch', sub: 'Tìm kiếm web và dịch.', rows: [] },
+      mcp: { label: 'MCP', d: 'M4 5h16v6H4z M4 13h16v6H4z M8 8h.01 M8 16h.01', title: 'MCP', sub: 'MCP, Knowledge Base, RAG.', rows: [] },
+      bm: { label: 'Bảo mật & người dùng', d: 'M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z', title: 'Bảo mật & người dùng', sub: 'Khoá người dùng và máy trạm.', rows: [] }
+    };
+    const ORDER = ['tong', 'cd', 'lh', 'lt', 'ts', 'mcp', 'bm'];
+    const cur = PAGES[s.tab];
+
+    const tabStyle = (on) => 'display:flex;align-items:center;gap:10px;width:100%;box-sizing:border-box;min-height:44px;padding:0 12px;border:0;border-radius:12px;text-align:left;white-space:nowrap;background:' + (on ? '#EFEDE8' : 'transparent') + ';color:' + (on ? '#181816' : '#66645F') + ';font-size:14px;font-weight:' + (on ? '600' : '400');
+    const tabs = ORDER.map((id) => ({ label: PAGES[id].label, d: PAGES[id].d, on: s.tab === id, style: tabStyle(s.tab === id),
+      pick: () => this.setState({ tab: id, q: '', tt: 'all', open: null }) }));
+
+    const q = (s.q || '').trim().toLowerCase();
+    const list = cur.rows.filter((r) => (s.tt === 'all' || r.tone === s.tt) && (!q || (r.title + ' ' + r.sub).toLowerCase().includes(q)));
+    const rows = list.map((r) => {
+      const id = s.tab + ':' + r.key;
+      const on = id in s.tg ? s.tg[id] : (r.on !== undefined ? r.on : r.tone !== 'off');
+      const tone = r.tog && !on && r.tone !== 'err' ? 'off' : r.tone;
+      const open = s.open === id;
+      return { open, title: r.title, sub: r.sub, label: 'Xem chi tiết: ' + r.title,
+        chip: r.chip, coChip: !!r.chip, pill: r.pt || TONE[tone][0], pillStyle: 'flex:0 0 auto;padding:3px 12px;border-radius:14px;font-size:12px;font-weight:500;' + TONE[tone][1],
+        coTog: !!r.tog, on, togLabel: (on ? 'Tắt ' : 'Bật ') + r.title,
+        trackStyle: 'display:block;position:relative;width:40px;height:24px;border-radius:12px;transition:background .15s;background:' + (on ? '#0F766E' : '#B9B6AE'),
+        knobStyle: 'position:absolute;top:2px;left:' + (on ? 18 : 2) + 'px;width:20px;height:20px;border-radius:50%;background:#fff;transition:left .15s',
+        tog: () => this.setState({ tg: Object.assign({}, s.tg, { [id]: !on }) }),
+        detail: r.detail || 'Chưa có thông tin thêm.', acts: (r.acts.length ? r.acts : ['Mở']).map((label) => ({ label, aria: label + ': ' + r.title })),
+        pick: () => this.setState({ open: open ? null : id }) };
+    });
+
+    const segSt = (on) => 'height:40px;padding:0 10px;border:0;border-radius:20px;font:inherit;font-size:13px;font-weight:500;cursor:pointer;white-space:nowrap;background:' + (on ? '#181816' : 'transparent') + ';color:' + (on ? '#fff' : '#66645F');
+    // ---- BẢNG SỐ của «Tổng quan» — bám trang tổng quan thật (web/src/app/page.tsx): 4 thẻ số, dải tổng, dùng theo nhà cung cấp (Ngày / Tuần / Tháng), yêu cầu gần đây, 14 ngày gần nhất, xu hướng.
+    // Số liệu mẫu cố định (hôm nay 10/10/2026); mọi số tổng đều CỘNG từ chuỗi theo ngày nên các thẻ, dải tổng và biểu đồ luôn khớp nhau.
+    const dash = (() => {
+      if (s.tab !== 'tong') return null;
+      const p2 = (n) => String(n).padStart(2, '0');
+      const f1 = (n) => (n >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : n >= 1e3 ? (n / 1e3).toFixed(1) + 'K' : String(Math.round(n || 0)));
+      const usd = (n) => '$' + (n || 0).toFixed(2);
+      const RATE = 2.2193; // đô-la mỗi triệu token (bình quân) — chỉ để ra số ước tính
+      const PROV = [['AI khó', '#B7791F'], ['AI nhẹ', '#0EA5E9'], ['AI text', '#10B981'], ['AI vision', '#8B5CF6'], ['flow', '#F97316'], ['gemini_free', '#EF4444'], ['gma', '#14B8A6'], ['grok', '#64748B'], ['zenmux', '#A16207']];
+      const W0 = [0.18, 0.05, 0.38, 0.12, 0.05, 0.09, 0.06, 0.04, 0.03];
+      const rnd = (n) => { const x = Math.sin(n * 12.9898) * 43758.5453; return x - Math.floor(x); };
+      const NG = 61; const REQ14 = [360, 490, 750, 1420, 520, 400, 440, 320, 410, 330, 310, 280, 210, 140]; const TOK14 = [1.9, 2.3, 3.0, 3.3, 1.6, 1.05, 0.34, 0.43, 1.45, 0.65, 1.03, 0.48, 0.33, 0.26];
+      const day = Array.from({ length: NG }, (_, i) => { const back = NG - 1 - i; const dt = new Date(2026, 9, 10 - back); let req, tok;
+        if (back < 14) { req = REQ14[13 - back]; tok = TOK14[13 - back] * 1e6; } else { req = Math.round(220 + 380 * rnd(i * 3 + 1)); tok = req * (2200 + 2600 * rnd(i * 5 + 2)); }
+        let w = W0.map((x, k) => x * (0.6 + 0.8 * rnd(i * 11 + k + 3))); const sw = w.reduce((a, x) => a + x, 0); w = w.map((x) => x / sw);
+        return { dt, nhan: p2(dt.getDate()) + '/' + p2(dt.getMonth() + 1), req, tok, prov: w.map((x) => x * tok) }; });
+      // kỳ xem: hôm nay / 24 giờ chia theo GIỜ; 7 / 30 / 60 ngày chia theo ngày (kể cả ngày bắt đầu và hôm nay)
+      const KY = [['today', 'Hôm nay'], ['24h', '24 giờ'], ['7d', '7 ngày'], ['30d', '30 ngày'], ['60d', '60 ngày']]; const ky = s.dKy; const kyNhan = KY.find((x) => x[0] === ky)[1];
+      const HW = [0.01, 0.005, 0.005, 0.005, 0.01, 0.02, 0.04, 0.07, 0.09, 0.1, 0.09, 0.08, 0.06, 0.07, 0.08, 0.08, 0.07, 0.06, 0.04, 0.03, 0.02, 0.015, 0.01, 0.01]; const sHW = HW.reduce((a, x) => a + x, 0);
+      const gio = (d, h) => { const w = HW[h] / sHW; return { nhan: p2(h) + 'h', req: d.req * w, tok: d.tok * w, prov: d.prov.map((x) => x * w) }; };
+      const hourly = ky === 'today' || ky === '24h'; let base;
+      if (hourly) { const t = day[NG - 1]; const y = day[NG - 2]; base = ky === 'today' ? Array.from({ length: 15 }, (_, h) => gio(t, h)) : Array.from({ length: 24 }, (_, k) => { const h = (15 + k) % 24; return gio(k < 9 ? y : t, h); }); }
+      else { const n = { '7d': 8, '30d': 31, '60d': 61 }[ky]; base = day.slice(NG - n); }
+      const tong = (arr) => ({ req: arr.reduce((a, x) => a + x.req, 0), tok: arr.reduce((a, x) => a + x.tok, 0), prov: arr[0].prov.map((_, k) => arr.reduce((a, x) => a + x.prov[k], 0)) });
+      const gran = hourly ? 'gio' : s.dGran; let bk = base;
+      if (gran === 'week') { bk = []; for (let e = base.length; e > 0; e -= 7) { const g = base.slice(Math.max(0, e - 7), e); bk.unshift(Object.assign(tong(g), { nhan: g[g.length - 1].nhan })); } }
+      else if (gran === 'month') { const m = {}; base.forEach((d) => { (m[d.dt.getMonth()] = m[d.dt.getMonth()] || []).push(d); }); bk = Object.keys(m).map(Number).sort((a, b) => a - b).map((k) => Object.assign(tong(m[k]), { nhan: 'Th' + (k + 1) })); }
+      const T = tong(base); const out = T.tok * 0.05153; const inn = T.tok - out; const cost = T.tok / 1e6 * RATE; const soGio = hourly ? base.length : base.length * 24;
+      // ---- vẽ biểu đồ: hình vẽ bằng SVG toạ độ 0–100 (co giãn theo khung), nhãn trục nằm ngoài SVG để chữ không méo
+      const niceMax = (v) => { if (!(v > 0)) return 1; const q = v / 4; const e = Math.pow(10, Math.floor(Math.log10(q))); return 4 * [1, 1.5, 2, 2.5, 3, 4, 5, 6, 8, 10].find((x) => x * e >= q * 0.999) * e; }; // trục luôn chia 4 nấc tròn
+      const X = (i, n) => (n < 2 ? 50 : i / (n - 1) * 100); const yv = (v, mx) => Math.max(0, Math.min(100, 100 - v / mx * 100)); const pf = (p) => p[0].toFixed(2) + ' ' + p[1].toFixed(2);
+      const smBody = (p) => { let d = ''; for (let i = 0; i < p.length - 1; i++) { const p0 = p[i - 1] || p[i]; const p1 = p[i]; const p2_ = p[i + 1]; const p3 = p[i + 2] || p2_; const c1 = [p1[0] + (p2_[0] - p0[0]) / 6, Math.max(0, Math.min(100, p1[1] + (p2_[1] - p0[1]) / 6))]; const c2 = [p2_[0] - (p3[0] - p1[0]) / 6, Math.max(0, Math.min(100, p2_[1] - (p3[1] - p1[1]) / 6))]; d += ' C' + pf(c1) + ' ' + pf(c2) + ' ' + pf(p2_); } return d; };
+      const smooth = (p) => 'M' + pf(p[0]) + smBody(p);
+      const trucY = (mx, fmt) => [1, 0.75, 0.5, 0.25, 0].map((fr) => ({ t: fmt(mx * fr), top: (100 - fr * 100) + '%', lg: 100 - fr * 100 }));
+      const trucX = (b) => { const n = b.length; const st = Math.max(1, Math.ceil(n / 6)); const o = []; for (let i = 0; i < n; i += st) o.push({ t: b[i].nhan, left: X(i, n) + '%' }); if (n > 1 && (n - 1) % st > Math.ceil(st / 2)) o.push({ t: b[n - 1].nhan, left: '100%' }); return o; };
+      const hv = (b, fmt) => b.map((x, i) => ({ tit: x.nhan + ': ' + fmt(x), st: 'flex:1 1 0;min-width:0' }));
+      // 1) theo nhà cung cấp: chồng vùng, mỗi nhà một màu
+      const nB = bk.length; const mxP = niceMax(Math.max(...bk.map((b) => b.tok))); const cum = bk.map((b) => { let c = 0; return b.prov.map((x) => (c += x)); });
+      const areas = PROV.map(([ten, col], k) => { const top = bk.map((_, i) => [X(i, nB), yv(cum[i][k], mxP)]); const bot = bk.map((_, i) => [X(i, nB), k ? yv(cum[i][k - 1], mxP) : 100]); return { color: col, line: nB > 1 ? smooth(top) : '', area: nB > 1 ? smooth(top) + ' L' + pf(bot[nB - 1]) + smBody(bot.slice().reverse()) + ' Z' : '' }; });
+      const prov = { trong: nB < 2, ve: nB >= 2, y: trucY(mxP, f1), grid: trucY(mxP, f1).map((t) => ({ y: t.lg })), areas, x: trucX(bk), hover: hv(bk, (b) => f1(b.tok) + ' token · ' + PROV.map(([n], k) => [n, b.prov[k]]).sort((a, c) => c[1] - a[1]).slice(0, 3).map((a) => a[0] + ' ' + f1(a[1])).join(', ')),
+        leg: PROV.map(([ten, col], k) => ({ ten, st: 'display:inline-block;width:9px;height:9px;border-radius:50%;background:' + col, tong: f1(T.prov[k]) })),
+        gran: [['day', 'Ngày'], ['week', 'Tuần'], ['month', 'Tháng']].map(([id, nhan]) => ({ nhan, on: s.dGran === id, st: segSt(s.dGran === id), pick: () => this.setState({ dGran: id }) })), coGran: !hourly, ghiGio: hourly ? 'theo giờ' : '' };
+      // 2) xu hướng: một đường tổng token hoặc chi phí, theo cùng các mốc
+      const cm = s.dXu === 'cost'; const val = (b) => (cm ? b.tok / 1e6 * RATE : b.tok); const mxX = niceMax(Math.max(...bk.map(val))); const fx = cm ? usd : f1; const colX = cm ? '#B45309' : '#0F766E';
+      const ptsX = bk.map((b, i) => [X(i, nB), yv(val(b), mxX)]);
+      const xu = { trong: nB < 2, ve: nB >= 2, tong: cm ? usd(cost) + ' chi phí' : f1(T.tok) + ' token', y: trucY(mxX, fx), grid: trucY(mxX, fx).map((t) => ({ y: t.lg })), color: colX, line: nB > 1 ? smooth(ptsX) : '', area: nB > 1 ? smooth(ptsX) + ' L100 100 L0 100 Z' : '', x: trucX(bk), hover: hv(bk, (b) => fx(val(b))),
+        che: [['tokens', 'Token'], ['cost', 'Chi phí']].map(([id, nhan]) => ({ nhan, on: s.dXu === id, st: segSt(s.dXu === id), pick: () => this.setState({ dXu: id }) })) };
+      // 3) 14 ngày gần nhất (không phụ thuộc kỳ xem): cột yêu cầu hoặc token
+      const d14 = day.slice(NG - 14); const tm = s.dNgay === 'tokens'; const v14 = (d) => (tm ? d.tok : d.req); const mx14 = niceMax(Math.max(...d14.map(v14))); const f14 = tm ? f1 : (n) => f1(n);
+      const t14 = d14.reduce((a, d) => ({ req: a.req + d.req, tok: a.tok + d.tok }), { req: 0, tok: 0 });
+      const ngay = { tong: tm ? f1(t14.tok) + ' token' : f1(t14.req) + ' yêu cầu', ghi: 'Chi phí ~' + usd(t14.tok / 1e6 * RATE), y: trucY(mx14, f14), grid: trucY(mx14, f14).map((t) => ({ y: t.lg })),
+        cot: d14.map((d, i) => ({ h: (v14(d) / mx14 * 100).toFixed(1) + '%', tit: d.nhan + ': ' + (tm ? f1(d.tok) + ' token' : f1(d.req) + ' yêu cầu'), nhan: i % 2 === 1 ? d.nhan : '' })),
+        che: [['requests', 'Yêu cầu'], ['tokens', 'Token']].map(([id, nhan]) => ({ nhan, on: s.dNgay === id, st: segSt(s.dNgay === id), pick: () => this.setState({ dNgay: id }) })) };
+      // 4) yêu cầu gần đây (25 dòng): chấm trạng thái, model, token vào ↑ ra ↓, đã bao lâu
+      const MD = [['AI vision', 1200, 30], ['AI vision', 1200, 30], ['AI vision', 493, 3], ['gemini_free/gemini-3.5-flash', 156, 0], ['gemini_free/gemini-3.5-flash', 156, 0], ['gemini_free/gemini-3.5-flash', 156, 0], ['AI vision', 1200, 30], ['AI nhẹ', 820, 140], ['AI text', 2400, 610], ['AI khó', 5200, 1400], ['grok/grok-4', 940, 380], ['zenmux/claude-sonnet', 3100, 720], ['flow/veo-3.1', 310, 0], ['AI text', 1800, 450]];
+      let tphut = 12; const gan = Array.from({ length: 25 }, (_, i) => { const m = MD[i < MD.length ? i : Math.floor(rnd(i * 7) * MD.length)]; if (i > 2) tphut += 1 + Math.round(rnd(i * 13) * 70); const loi = i === 9 || i === 17;
+        return { model: m[0], vao: f1(m[1] + Math.round(rnd(i) * 40)), ra: f1(m[2]), truoc: tphut < 60 ? tphut + ' phút trước' : tphut < 1440 ? Math.floor(tphut / 60) + ' giờ trước' : Math.floor(tphut / 1440) + ' ngày trước', loi, dot: 'flex:0 0 auto;width:7px;height:7px;border-radius:50%;background:' + (loi ? '#DC2626' : '#10B981') }; });
+      const ICO = { pulse: 'M3 12h4l3-7 4 14 3-7h4', cpu: 'M7 7h10v10H7z M10 3v4 M14 3v4 M10 17v4 M14 17v4 M3 10h4 M3 14h4 M17 10h4 M17 14h4', usd: 'M12 3v18 M16 7.5C16 6 14.2 5 12 5s-4 1-4 2.5S9.5 10 12 10.5s4 2 4 3.5-1.8 2.5-4 2.5-4-1-4-2.5', users: 'M9 11a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7z M2.5 20a6.5 6.5 0 0 1 13 0 M16 4.5a3.5 3.5 0 0 1 0 6.5 M18 14a6.5 6.5 0 0 1 3.5 6' };
+      return { ky: KY.map(([id, nhan]) => ({ nhan, on: ky === id, st: segSt(ky === id), pick: () => this.setState({ dKy: id }) })), lamMoi: () => this.setState({ ghi: 'Đã làm mới số liệu (minh hoạ).' }),
+        cards: [{ nhan: 'Yêu cầu', gt: f1(T.req), ghi: 'Kỳ: ' + kyNhan, d: ICO.pulse, bg: '#FBEFD5', fg: '#9A6700' }, { nhan: 'Token', gt: f1(T.tok), ghi: 'Vào ' + f1(inn) + ' · Ra ' + f1(out), d: ICO.cpu, bg: '#E1F0FA', fg: '#075985' }, { nhan: 'Chi phí ước tính', gt: usd(cost), ghi: 'tính theo giá bình quân mỗi triệu token', d: ICO.usd, bg: '#FDEBD0', fg: '#9A5B00' }, { nhan: 'Tài khoản', gt: '44/46', ghi: '1 nhà cung cấp ngắt mạch', d: ICO.users, bg: '#E2F0ED', fg: '#0B5A53' }],
+        dai: { gt: f1(T.req), cac: [{ nhan: 'Vào', gt: f1(inn), mau: '#075985' }, { nhan: 'Ra', gt: f1(out), mau: '#0B5A53' }, { nhan: 'Chi phí', gt: '~' + usd(cost), mau: '#9A5B00' }, { nhan: 'Trung bình / giờ', gt: '+' + Math.round(T.req / soGio), mau: '#0B5A53' }] },
+        prov, gan, nGan: gan.length, xu, ngay };
+    })();
+    // ===== Các trang cấu hình (Cấu hình · Liên lạc & giọng nói · Lưu trữ & sao lưu · Tìm kiếm & dịch · MCP · Bảo mật & người dùng):
+    // [mục ▾ danh sách] | [mục con chip] | [mục con chip] → dòng gập có nhãn trạng thái → ô nhập. Lưu thì dòng tự thu gọn. Ô tìm xuyên mọi trang.
+    const cdVal = (() => {
+      const page = CD_PAGES.find((p) => p.id === s.tab);
+      if (!page) return CD_RONG;
+      const q = cdBo((s.cdQ || '').trim());
+      const NAV = (s.cdNav || {})[page.id] || [];
+      const nRow = (n) => (n.rows ? n.rows.length : n.subs.reduce((m, x) => m + nRow(x), 0));
+      const chain = []; let node = page;
+      while (node.subs) { const pick = node.subs.find((x) => x.id === NAV[chain.length]) || node.subs[0]; chain.push({ cha: node, pick }); node = pick; }
+      let list = [];
+      if (q) { const duyet = (n, duong) => { if (n.rows) n.rows.forEach((r) => { if (cdBo(r.ten + ' ' + r.sub + ' ' + r.f.map((f) => f.nhan || f.tieu || '').join(' ')).indexOf(q) >= 0) list.push({ r, tren: duong.join(' › ') }); }); else n.subs.forEach((x) => duyet(x, duong.concat([x.ten]))); };
+        CD_PAGES.forEach((p) => duyet(p, [p.ten])); }
+      else list = node.rows.map((r) => ({ r, tren: '' }));
+      const V = s.cdV || {}; const LUU = s.cdLuu || {};
+      const kk = (r, f) => r.id + '.' + f.k;
+      const val = (r, f) => (V[kk(r, f)] !== undefined ? V[kk(r, f)] : f.def);
+      const setV = (key, x) => this.setState({ cdV: Object.assign({}, V, { [key]: x }) });
+      const swMt = (on) => 'position:relative;flex:0 0 auto;width:40px;height:24px;border-radius:12px;background:' + (on ? '#0F766E' : '#B9B6AE');
+      const swMk = (on) => 'position:absolute;top:2px;left:' + (on ? '18px' : '2px') + ';width:20px;height:20px;border-radius:50%;background:#fff;transition:left .15s';
+      const nutSt = (pri) => 'min-height:44px;padding:0 16px;border-radius:22px;font-size:13px;font-weight:' + (pri ? 600 : 500) + ';white-space:nowrap;cursor:pointer;' + (pri ? 'border:0;background:#181816;color:#fff' : 'border:1px solid var(--line);background:var(--card);color:var(--ink)');
+      const chipKenh = (on) => 'min-height:40px;padding:0 14px;border-radius:20px;font-size:13px;font-weight:500;white-space:nowrap;cursor:pointer;font-family:inherit;' + (on ? 'border:1px solid #0F766E;background:#E2F0ED;color:#0B5A53' : 'border:1px solid #E4E2DC;background:#fff;color:#66645F');
+      const kenhOn = (r, f, c) => { const x = V[kk(r, f) + '.' + c]; return x !== undefined ? x : f.defKenh.indexOf(c) >= 0; };
+      const batOn = (r, f) => { const x = V[kk(r, f) + '.bat']; return x !== undefined ? x : f.defBat; };
+      const ghi = (t) => this.setState({ cdTin: t });
+      const hien = (r, f) => { if (!f.neu) return true; const dk = Array.isArray(f.neu[0]) ? f.neu : [f.neu]; return dk.every((d) => { const g = r.f.find((y) => y.k === d[0]); if (!g) return true; const v = val(r, g); return Array.isArray(d[1]) ? d[1].indexOf(v) >= 0 : v === d[1]; }); };
+      const rows = list.map(({ r, tren }) => {
+        const open = s.cdMo === r.id;
+        const subst = (t) => String(t).replace(/\{(\w+)(?:\|([^}]*))?\}/g, (_, k, fb) => { if (k === 'tb_bat') return String(r.f.filter((f) => f.type === 'kenh' && batOn(r, f)).length); const f = r.f.find((x) => x.k === k); if (!f) return fb || '';
+          const v = val(r, f); if (f.type === 'tog') return v ? 'bật' : 'tắt'; if (f.type === 'sel') return ((f.opts.find((o) => o[0] === v) || [0, fb || ''])[1]).split(' (')[0].split(' — ')[0]; return String(v === undefined ? '' : v).trim() ? String(v).trim() : (fb || ''); });
+        const bat = r.f.find((f) => (f.k === 'bat' || f.k === 'cai') && f.type === 'tog'); const batV = bat ? val(r, bat) : null;
+        const pill = bat ? (batV ? ['Đang bật', '#E2F0ED', '#0B5A53'] : ['Đang tắt', '#EFEDE8', '#4A4944']) : ['Đã đặt', '#E2F0ED', '#0B5A53'];
+        const fields = r.f.filter((f) => hien(r, f)).map((f) => { const b = { isTieu: false, tieu: '', isIn: false, isSel: false, isTog: false, isArea: false, isInfo: false, isKenh: false, nhan: '', type: '', ph: '', val: '', onIn: () => {}, opts: [], selVal: '', onSel: () => {}, hint: '', coHint: false, on: false, mt: '', mk: '', tog: () => {}, al: '', v: '', mota: '', kenh: [], coCanh: false, guiThu: () => {} };
+          if (f.tieu) return Object.assign(b, { isTieu: true, tieu: f.tieu });
+          if (f.info) return Object.assign(b, { isInfo: true, nhan: f.nhan, v: f.v });
+          if (f.type === 'kenh') { const on = batOn(r, f); const co = CD_THREADS.some(([c]) => kenhOn(r, f, c)); return Object.assign(b, { isKenh: true, nhan: f.nhan, mota: f.mota, on, mt: swMt(on), mk: swMk(on), al: (on ? 'Tắt thông báo ' : 'Bật thông báo ') + f.nhan, tog: () => setV(kk(r, f) + '.bat', !on), coCanh: on && !co, guiThu: () => ghi('Đã gửi thử «' + f.nhan + '» tới ' + (co ? CD_THREADS.filter(([c]) => kenhOn(r, f, c)).map((x) => x[1]).join(', ') : 'chưa có nơi nhận') + ' (minh hoạ).'),
+            kenh: CD_THREADS.map(([c, t]) => { const o = kenhOn(r, f, c); return { nhan: t, on: o, st: chipKenh(o), al: 'Gửi ' + f.nhan + ' tới ' + t, pick: () => setV(kk(r, f) + '.' + c, !o) }; }) }); }
+          const v = val(r, f); const dl = !!(f.mat && LUU[kk(r, f)]); const onV = (e) => setV(kk(r, f), e.target.value);
+          if (f.type === 'tog') return Object.assign(b, { isTog: true, nhan: f.nhan, on: !!v, mt: swMt(!!v), mk: swMk(!!v), al: f.nhan, tog: () => setV(kk(r, f), !v) });
+          if (f.type === 'sel') return Object.assign(b, { isSel: true, nhan: f.nhan, opts: f.opts.map((o) => ({ v: o[0], label: o[1] })), selVal: String(v), onSel: onV, hint: f.hint || '', coHint: !!f.hint });
+          return Object.assign(b, { isIn: f.type !== 'area', isArea: f.type === 'area', nhan: f.nhan + (dl ? ' · đã lưu' : ''), type: f.type === 'number' ? 'number' : f.type === 'password' ? 'password' : 'text', ph: dl ? 'đã lưu — để trống nếu không đổi' : (f.ph || ''), val: String(v === undefined ? '' : v), onIn: onV, hint: f.hint || '', coHint: !!f.hint }); });
+        const luuHang = (msg) => () => { const nv = Object.assign({}, V); const nl = Object.assign({}, LUU); r.f.forEach((f) => { if (f.mat && String(val(r, f) || '').trim()) { nl[kk(r, f)] = true; delete nv[kk(r, f)]; } });
+          this.setState({ cdV: nv, cdLuu: nl, cdMo: null, cdTin: msg + ' Dòng đã thu gọn — bấm vào tên để mở lại.' }); };
+        const acts = r.acts.map((a) => { const p = a.split('|'); const luu = /^Lưu/.test(p[0]); return { nhan: p[0], st: nutSt(luu), pick: luu ? luuHang(subst(p[1])) : () => ghi(subst(p[1])) }; });
+        return { id: r.id, title: r.ten, sub: subst(r.sub), tren, coTren: !!tren, open, label: (open ? 'Thu gọn ' : 'Mở ') + r.ten, pill: pill[0], pillStyle: 'flex:0 0 auto;padding:3px 12px;border-radius:14px;font-size:12px;font-weight:500;background:' + pill[1] + ';color:' + pill[2],
+          fields, acts, coActs: acts.length > 0, pick: () => this.setState({ cdMo: open ? null : r.id }) }; });
+      const chipSt = (on) => 'height:40px;padding:0 14px;border-radius:20px;font:inherit;font-size:13px;font-weight:500;white-space:nowrap;cursor:pointer;' + (on ? 'border:1px solid #181816;background:#181816;color:#fff' : 'border:1px solid #E4E2DC;background:#fff;color:#181816');
+      const chonMuc = (tang, id) => this.setState({ cdNav: Object.assign({}, s.cdNav, { [page.id]: (NAV.slice(0, tang)).concat([id]) }), cdMo: null, cdDd: false });
+      const levels = chain.map((c, i) => { const items = c.cha.subs; const dd = i === 0 && items.length > 7;
+        return { coVach: i > 0, isDd: dd, isChips: !dd, ten: c.cha.ten,
+          dd: { open: !!s.cdDd, toggle: () => this.setState({ cdDd: !s.cdDd }), dong: () => this.setState({ cdDd: false }), cur: c.pick.ten, curDem: String(nRow(c.pick)), btn: 'display:flex;align-items:center;gap:8px;height:40px;padding:0 12px 0 14px;border-radius:20px;border:1px solid #181816;background:#181816;color:#fff;font:inherit;font-size:13px;font-weight:500;white-space:nowrap;cursor:pointer',
+            chev: 'flex:0 0 auto;transition:transform .15s;transform:rotate(' + (s.cdDd ? 180 : 0) + 'deg)',
+            items: items.map((x) => ({ nhan: x.ten, dem: String(nRow(x)), on: x.id === c.pick.id, st: 'display:flex;align-items:center;gap:10px;width:100%;box-sizing:border-box;min-height:44px;padding:0 12px;border:0;border-radius:10px;font:inherit;font-size:14px;cursor:pointer;color:#181816;background:' + (x.id === c.pick.id ? '#EFEDE8' : 'transparent'), pick: () => chonMuc(i, x.id) })) },
+          chips: dd ? [] : items.map((x) => ({ nhan: x.ten, on: x.id === c.pick.id, st: chipSt(x.id === c.pick.id), pick: () => chonMuc(i, x.id) })) }; });
+      return { coCd: true, cdQ: s.cdQ || '', cdOnQ: (e) => this.setState({ cdQ: e.target.value }), cdCoQ: !!(s.cdQ || ''), cdXoaQ: () => this.setState({ cdQ: '' }),
+        cdLevels: q ? [] : levels, cdCoLevels: !q && levels.length > 0, cdRows: rows, cdTrong: rows.length === 0, cdTrongTxt: q ? 'Không có mục cài đặt nào khớp «' + (s.cdQ || '').trim() + '».' : 'Mục này chưa có cài đặt.',
+        cdCoTin: !!s.cdTin, cdTin: s.cdTin || '', cdDongTin: () => this.setState({ cdTin: null }) };
+    })();
+    // ---- Menu của trang HỆ THỐNG: trang RIÊNG với các trang sử dụng, có nút «Quay lại» về trang vừa rời; mục thuộc khung khác thì nhớ mục rồi chuyển khung.
+    const SELF = 'He-thong.dc.html';
+    const ZNAV = [{"id": "tong", "label": "Tổng quan", "ngan": "Tổng quan", "d": "M3 12h4l3-7 4 14 3-7h4", "frame": "He-thong.dc.html", "khung": "Hệ thống", "muc": "tong"}, {"id": "ai", "label": "AI", "ngan": "AI", "d": "M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z M19 16l.7 2 2 .7-2 .7-.7 2-.7-2-2-.7 2-.7z", "frame": "Bo-nao.dc.html", "khung": "AI", "subs": [{"id": "tk", "label": "Tài khoản", "d": "M9 11a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7z M2.5 20a6.5 6.5 0 0 1 13 0 M16 4.5a3.5 3.5 0 0 1 0 6.5 M18 14a6.5 6.5 0 0 1 3.5 6"}, {"id": "pv", "label": "Provider", "d": "M7 18a4 4 0 0 1-.6-8 5.5 5.5 0 0 1 10.7 1.2A3.4 3.4 0 0 1 17 18z"}, {"id": "cb", "label": "Combo", "d": "M12 3l9 5-9 5-9-5z M3 13l9 5 9-5"}]}, {"id": "tien", "label": "Tiện ích", "ngan": "Tiện ích", "d": "M9 3v5 M15 3v5 M6 8h12v3a6 6 0 0 1-12 0z M12 17v4", "frame": "Tien-ich.dc.html", "khung": "Tiện ích"}, {"id": "nk", "label": "Nhật ký", "ngan": "Nhật ký", "d": "M6 3h9l4 4v14H6z M9 12h7 M9 16h7 M9 8h3", "frame": "Nhat-ky.dc.html", "khung": "Nhật ký", "subs": [{"id": "chay", "label": "Lượt chạy", "d": "M5 4l14 8-14 8z"}, {"id": "goi", "label": "Cuộc gọi", "d": "M7 18a4 4 0 0 1-.6-8 5.5 5.5 0 0 1 10.7 1.2A3.4 3.4 0 0 1 17 18z"}, {"id": "tk", "label": "Tài khoản", "d": "M9 11a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7z M2.5 20a6.5 6.5 0 0 1 13 0 M16 4.5a3.5 3.5 0 0 1 0 6.5 M18 14a6.5 6.5 0 0 1 3.5 6"}, {"id": "mang", "label": "Mạng nhà", "d": "M3 11l9-8 9 8 M5 10v10h14V10 M10 20v-6h4v6"}, {"id": "mat", "label": "Nhận diện", "d": "M9 11a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7z M2.5 20a6.5 6.5 0 0 1 13 0 M16 4.5a3.5 3.5 0 0 1 0 6.5 M18 14a6.5 6.5 0 0 1 3.5 6"}, {"id": "kh", "label": "Kích hoạt nhà", "d": "M13 3L5 14h6l-1 7 8-11h-6z"}, {"id": "he", "label": "Hệ thống", "d": "M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z M19 12a7 7 0 0 0-.1-1.2l2-1.6-2-3.4-2.4 1a7 7 0 0 0-2-1.2L14 3h-4l-.5 2.6a7 7 0 0 0-2 1.2l-2.4-1-2 3.4 2 1.6A7 7 0 0 0 5 12c0 .4 0 .8.1 1.2l-2 1.6 2 3.4 2.4-1a7 7 0 0 0 2 1.2L10 21h4l.5-2.6a7 7 0 0 0 2-1.2l2.4 1 2-3.4-2-1.6c.1-.4.1-.8.1-1.2z"}]}, {"id": "cd", "label": "Cấu hình", "ngan": "Cấu hình", "d": "M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z M19 12a7 7 0 0 0-.1-1.2l2-1.6-2-3.4-2.4 1a7 7 0 0 0-2-1.2L14 3h-4l-.5 2.6a7 7 0 0 0-2 1.2l-2.4-1-2 3.4 2 1.6A7 7 0 0 0 5 12c0 .4 0 .8.1 1.2l-2 1.6 2 3.4 2.4-1a7 7 0 0 0 2 1.2L10 21h4l.5-2.6a7 7 0 0 0 2-1.2l2.4 1 2-3.4-2-1.6c.1-.4.1-.8.1-1.2z", "frame": "He-thong.dc.html", "khung": "Hệ thống", "muc": "cd"}, {"id": "lh", "label": "Liên lạc & giọng nói", "ngan": "Liên lạc", "d": "M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z", "frame": "He-thong.dc.html", "khung": "Hệ thống", "muc": "lh"}, {"id": "lt", "label": "Lưu trữ & sao lưu", "ngan": "Lưu trữ", "d": "M7 18a4 4 0 0 1-.6-8 5.5 5.5 0 0 1 10.7 1.2A3.4 3.4 0 0 1 17 18z", "frame": "He-thong.dc.html", "khung": "Hệ thống", "muc": "lt"}, {"id": "ts", "label": "Tìm kiếm & dịch", "ngan": "Tìm kiếm", "d": "M11 4a7 7 0 1 0 0 14 7 7 0 0 0 0-14z M20 20l-4-4", "frame": "He-thong.dc.html", "khung": "Hệ thống", "muc": "ts"}, {"id": "mcp", "label": "MCP", "ngan": "MCP", "d": "M4 5h16v6H4z M4 13h16v6H4z M8 8h.01 M8 16h.01", "frame": "He-thong.dc.html", "khung": "Hệ thống", "muc": "mcp"}, {"id": "bm", "label": "Bảo mật & người dùng", "ngan": "Bảo mật", "d": "M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z", "frame": "He-thong.dc.html", "khung": "Hệ thống", "muc": "bm"}];
+    const ACTIVE = ({ tong: 'tong', cd: 'cd', lh: 'lh', lt: 'lt', ts: 'ts', mcp: 'mcp', bm: 'bm' })[s.tab];
+    const iStyle = (on) => 'display:flex;align-items:center;gap:10px;width:100%;box-sizing:border-box;min-height:38px;padding:0 10px;border:0;border-radius:9px;text-align:left;font:inherit;font-size:14px;text-decoration:none;cursor:pointer;color:#181816;background:' + (on ? '#EFEDE8' : 'transparent') + ';font-weight:' + (on ? '600' : '400');
+    const goInner = (muc) => { const k = typeof ORDER !== 'undefined' ? ORDER.indexOf(muc) : -1; if (k >= 0 && tabs[k]) tabs[k].pick(); };
+    const hoiMuc = (muc, khung) => { try { localStorage.setItem('web2api_muc', JSON.stringify({ khung, muc })); } catch (e) { /* trình duyệt chặn */ } };
+    const BACK = { 'Studio': 'Main.dc.html', 'Tác phẩm': 'Tac-pham.dc.html', 'Nhà': 'Nha.dc.html', 'Đời sống': 'Doi-song.dc.html' };
+    const back = (() => { let b = { ten: 'Studio', href: 'Main.dc.html' }; try { const j = JSON.parse(localStorage.getItem('web2api_tu') || 'null'); if (j && BACK[j.label]) b = { ten: j.label, href: BACK[j.label] }; } catch (e) { /* trình duyệt chặn */ } return b; })();
+    const navX = ZNAV.map((n, ni, arr) => { const L = n.subs; const open = !!L && s.menuMo === n.label; const same = n.frame === SELF; const on = n.id === ACTIVE;
+      const subs = (L || []).map((u) => { const onS = same && s.tab === u.id;
+        return { label: u.label, d: u.d, coBao: false, bao: 0, on: onS, ext: !same, inner: same, href: n.frame, style: iStyle(onS),
+          pick: same ? () => { goInner(u.id); this.setState({ menuMo: null }); } : () => { hoiMuc(u.id, n.khung); this.setState({ menuMo: null }); } }; });
+      const style = on ? navOn : navOff;
+      const bst = 'flex:1 1 0;min-width:0;display:flex;flex-direction:column;align-items:center;gap:2px;padding:8px 2px;font-size:10px;font-weight:500;text-align:center;color:' + (on || open ? '#0F766E' : '#66645F');
+      return { label: n.label, ngan: n.ngan || n.label, d: n.d, href: n.frame, style, wst: '', bLink: !L, bSub: !!L, pos: 'left:clamp(8px,calc(' + (((ni + 0.5) / arr.length) * 100).toFixed(3) + '% - 100px),calc(100% - 208px))', arrow: 'left:calc(' + (((ni + 0.5) / arr.length) * 100).toFixed(3) + '% - 6px)', bstyle: bst, link: !L, hasSub: !!L, open, subs,
+        btnStyle: 'border:0;background:transparent;font:inherit;' + style, bbtn: 'border:0;background:transparent;font-family:inherit;' + bst,
+        chev: 'flex:0 0 auto;transition:transform .15s;transform:rotate(' + (open ? 180 : 0) + 'deg)',
+        toggle: () => this.setState({ menuMo: open ? null : n.label, accMo: false }),
+        dong: (e) => { if (same && !L) { if (e && e.preventDefault) e.preventDefault(); goInner(n.muc); } else if (n.muc) hoiMuc(n.muc, n.khung); this.setState({ menuMo: null, accMo: false }); } }; });
+    const sheet = navX.find((n) => n.open && n.bSub);
+    return {
+      ...cdVal, sinCtx: true, back, coDash: !!dash, dash: dash || {}, coCanChu: s.tab === 'tong', menuMo: s.menuMo, accMo: !!s.accMo, backdrop: !!(s.menuMo || s.accMo), accToggle: () => this.setState({ accMo: !s.accMo, menuMo: null }), dangXuat: () => this.setState({ accMo: false }), menuDong: () => this.setState({ menuMo: null, accMo: false }), sheet: sheet || { label: '', subs: [] }, coSheet: !!sheet,
+      navStyle: 'flex:0 0 auto;position:sticky;top:0;z-index:20;box-sizing:border-box;display:flex;align-items:center;gap:12px;min-height:60px;padding:6px 24px;border-bottom:1px solid #CFE0DB;background:#EAF3F0',
+      logo: IC.logo, plus: IC.plus, iSearch: IC.search, nav: navX, tabs,
+      cur: { title: cur.title, sub: cur.sub, coSub: !!cur.sub, coNut: !!cur.nut, nut: cur.nut || '' },
+      bamNut: () => this.setState({ ghi: cur.nut }),
+      
+      coBar: !!cur.loc || !!cur.nut, coLoc: !!cur.loc, q: s.q, onQ: (e) => this.setState({ q: e.target.value }),
+      tt: s.tt, onTt: (e) => this.setState({ tt: e.target.value }),
+      rows, trong: rows.length === 0 && s.tab === 'tong'
+    };
+  }
+}
+</script>
+</body>
+</html>

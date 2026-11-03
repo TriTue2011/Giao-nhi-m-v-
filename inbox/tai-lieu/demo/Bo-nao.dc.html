@@ -1,0 +1,525 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<title>AI web2api</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600&family=Newsreader:opsz,wght@6..72,400;6..72,500&display=swap">
+<style>
+body{margin:0}
+button{font:inherit;cursor:pointer}
+a{color:inherit;text-decoration:none}
+select,input{font:inherit}
+input:focus{outline:none}
+button:focus-visible,a:focus-visible,select:focus-visible,input:focus-visible{outline:2px solid #0F766E;outline-offset:2px}
+.cuon{scrollbar-width:thin;scrollbar-color:#B9B6AE transparent}
+.cuon::-webkit-scrollbar{width:8px;height:8px}
+.cuon::-webkit-scrollbar-thumb{background:#B9B6AE;border-radius:4px}
+.o .nutto{opacity:0;transition:opacity .15s}
+.o:hover .nutto,.o:focus-within .nutto{opacity:1}
+.bn{display:none}
+.wmp{display:none}
+.ctxt{display:none}
+.tm a>svg:first-child,.tm button>svg:first-child{display:none}
+@media (max-width:1023px){
+.tb{min-height:52px !important;height:auto !important;padding:6px 14px !important;gap:10px !important}
+.tm{display:none !important}
+.wmd{display:none}.wmp{display:block}
+.ctxt{display:flex !important}
+.ctxb{display:none !important}
+.tao{display:none !important}
+.bn{display:flex !important;position:relative;z-index:20;flex:0 0 auto;align-items:stretch;border-top:1px solid #E4E2DC;background:#FBFAF8;padding:0 4px env(safe-area-inset-bottom,0px)}
+.bn > a,.bn > button{min-height:52px;justify-content:center}
+main.pg{padding:12px 16px 0 !important}
+}
+.dg2{display:grid;grid-template-columns:minmax(0,2fr) minmax(0,1fr);gap:12px;align-items:stretch}
+.dg1{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:12px}
+@media (max-width:1023px){.dg2,.dg1{grid-template-columns:minmax(0,1fr)}.dls{flex:0 0 auto !important;max-height:360px !important}}
+@media (pointer:coarse){input,select,textarea{font-size:16px !important}[role=menuitem]{min-height:44px !important}}
+</style>
+</helmet>
+<div style="--ink:#181816;--mute:#66645F;--line:#E4E2DC;--bg:#F6F5F2;--card:#FFFFFF;--acc:#0F766E;--accsoft:#E2F0ED;height:100vh;height:100dvh;min-height:560px;overflow-x:hidden;display:flex;flex-direction:column;flex-wrap:nowrap;background:var(--bg);color:var(--ink);font-family:'Be Vietnam Pro',system-ui,sans-serif;font-size:14px;line-height:1.5">
+
+<nav aria-label="Điều hướng chính" class="tb" style="{{navStyle}}">
+<div style="display:flex;align-items:center;gap:12px;flex:0 0 auto">
+<a href="{{back.href}}" aria-label="Quay lại {{back.ten}}" title="Quay lại {{back.ten}}" style="display:flex;align-items:center;gap:6px;height:40px;padding:0 16px 0 12px;box-sizing:border-box;border:1px solid var(--line);border-radius:20px;background:var(--card);color:var(--ink);font-size:14px;font-weight:500;white-space:nowrap"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 12H5 M11 6l-6 6 6 6"></path></svg><span>Quay lại</span></a>
+</div>
+<div class="tm" style="display:flex;flex-wrap:wrap;align-items:center;gap:2px 2px;flex:1 1 auto;min-width:0">
+<sc-for list="{{nav}}" as="n" hint-placeholder-count="6">
+<div style="position:relative;flex:0 0 auto">
+<sc-if value="{{n.link}}" hint-placeholder-val="{{true}}"><a href="{{n.href}}" aria-label="{{n.label}}" onClick="{{n.dong}}" style="{{n.style}}"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="{{n.d}}"></path></svg><span>{{n.label}}</span></a></sc-if>
+<sc-if value="{{n.hasSub}}" hint-placeholder-val="{{false}}"><button type="button" aria-haspopup="menu" aria-expanded="{{n.open}}" onClick="{{n.toggle}}" style="{{n.btnStyle}}"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="{{n.d}}"></path></svg><span>{{n.label}}</span><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="{{n.chev}}"><path d="M6 9l6 6 6-6"></path></svg></button>
+<sc-if value="{{n.open}}" hint-placeholder-val="{{false}}">
+<div role="menu" aria-label="Mục trong {{n.label}}" style="position:absolute;top:calc(100% + 8px);left:50%;transform:translateX(-50%);z-index:30;width:200px;box-sizing:border-box;background:var(--card);border:1px solid var(--line);border-radius:14px;box-shadow:0 12px 32px rgba(24,24,22,0.14);padding:4px;display:flex;flex-direction:column;gap:1px">
+<sc-for list="{{n.subs}}" as="u" hint-placeholder-count="5">
+<sc-if value="{{u.ext}}" hint-placeholder-val="{{false}}"><a role="menuitem" href="{{u.href}}" onClick="{{u.pick}}" style="{{u.style}}"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="{{u.d}}"></path></svg><span>{{u.label}}</span><sc-if value="{{u.coBao}}" hint-placeholder-val="{{false}}"><span style="margin-left:auto;min-width:20px;height:20px;box-sizing:border-box;padding:0 6px;border-radius:10px;background:#B42318;color:#fff;font-size:12px;font-weight:600;display:flex;align-items:center;justify-content:center">{{u.bao}}</span></sc-if></a></sc-if>
+<sc-if value="{{u.inner}}" hint-placeholder-val="{{false}}"><button type="button" role="menuitem" aria-current="{{u.on}}" onClick="{{u.pick}}" style="{{u.style}}"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="{{u.d}}"></path></svg><span>{{u.label}}</span><sc-if value="{{u.coBao}}" hint-placeholder-val="{{false}}"><span style="margin-left:auto;min-width:20px;height:20px;box-sizing:border-box;padding:0 6px;border-radius:10px;background:#B42318;color:#fff;font-size:12px;font-weight:600;display:flex;align-items:center;justify-content:center">{{u.bao}}</span></sc-if></button></sc-if>
+</sc-for>
+</div>
+</sc-if></sc-if>
+</div>
+</sc-for>
+</div>
+<div class="acc" style="position:relative;flex:0 0 auto;margin-left:auto">
+<button type="button" aria-haspopup="menu" aria-expanded="{{accMo}}" aria-label="Tài khoản" onClick="{{accToggle}}" style="width:36px;height:36px;padding:0;border-radius:50%;border:0;background:var(--accsoft);color:#0B5A53;display:flex;align-items:center;justify-content:center;font:inherit;font-weight:600;cursor:pointer">C</button>
+<sc-if value="{{accMo}}" hint-placeholder-val="{{false}}">
+<div role="menu" aria-label="Tài khoản" style="position:absolute;top:calc(100% + 8px);right:0;z-index:30;width:248px;max-width:calc(100vw - 24px);box-sizing:border-box;background:var(--card);border:1px solid var(--line);border-radius:14px;box-shadow:0 12px 32px rgba(24,24,22,0.14);padding:6px;display:flex;flex-direction:column;gap:2px">
+<div style="display:flex;align-items:center;gap:12px;padding:10px 10px 12px">
+<div style="flex:0 0 auto;width:40px;height:40px;border-radius:50%;background:var(--accsoft);color:#0B5A53;display:flex;align-items:center;justify-content:center;font-weight:600;font-size:16px">C</div>
+<div style="display:flex;flex-direction:column;line-height:1.35;min-width:0"><span style="font-weight:600">Chủ nhà</span><span style="font-size:12px;color:var(--mute)">Quản trị viên</span></div>
+</div>
+<div style="height:1px;background:var(--line);margin:0 4px 4px"></div>
+<button type="button" role="menuitem" onClick="{{dangXuat}}" style="display:flex;align-items:center;gap:10px;width:100%;box-sizing:border-box;min-height:44px;padding:0 12px;border:0;border-radius:10px;background:transparent;color:#B42318;font:inherit;font-size:14px;font-weight:500;text-align:left;cursor:pointer"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 4H5v16h5 M15 8l4 4-4 4 M19 12H9"></path></svg>Đăng xuất</button>
+</div>
+</sc-if>
+</div>
+</nav>
+
+<main class="pg" style="flex:1 1 0;min-width:0;min-height:0;overflow-x:hidden;display:flex;flex-direction:column;gap:12px;box-sizing:border-box;padding:20px 32px 0">
+<div class="cuon" style="flex:1 1 0;min-width:0;min-height:0;overflow-y:auto;display:flex;flex-direction:column;gap:12px;padding:0 8px 24px 0">
+
+<sc-if value="{{coMsg}}" hint-placeholder-val="{{false}}"><div role="status" style="display:flex;align-items:center;gap:10px;padding:10px 14px;border-radius:12px;border:1px solid #BFE0D9;background:#E8F4F1;color:#0B5A53;font-size:13px"><span style="flex:1 1 0;min-width:0;text-wrap:pretty">{{msg}}</span><button type="button" aria-label="Đóng thông báo" onClick="{{dongMsg}}" style="flex:0 0 auto;width:32px;height:32px;border:0;border-radius:50%;background:transparent;color:#0B5A53;font-size:16px;line-height:1;padding:0">✕</button></div></sc-if>
+
+<sc-if value="{{c1.coRieng}}" hint-placeholder-val="{{true}}"><div role="tablist" aria-label="{{c1.nhan}}" class="cuon" style="display:flex;gap:8px;overflow-x:auto;padding-bottom:2px;flex:0 0 auto"><sc-for list="{{c1.chips}}" as="c" hint-placeholder-count="4"><button type="button" role="tab" aria-selected="{{c.on}}" onClick="{{c.pick}}" style="{{c.st}}"><sc-if value="{{c.coDot}}" hint-placeholder-val="{{false}}"><i style="{{c.dot}}"></i></sc-if><span>{{c.nhan}}</span><sc-if value="{{c.coDem}}" hint-placeholder-val="{{true}}"><span style="font-size:12px;opacity:.7">{{c.dem}}</span></sc-if></button></sc-for></div></sc-if>
+<sc-if value="{{pvHang.co}}" hint-placeholder-val="{{false}}"><div style="display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;flex:0 0 auto"><div style="position:relative;flex:0 0 auto"><button type="button" aria-haspopup="listbox" aria-expanded="{{pvHang.open}}" aria-label="Provider: {{pvHang.cur}}" onClick="{{pvHang.toggle}}" style="{{pvHang.btn}}"><i style="{{pvHang.curDot}}"></i><span>{{pvHang.cur}}</span><span style="font-size:12px;opacity:.7">{{pvHang.curDem}}</span><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="{{pvHang.chev}}"><path d="M6 9l6 6 6-6"></path></svg></button><sc-if value="{{pvHang.open}}" hint-placeholder-val="{{false}}"><div aria-hidden="true" onClick="{{pvHang.dong}}" style="position:fixed;inset:0;z-index:14"></div><div role="listbox" aria-label="Danh sách provider" style="position:absolute;top:calc(100% + 6px);left:0;z-index:15;min-width:240px;max-width:calc(100vw - 32px);box-sizing:border-box;background:var(--card);border:1px solid var(--line);border-radius:14px;box-shadow:0 12px 32px rgba(24,24,22,0.14);padding:6px;display:flex;flex-direction:column;gap:2px"><sc-for list="{{pvHang.items}}" as="u" hint-placeholder-count="6"><button type="button" role="option" aria-selected="{{u.on}}" onClick="{{u.pick}}" style="{{u.st}}"><i style="{{u.dot}}"></i><span style="flex:1 1 auto;text-align:left">{{u.nhan}}</span><span style="font-size:12px;color:var(--mute)">{{u.dem}}</span></button></sc-for></div></sc-if></div><sc-if value="{{pvHang.coG2}}" hint-placeholder-val="{{false}}"><span aria-hidden="true" style="flex:0 0 auto;width:1px;height:28px;background:#CFCCC3"></span><div role="tablist" aria-label="{{c2.nhan}}" style="display:flex;gap:8px;flex:0 0 auto"><sc-for list="{{c2.chips}}" as="c" hint-placeholder-count="2"><button type="button" role="tab" aria-selected="{{c.on}}" onClick="{{c.pick}}" style="{{c.st}}"><span>{{c.nhan}}</span><sc-if value="{{c.coDem}}" hint-placeholder-val="{{true}}"><span style="font-size:12px;opacity:.7">{{c.dem}}</span></sc-if></button></sc-for></div></sc-if><sc-if value="{{pvHang.coG3}}" hint-placeholder-val="{{false}}"><span aria-hidden="true" style="flex:0 0 auto;width:1px;height:28px;background:#CFCCC3"></span><div role="tablist" aria-label="{{c3.nhan}}" style="display:flex;gap:8px;flex:0 0 auto"><sc-for list="{{c3.chips}}" as="c" hint-placeholder-count="2"><button type="button" role="tab" aria-selected="{{c.on}}" onClick="{{c.pick}}" style="{{c.st}}"><span>{{c.nhan}}</span><sc-if value="{{c.coDem}}" hint-placeholder-val="{{true}}"><span style="font-size:12px;opacity:.7">{{c.dem}}</span></sc-if></button></sc-for></div></sc-if></div></sc-if>
+
+<sc-if value="{{coThem}}" hint-placeholder-val="{{true}}">
+<div style="display:flex;justify-content:flex-end"><button type="button" aria-expanded="{{them.co}}" onClick="{{them.nut.pick}}" style="{{them.nut.st}}">{{them.nut.nhan}}</button></div>
+<sc-if value="{{them.co}}" hint-placeholder-val="{{false}}"><div style="background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px 16px;display:flex;flex-direction:column;gap:10px">
+<span style="font-weight:600">{{them.tieu}}</span>
+<sc-if value="{{them.coApi}}" hint-placeholder-val="{{false}}"><div role="group" aria-label="Nhà cung cấp API" style="display:flex;flex-wrap:wrap;gap:8px"><sc-for list="{{them.apis}}" as="c" hint-placeholder-count="9"><button type="button" aria-pressed="{{c.on}}" onClick="{{c.pick}}" style="{{c.st}}">{{c.nhan}}</button></sc-for></div><span style="font-size:12px;color:var(--mute)">{{them.mota}}</span></sc-if>
+<sc-if value="{{them.coFields}}" hint-placeholder-val="{{true}}"><div style="display:flex;flex-wrap:wrap;gap:10px"><sc-for list="{{them.fields}}" as="f" hint-placeholder-count="2"><label style="flex:1 1 240px;display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--mute)">{{f.nhan}}<input type="{{f.type}}" placeholder="{{f.ph}}" value="{{f.val}}" onInput="{{f.onIn}}" style="min-height:40px;box-sizing:border-box;padding:0 12px;border:1px solid var(--line);border-radius:10px;background:var(--card);color:var(--ink);font:inherit;font-size:14px"></label></sc-for></div></sc-if>
+<div style="display:flex;gap:8px;flex-wrap:wrap"><button type="button" onClick="{{them.ok.pick}}" style="{{them.ok.st}}">{{them.ok.nhan}}</button><button type="button" onClick="{{them.huy.pick}}" style="{{them.huy.st}}">{{them.huy.nhan}}</button></div>
+</div></sc-if>
+</sc-if>
+
+<sc-if value="{{tkTrong}}" hint-placeholder-val="{{false}}"><div style="border:1px dashed #CFCCC3;border-radius:14px;padding:32px 16px;text-align:center;color:var(--mute)">{{tkTrongGhi}}</div></sc-if>
+<sc-if value="{{pvTrong}}" hint-placeholder-val="{{false}}"><div style="border:1px dashed #CFCCC3;border-radius:14px;padding:32px 16px;display:flex;flex-direction:column;align-items:center;gap:12px;text-align:center;color:var(--mute)"><span style="text-wrap:pretty;max-width:52ch">Chưa có tài khoản nào nên chưa có provider. Thêm Gmail, ChatGPT, Grok hoặc một API ở tab Tài khoản, provider tương ứng sẽ tự hiện ở đây.</span><button type="button" onClick="{{goTk}}" style="min-height:40px;padding:0 18px;border-radius:20px;border:0;background:#181816;color:#fff;font:inherit;font-size:13px;font-weight:500">Mở tab Tài khoản</button></div></sc-if>
+
+<sc-if value="{{coTkGhiChu}}" hint-placeholder-val="{{true}}"><div role="note" style="font-size:12px;color:var(--mute);line-height:1.5;text-wrap:pretty;padding:2px 2px 0">{{tkGhiChu}}</div></sc-if>
+<sc-if value="{{coTkRows}}" hint-placeholder-val="{{true}}">
+<div style="display:flex;flex-direction:column;gap:8px">
+<sc-for list="{{tkRows}}" as="r" hint-placeholder-count="3">
+<div style="background:var(--card);border:1px solid var(--line);border-radius:14px;overflow:hidden">
+<button type="button" aria-expanded="{{r.open}}" aria-label="Xem thông tin đăng nhập: {{r.ten}}" onClick="{{r.pick}}" style="width:100%;box-sizing:border-box;min-height:60px;border:0;background:transparent;color:var(--ink);text-align:left;padding:10px 16px;display:flex;flex-direction:column;gap:6px;cursor:pointer;font:inherit">
+<span style="display:flex;flex-direction:column;gap:1px;min-width:0"><span style="font-weight:500;overflow-wrap:anywhere">{{r.ten}}</span><span style="font-size:12px;color:var(--mute);overflow-wrap:anywhere">{{r.sub}}</span></span>
+<span style="display:flex;flex-wrap:wrap;gap:6px"><sc-for list="{{r.chips}}" as="c" hint-placeholder-count="2"><span style="{{c.st}}">{{c.t}}</span></sc-for></span>
+</button>
+<sc-if value="{{r.open}}" hint-placeholder-val="{{false}}">
+<div style="border-top:1px solid var(--line);background:#FBFAF8;padding:12px 16px;display:flex;flex-direction:column;gap:12px">
+<sc-for list="{{r.kv}}" as="x" hint-placeholder-count="4">
+<div style="display:flex;flex-direction:column;gap:4px"><span style="font-size:12px;color:var(--mute)">{{x.k}}</span>
+<div style="display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px"><span style="{{x.vSt}}">{{x.v}}</span>
+<sc-if value="{{x.coActs}}" hint-placeholder-val="{{false}}"><span style="display:flex;flex-wrap:wrap;gap:6px"><sc-for list="{{x.acts}}" as="a" hint-placeholder-count="2"><button type="button" aria-label="{{a.al}}" onClick="{{a.pick}}" style="{{a.st}}">{{a.nhan}}</button></sc-for></span></sc-if></div></div>
+</sc-for>
+<sc-if value="{{r.sua.co}}" hint-placeholder-val="{{false}}"><div style="background:#fff;border:1px solid var(--line);border-radius:12px;padding:12px 14px;display:flex;flex-direction:column;gap:10px">
+<div style="display:flex;flex-wrap:wrap;gap:10px"><sc-for list="{{r.sua.fields}}" as="f" hint-placeholder-count="2"><label style="flex:1 1 240px;display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--mute)">{{f.nhan}}<input type="{{f.type}}" autocomplete="new-password" placeholder="{{f.ph}}" value="{{f.val}}" onInput="{{f.onIn}}" style="min-height:40px;box-sizing:border-box;border:1px solid var(--line);border-radius:10px;background:var(--bg);color:var(--ink);font-size:16px;padding:0 12px"></label></sc-for></div>
+<div style="display:flex;gap:8px;flex-wrap:wrap"><button type="button" onClick="{{r.sua.luu.pick}}" style="{{r.sua.luu.st}}">{{r.sua.luu.nhan}}</button><button type="button" onClick="{{r.sua.huy.pick}}" style="{{r.sua.huy.st}}">{{r.sua.huy.nhan}}</button></div></div></sc-if>
+<div style="display:flex;gap:8px;flex-wrap:wrap"><sc-for list="{{r.acts}}" as="a" hint-placeholder-count="2"><button type="button" onClick="{{a.pick}}" style="{{a.st}}">{{a.nhan}}</button></sc-for></div>
+</div>
+</sc-if>
+</div>
+</sc-for>
+</div>
+</sc-if>
+
+<sc-if value="{{coRows}}" hint-placeholder-val="{{true}}">
+<div style="display:flex;flex-direction:column;gap:8px">
+<sc-for list="{{rows}}" as="r" hint-placeholder-count="3">
+<div style="background:var(--card);border:1px solid var(--line);border-radius:14px;overflow:hidden">
+<div style="display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;padding:8px 14px 8px 16px;min-height:60px;box-sizing:border-box">
+<button type="button" aria-expanded="{{r.open}}" aria-label="Xem thông tin: {{r.ten}}" onClick="{{r.pick}}" style="flex:1 1 240px;min-width:0;min-height:44px;border:0;background:transparent;color:var(--ink);text-align:left;padding:0;display:flex;flex-direction:column;justify-content:center;cursor:pointer;font:inherit">
+<span style="font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{r.ten}}</span>
+<span style="font-size:12px;color:var(--mute);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{r.sub}}</span>
+</button>
+<sc-if value="{{r.coVt}}" hint-placeholder-val="{{false}}"><span title="Vị trí trong hàng đợi của provider" style="flex:0 0 auto;padding:3px 10px;border-radius:12px;font-size:12px;font-weight:600;background:#FBEFD5;color:#7A4B00;white-space:nowrap">{{r.vt}}</span></sc-if>
+<sc-if value="{{r.coChip}}" hint-placeholder-val="{{false}}"><span style="font-size:12px;color:var(--mute);padding:3px 10px;border-radius:12px;background:var(--bg);border:1px solid var(--line);white-space:nowrap">{{r.chip}}</span></sc-if>
+<span style="{{r.pillSt}}">{{r.pill}}</span>
+</div>
+<sc-if value="{{r.open}}" hint-placeholder-val="{{false}}">
+<div style="border-top:1px solid var(--line);background:#FBFAF8;padding:12px 16px;display:flex;flex-direction:column;gap:10px">
+<sc-for list="{{r.blocks}}" as="b" hint-placeholder-count="1">
+<div style="border:1px solid var(--line);border-radius:12px;background:#fff;padding:12px 14px;display:flex;flex-direction:column;gap:10px">
+<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap"><span style="font-weight:600">{{b.ten}}</span><span style="{{b.pillSt}}">{{b.pill}}</span><sc-if value="{{b.coVt}}" hint-placeholder-val="{{false}}"><span style="padding:3px 10px;border-radius:12px;font-size:12px;font-weight:600;background:#FBEFD5;color:#7A4B00">{{b.vt}}</span></sc-if></div>
+<sc-if value="{{b.coErr}}" hint-placeholder-val="{{false}}"><div role="alert" style="padding:8px 12px;border-radius:10px;background:#FBE4E1;color:#8A1C12;font-size:13px;text-wrap:pretty">{{b.err}}</div></sc-if>
+<div style="display:grid;grid-template-columns:auto minmax(0,1fr);gap:4px 14px;font-size:13px"><sc-for list="{{b.kv}}" as="x" hint-placeholder-count="4"><span style="color:var(--mute)">{{x.k}}</span><span style="min-width:0;overflow-wrap:anywhere">{{x.v}}</span></sc-for></div>
+<sc-if value="{{b.coBars}}" hint-placeholder-val="{{false}}"><div style="display:flex;flex-direction:column;gap:8px"><sc-for list="{{b.bars}}" as="p" hint-placeholder-count="1">
+<div style="display:flex;flex-direction:column;gap:3px"><div style="display:flex;justify-content:space-between;gap:8px;font-size:12px;color:var(--mute)"><span>{{p.ten}}</span><span>{{p.reset}}</span></div>
+<div style="display:flex;align-items:center;gap:8px"><div style="flex:1 1 0;height:6px;border-radius:4px;background:#EFEDE8;overflow:hidden"><span style="{{p.fill}}"></span></div><span style="font-size:12px;font-weight:600;min-width:64px;text-align:right">{{p.txt}}</span></div></div>
+</sc-for></div></sc-if>
+<div style="display:flex;gap:8px;flex-wrap:wrap"><sc-for list="{{b.acts}}" as="a" hint-placeholder-count="2"><button type="button" onClick="{{a.pick}}" style="{{a.st}}">{{a.nhan}}</button></sc-for></div>
+</div>
+</sc-for>
+<sc-if value="{{r.coActs}}" hint-placeholder-val="{{false}}"><div style="display:flex;gap:8px;flex-wrap:wrap"><sc-for list="{{r.acts}}" as="a" hint-placeholder-count="1"><button type="button" onClick="{{a.pick}}" style="{{a.st}}">{{a.nhan}}</button></sc-for></div></sc-if>
+</div>
+</sc-if>
+</div>
+</sc-for>
+</div>
+</sc-if>
+
+<sc-if value="{{coMd}}" hint-placeholder-val="{{false}}">
+<div style="display:flex;flex-direction:column;gap:12px">
+<div style="padding:10px 14px;border-radius:12px;background:#EEF4F2;border:1px solid #CFE0DB;font-size:13px;color:#0B5A53;text-wrap:pretty">Không còn model «:text». Câu trả lời vẫn ra chữ có ký tự và viết tắt như thường; khi đọc thành tiếng, bộ đọc (TTS) tự chuyển thành lời.</div>
+<div style="display:flex;align-items:center;justify-content:space-between;gap:8px 12px;flex-wrap:wrap"><span style="font-weight:600">{{tieuPv}} · model</span><div style="display:flex;gap:8px;flex-wrap:wrap"><button type="button" onClick="{{md.moi.pick}}" style="{{md.moi.st}}">{{md.moi.nhan}}</button><button type="button" onClick="{{md.luu.pick}}" style="{{md.luu.st}}">{{md.luu.nhan}}</button></div></div>
+<sc-for list="{{md.nhom}}" as="g" hint-placeholder-count="2">
+<section style="background:var(--card);border:1px solid var(--line);border-radius:14px;overflow:hidden">
+<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:12px 16px;background:#FBFAF8;border-bottom:1px solid var(--line)"><span style="font-size:11px;font-weight:600;letter-spacing:.12em;text-transform:uppercase;color:var(--mute)">{{g.ten}}</span><span style="font-size:12px;color:var(--mute)">{{g.dem}}</span></div>
+<sc-for list="{{g.rows}}" as="m" hint-placeholder-count="4">
+<div style="display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;padding:6px 14px 6px 16px;min-height:52px;border-top:1px solid #F0EEE9">
+<span style="flex:1 1 220px;min-width:0;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12.5px;overflow-wrap:anywhere" title="{{m.id}}">{{m.id}}</span>
+<sc-if value="{{m.coChip}}" hint-placeholder-val="{{false}}"><span style="font-size:12px;color:var(--mute);padding:3px 10px;border-radius:12px;background:var(--bg);border:1px solid var(--line)">{{m.chip}}</span></sc-if>
+<button type="button" aria-pressed="{{m.la}}" onClick="{{m.dat}}" style="{{m.macSt}}">{{m.macNhan}}</button>
+<button type="button" role="switch" aria-checked="{{m.on}}" aria-label="Bật hoặc tắt {{m.id}}" onClick="{{m.tog}}" style="width:52px;height:44px;border:0;background:transparent;padding:0;display:flex;align-items:center;justify-content:center;cursor:pointer"><span style="{{m.tr}}"><span style="{{m.kn}}"></span></span></button>
+</div>
+</sc-for>
+</section>
+</sc-for>
+</div>
+</sc-if>
+
+<sc-if value="{{coCbList}}" hint-placeholder-val="{{false}}">
+<div style="display:flex;flex-direction:column;gap:8px">
+<sc-for list="{{cbList}}" as="b" hint-placeholder-count="4">
+<div style="background:var(--card);border:1px solid var(--line);border-radius:14px;overflow:hidden">
+<div style="display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;padding:8px 14px 8px 16px;min-height:60px;box-sizing:border-box">
+<button type="button" aria-expanded="{{b.open}}" aria-label="Xem các bước: {{b.ten}}" onClick="{{b.pick}}" style="flex:1 1 240px;min-width:0;min-height:44px;border:0;background:transparent;color:var(--ink);text-align:left;padding:0;display:flex;flex-direction:column;justify-content:center;cursor:pointer;font:inherit"><span style="font-weight:500">{{b.ten}}</span><span style="font-size:12px;color:var(--mute)">{{b.sub}}</span></button>
+<span style="font-size:12px;color:var(--mute);padding:3px 10px;border-radius:12px;background:var(--bg);border:1px solid var(--line);white-space:nowrap">{{b.chip}}</span>
+<span style="{{b.pillSt}}">{{b.pill}}</span>
+<button type="button" role="switch" aria-checked="{{b.on}}" aria-label="Bật hoặc tắt combo {{b.ten}}" onClick="{{b.tog}}" style="width:52px;height:44px;border:0;background:transparent;padding:0;display:flex;align-items:center;justify-content:center;cursor:pointer"><span style="{{b.tr}}"><span style="{{b.kn}}"></span></span></button>
+</div>
+<sc-if value="{{b.open}}" hint-placeholder-val="{{false}}">
+<div style="border-top:1px solid var(--line);background:#FBFAF8;padding:10px 16px;display:flex;flex-direction:column;gap:6px">
+<sc-for list="{{b.buoc}}" as="s" hint-placeholder-count="3">
+<div style="display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;padding:6px 0">
+<span style="flex:0 0 auto;width:24px;height:24px;border-radius:50%;background:#181816;color:#fff;font-size:12px;font-weight:600;display:flex;align-items:center;justify-content:center">{{s.so}}</span>
+<span style="flex:1 1 200px;min-width:0;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12.5px;overflow-wrap:anywhere">{{s.id}}</span>
+<span style="font-size:12px;color:var(--mute)">{{s.pv}}</span>
+<sc-if value="{{s.coCanh}}" hint-placeholder-val="{{false}}"><span style="font-size:12px;padding:3px 10px;border-radius:12px;background:#FBEFD5;color:#7A4B00">{{s.canh}}</span></sc-if>
+<button type="button" aria-label="{{s.len.aria}}" onClick="{{s.len.pick}}" style="{{s.len.st}}">{{s.len.nhan}}</button><button type="button" aria-label="{{s.xuong.aria}}" onClick="{{s.xuong.pick}}" style="{{s.xuong.st}}">{{s.xuong.nhan}}</button>
+</div>
+</sc-for>
+<span style="font-size:12px;color:var(--mute);text-wrap:pretty">Bước đầu hết hạn mức thì tự lùi sang bước sau. Bước nào trỏ tới provider chưa có tài khoản sẽ bị bỏ qua.</span>
+</div>
+</sc-if>
+</div>
+</sc-for>
+</div>
+</sc-if>
+
+<div style="font-size:12px;color:var(--mute);text-wrap:pretty">Bản mẫu minh hoạ. Tài khoản, hạn mức và model là ví dụ (tên model lấy từ cấu hình thật của dự án); bản thật lấy từ máy chủ. Thêm hoặc xoá tài khoản ở tab Tài khoản thì tab Provider đổi theo ngay.</div>
+</div>
+</main>
+
+<nav aria-label="Điều hướng chính (điện thoại)" class="bn">
+<sc-for list="{{nav}}" as="n" hint-placeholder-count="6">
+<sc-if value="{{n.bLink}}" hint-placeholder-val="{{true}}"><a href="{{n.href}}" aria-label="{{n.label}}" onClick="{{n.dong}}" style="{{n.bstyle}}"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="{{n.d}}"></path></svg><span>{{n.ngan}}</span></a></sc-if>
+<sc-if value="{{n.bSub}}" hint-placeholder-val="{{false}}"><button type="button" aria-haspopup="menu" aria-expanded="{{n.open}}" aria-label="{{n.label}}" onClick="{{n.toggle}}" style="{{n.bbtn}}"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="{{n.d}}"></path></svg><span>{{n.ngan}}</span></button></sc-if>
+</sc-for>
+<sc-if value="{{coSheet}}" hint-placeholder-val="{{false}}">
+<div aria-hidden="true" style="position:absolute;{{sheet.arrow}};bottom:calc(100% + 4px);z-index:31;width:12px;height:12px;box-sizing:border-box;background:var(--card);border-right:1px solid var(--line);border-bottom:1px solid var(--line);transform:rotate(45deg)"></div>
+<div role="menu" aria-label="Mục trong {{sheet.label}}" style="position:absolute;{{sheet.pos}};width:200px;bottom:calc(100% + 10px);z-index:30;box-sizing:border-box;background:var(--card);border:1px solid var(--line);border-radius:14px;box-shadow:0 -6px 24px rgba(24,24,22,0.16);padding:4px;display:flex;flex-direction:column;gap:1px;max-height:60vh;overflow-y:auto">
+<sc-for list="{{sheet.subs}}" as="u" hint-placeholder-count="5">
+<sc-if value="{{u.ext}}" hint-placeholder-val="{{false}}"><a role="menuitem" href="{{u.href}}" onClick="{{u.pick}}" style="{{u.style}}"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="{{u.d}}"></path></svg><span>{{u.label}}</span><sc-if value="{{u.coBao}}" hint-placeholder-val="{{false}}"><span style="margin-left:auto;min-width:20px;height:20px;box-sizing:border-box;padding:0 6px;border-radius:10px;background:#B42318;color:#fff;font-size:12px;font-weight:600;display:flex;align-items:center;justify-content:center">{{u.bao}}</span></sc-if></a></sc-if>
+<sc-if value="{{u.inner}}" hint-placeholder-val="{{false}}"><button type="button" role="menuitem" aria-current="{{u.on}}" onClick="{{u.pick}}" style="{{u.style}}"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="{{u.d}}"></path></svg><span>{{u.label}}</span><sc-if value="{{u.coBao}}" hint-placeholder-val="{{false}}"><span style="margin-left:auto;min-width:20px;height:20px;box-sizing:border-box;padding:0 6px;border-radius:10px;background:#B42318;color:#fff;font-size:12px;font-weight:600;display:flex;align-items:center;justify-content:center">{{u.bao}}</span></sc-if></button></sc-if>
+</sc-for>
+</div>
+</sc-if>
+</nav>
+<sc-if value="{{backdrop}}" hint-placeholder-val="{{false}}"><div aria-hidden="true" onClick="{{menuDong}}" style="position:fixed;top:0;right:0;bottom:0;left:0;z-index:19"></div></sc-if>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1280,"height":860}}'>
+// ===== AI (bộ não): Tài khoản · Provider · Combo — dữ liệu mẫu bám dự án thật (web/src/app/accounts, providers, models, combos; model_settings trong config)
+// Nhóm tài khoản chỉ có 4 loại; Provider tự hiện theo tài khoản đang có («chưa có thì ẩn»); Model nằm TRONG từng provider; không còn model/provider «:text» (bộ TTS tự chuyển ký tự, viết tắt thành lời).
+const NHOM = [['gmail', 'Gmail'], ['chatgpt', 'ChatGPT'], ['grok', 'Grok'], ['api', 'API']];
+const PROV = {
+  gemini: { ten: 'Gemini', mau: '#8E6CEE', bt: ['web', 'api'] }, chatgpt: { ten: 'ChatGPT', mau: '#10A37F', bt: ['web', 'codex', 'api'] }, claude: { ten: 'Claude', mau: '#D97757', bt: ['web'] }, flow: { ten: 'Flow', mau: '#F97316', bt: ['web'] },
+  grok: { ten: 'Grok', mau: '#181816', bt: ['web'] }, nvidia: { ten: 'NVIDIA NIM', mau: '#76B900', bt: ['api'] }, tokenrouter: { ten: 'TokenRouter', mau: '#06B6D4', bt: ['api'] },
+  openrouter: { ten: 'OpenRouter', mau: '#6366F1', bt: ['api'] }, opencode: { ten: 'OpenCode', mau: '#E87040', bt: ['api'] }, huggingface: { ten: 'HuggingFace', mau: '#F59E0B', bt: ['api'] }, cloudflare: { ten: 'Cloudflare AI', mau: '#F6821F', bt: ['api'] }
+};
+const BTTEN = { 'gemini|web': 'Web API', 'gemini|api': 'API', 'chatgpt|web': 'Web', 'chatgpt|codex': 'Codex', 'chatgpt|api': 'API', 'claude|web': 'Web', 'grok|web': 'Web' };
+// API có sẵn trong code cũ (providers/page.tsx, Cài đặt › Cài đặt AI): thêm một API thì provider tương ứng tự hiện (Gemini API vào trong Gemini, OpenAI vào trong ChatGPT)
+const APIS = [
+  { id: 'gemini', ten: 'Gemini AI Studio', pv: 'gemini', mota: 'Google Gemini có tìm kiếm Google — miễn phí 15 lượt/phút' }, { id: 'openai', ten: 'OpenAI', pv: 'chatgpt', mota: 'Khoá sk-… gọi api.openai.com' },
+  { id: 'nvidia', ten: 'NVIDIA NIM', pv: 'nvidia', mota: '80+ model qua NVIDIA — chat, vision, tạo ảnh FLUX' }, { id: 'tokenrouter', ten: 'TokenRouter', pv: 'tokenrouter', mota: 'Nhiều model qua một khoá' },
+  { id: 'openrouter', ten: 'OpenRouter', pv: 'openrouter', mota: '27+ model miễn phí, 200 lượt/ngày' }, { id: 'opencode', ten: 'OpenCode', pv: 'opencode', mota: 'Miễn phí, không cần khoá' },
+  { id: 'huggingface', ten: 'HuggingFace', pv: 'huggingface', mota: 'Inference API — FLUX, SDXL miễn phí' }, { id: 'cloudflare', ten: 'Cloudflare AI', pv: 'cloudflare', mota: 'Workers AI — FLUX schnell miễn phí' },
+  { id: 'tuychinh', ten: 'Tuỳ chỉnh (kiểu OpenAI)', pv: '', mota: 'Dịch vụ bất kỳ có địa chỉ và khoá theo kiểu OpenAI' }
+];
+const DV_MD = (a) => (a.nhom === 'gmail' ? [['gemini', 'web'], ['chatgpt', 'web'], ['claude', 'web'], ['flow', 'web']] : a.nhom === 'chatgpt' ? [['chatgpt', 'web'], ['chatgpt', 'codex']] : a.nhom === 'grok' ? [['grok', 'web']] : [[a.pv, 'api']]);
+const TK0 = [
+  { id: 'g1', nhom: 'gmail', ten: 'minh.nha@gmail.com', nhan: 'Tài khoản chính', mk: 'MatKhau-MinhHoa-01', totp: 'JBSW Y3DP EHPK 3PXP', tao: '12/08/2026 09:14', sua: '06/10/2026 17:52' },
+  { id: 'g2', nhom: 'gmail', ten: 'ba.me.nha@gmail.com', nhan: 'Của mẹ', mk: 'MatKhau-MinhHoa-02', totp: '', tao: '20/08/2026 21:03', sua: '20/08/2026 21:03' },
+  { id: 'g3', nhom: 'gmail', ten: 'bep.nha.2026@gmail.com', nhan: 'Dự phòng', mk: 'MatKhau-MinhHoa-03', totp: 'KRSX G5DS NFXG O2LU', tao: '02/09/2026 07:40', sua: '02/10/2026 22:18' },
+  { id: 'c1', nhom: 'chatgpt', ten: 'chatgpt.nha1@outlook.com', nhan: 'ChatGPT Plus', mk: 'MatKhau-MinhHoa-04', totp: 'MFRG GZDF MZTW Q2LK', tao: '15/08/2026 10:05', sua: '28/09/2026 08:31' },
+  { id: 'c2', nhom: 'chatgpt', ten: 'chatgpt.nha2@outlook.com', nhan: '', mk: 'MatKhau-MinhHoa-05', totp: '', tao: '01/09/2026 19:22', sua: '01/09/2026 19:22' },
+  { id: 'r1', nhom: 'grok', ten: 'grok.nha@proton.me', nhan: 'Grok chính', profile: 'grok-grok-nha', cookie: '10/10/2026 08:41', tao: '30/09/2026 14:09', sua: '10/10/2026 08:41' },
+  { id: 'a1', nhom: 'api', api: 'gemini', pv: 'gemini', ten: 'Gemini AI Studio', khoa: 'AIza…k3Qx', khoaDay: 'AIzaSyMinhHoa000000000000000000k3Qx', url: 'https://generativelanguage.googleapis.com', tao: '10/08/2026 11:20', sua: '10/08/2026 11:20' },
+  { id: 'a2', nhom: 'api', api: 'nvidia', pv: 'nvidia', ten: 'NVIDIA NIM', khoa: 'nvapi…R7pw', khoaDay: 'nvapi-MinhHoa00000000000000000000R7pw', url: 'https://integrate.api.nvidia.com/v1', tao: '18/08/2026 16:45', sua: '05/10/2026 09:12' },
+  { id: 'a3', nhom: 'api', api: 'openai', pv: 'chatgpt', ten: 'OpenAI', khoa: 'sk-…m91Z', khoaDay: 'sk-proj-MinhHoa0000000000000000000m91Z', url: 'https://api.openai.com/v1', tao: '25/08/2026 13:30', sua: '25/08/2026 13:30' },
+  { id: 'a4', nhom: 'api', api: 'tokenrouter', pv: 'tokenrouter', ten: 'TokenRouter', khoa: 'tr-…8dLa', khoaDay: 'tr-MinhHoa00000000000008dLa', tao: '03/09/2026 20:00', sua: '03/09/2026 20:00' }
+];
+// mã TOTP MINH HOẠ (máy chủ thật sinh bằng pyotp từ hạt giống): chỉ để demo số 6 chữ đổi mỗi 30 giây
+const maTotp = (seed, t) => { let h = 7; const x = String(seed).replace(/ /g, '') + ':' + Math.floor(t / 30000); for (let i = 0; i < x.length; i++) h = (h * 31 + x.charCodeAt(i)) >>> 0; return String(h % 1000000).padStart(6, '0'); };
+// thông tin MỖI tài khoản trên MỖI dịch vụ: tt = ok (đã đăng nhập / kết nối) | err (lỗi) | out (chưa đăng nhập); hm = hạn mức (còn/tổng hoặc % còn)
+const DV0 = {
+  'g1|flow|web': { tt: 'ok', loai: 'Google Labs Flow', hm: [], ok: 96, loi: 1, cuoi: '12 phút trước', profile: 'flow-minh-nha', project: '54468d77-02ff-4a06-…' },
+  'g2|flow|web': { tt: 'err', loai: 'Google Labs Flow', hm: [], ok: 20, loi: 7, cuoi: '1 ngày trước', err: 'Đang chờ sau khi bị giới hạn tốc độ (cooldown 3600 giây) — sẽ tự thử lại, hoặc đăng nhập lại nếu phiên Google hết hạn.', profile: 'flow-ba-me-nha', project: '7c2e91a0-3b1d-4f58-…' },
+  'g3|flow|web': { tt: 'out', loai: '—', hm: [], ok: 0, loi: 0, cuoi: 'chưa dùng' },
+  'g1|gemini|web': { tt: 'ok', loai: 'Google AI Pro', hm: [{ ten: 'Lượt gọi hôm nay', con: 312, tong: 1500, reset: 'làm mới lúc 00:00' }], ok: 214, loi: 2, cuoi: '3 phút trước' },
+  'g1|chatgpt|web': { tt: 'ok', loai: 'ChatGPT Free', hm: [{ ten: 'Tạo ảnh', con: 12, tong: 20, reset: 'còn 4h10p' }], ok: 41, loi: 0, cuoi: '2 giờ trước' },
+  'g1|claude|web': { tt: 'ok', loai: 'Claude Free', hm: [{ ten: 'Tin nhắn', con: 18, tong: 40, reset: 'còn 2h30p' }], ok: 27, loi: 1, cuoi: '1 giờ trước' },
+  'g2|gemini|web': { tt: 'ok', loai: 'Google AI Plus', hm: [{ ten: 'Lượt gọi hôm nay', con: 880, tong: 1500, reset: 'làm mới lúc 00:00' }], ok: 96, loi: 0, cuoi: '25 phút trước' },
+  'g2|chatgpt|web': { tt: 'err', loai: 'ChatGPT Free', hm: [], ok: 12, loi: 9, cuoi: '1 ngày trước', err: 'Phiên đăng nhập đã hết hạn — cần đăng nhập lại.' },
+  'g2|claude|web': { tt: 'out', loai: '—', hm: [], ok: 0, loi: 0, cuoi: 'chưa dùng' },
+  'g3|gemini|web': { tt: 'out', loai: '—', hm: [], ok: 0, loi: 0, cuoi: 'chưa dùng' },
+  'g3|chatgpt|web': { tt: 'ok', loai: 'ChatGPT Plus', hm: [{ ten: 'Tạo ảnh', con: 33, tong: 40, reset: 'còn 1h05p' }], ok: 150, loi: 3, cuoi: '8 phút trước' },
+  'g3|claude|web': { tt: 'ok', loai: 'Claude Pro', hm: [{ ten: 'Tin nhắn', con: 71, tong: 100, reset: 'còn 3h40p' }], ok: 64, loi: 0, cuoi: '40 phút trước' },
+  'c1|chatgpt|web': { tt: 'ok', loai: 'ChatGPT Plus', hm: [{ ten: 'Tạo ảnh', con: 28, tong: 40, reset: 'còn 2h15p' }], ok: 233, loi: 5, cuoi: '5 phút trước' },
+  'c1|chatgpt|codex': { tt: 'ok', loai: 'Codex · gói Plus', hm: [{ ten: 'Cửa sổ chính', pct: 72, reset: 'còn 3h12p' }, { ten: 'Cửa sổ phụ', pct: 41, reset: 'còn 4 ngày 6h' }], ok: 88, loi: 1, cuoi: '12 phút trước' },
+  'c2|chatgpt|web': { tt: 'ok', loai: 'ChatGPT Free', hm: [{ ten: 'Tạo ảnh', con: 3, tong: 10, reset: 'còn 6h' }], ok: 57, loi: 4, cuoi: '1 giờ trước' },
+  'c2|chatgpt|codex': { tt: 'err', loai: 'Codex', hm: [], ok: 0, loi: 6, cuoi: '2 ngày trước', err: 'Tài khoản đang giữ token phiên đăng nhập, không phải access token của Codex — không đọc được hạn mức, cần đăng nhập lại.' },
+  'r1|grok|web': { tt: 'ok', loai: 'Grok Free', hm: [{ ten: 'Lượt còn hôm nay', con: 14, tong: 20, reset: 'làm mới lúc 00:00' }], ok: 73, loi: 2, cuoi: '20 phút trước' },
+  'a1|gemini|api': { tt: 'ok', loai: 'Gói miễn phí', hm: [{ ten: 'Lượt/phút', con: 11, tong: 15, reset: 'đếm theo phút' }], ok: 540, loi: 7, cuoi: '1 phút trước' },
+  'a2|nvidia|api': { tt: 'ok', loai: 'Gói miễn phí', hm: [{ ten: 'Lượt hôm nay', con: 940, tong: 1000, reset: 'làm mới lúc 00:00' }], ok: 305, loi: 0, cuoi: '6 phút trước' },
+  'a3|chatgpt|api': { tt: 'err', loai: 'Khoá API', hm: [], ok: 4, loi: 12, cuoi: '3 giờ trước', err: 'Khoá bị từ chối (401) — khoá sai hoặc đã bị thu hồi. Dán khoá mới.' },
+  'a4|tokenrouter|api': { tt: 'ok', loai: 'Gói miễn phí', hm: [], ok: 66, loi: 1, cuoi: '30 phút trước' }
+};
+// model của từng provider (id thật theo model_settings của dự án); k: chat | anh | video
+const MD = {
+  'flow|web': [['flow/banana-pro', 'anh'], ['flow/banana-2', 'anh'], ['flow/banana-2-lite', 'anh'], ['flow/auto', 'anh'], ['flow/veo-3.1-lite', 'video'], ['flow/veo-3.1-fast', 'video'], ['flow/veo-3.1-quality', 'video'], ['flow/omni-flash', 'video']],
+  'gemini|web': [['gma/auto', 'chat'], ['gma/3.5-flash', 'chat'], ['gma/3.5-flash-lite', 'chat'], ['gma/3.8-flash', 'chat'], ['gma/3.1-pro', 'chat']],
+  'gemini|api': [['gemini_free/gemini-3.5-flash-lite', 'chat'], ['gemini_free/gemini-3.6-flash', 'chat'], ['gemini_free/gemini-3.5-flash', 'chat']],
+  'chatgpt|web': [['cgf/auto', 'chat'], ['cgf/gpt-5-6-luna', 'chat'], ['gpt-5-5-image', 'anh']],
+  'chatgpt|codex': [['cx/auto', 'chat'], ['cx/gpt-5.4', 'chat'], ['cx/gpt-5.6-luna', 'chat']],
+  'chatgpt|api': [['oai/[tên model 1]', 'chat'], ['oai/[tên model 2]', 'chat']],
+  'claude|web': [['claude/auto', 'chat'], ['claude/sonnet-5-medium', 'chat']],
+  'grok|web': [['grok/auto', 'chat'], ['grok/fast', 'chat'], ['gw/fast', 'chat'], ['grok/imagine', 'anh']],
+  'nvidia|api': [['nv/nvidia/nemotron-3-nano-omni-30b-a3b-reasoning', 'chat'], ['nv/mistralai/mistral-nemotron', 'chat'], ['nv/nvidia/nemotron-3-super-120b-a12b', 'chat'], ['nv/openai/gpt-oss-120b', 'chat'], ['nv/deepseek-ai/deepseek-v4-pro-0813', 'chat'], ['nv/deepseek-ai/deepseek-v4-flash-0731', 'chat'], ['nv/deepseek-ai/deepseek-coder-6.7b-instruct', 'chat'], ['nv-image/black-forest-labs/flux.1-dev', 'anh'], ['nv-image/black-forest-labs/flux.2-klein-4b', 'anh']],
+  'tokenrouter|api': [['tr/moonshotai/kimi-k3-free', 'chat'], ['tr/nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free', 'chat']],
+  'opencode|api': [['oc/ling-3.0-flash-free', 'chat'], ['oc/deepseek-v4-flash-free', 'chat'], ['oc/mimo-v2.5-free', 'chat'], ['oc/laguna-s-2.1-free', 'chat'], ['oc/nemotron-3-ultra-free', 'chat'], ['oc/north-mini-code-free', 'chat']]
+};
+const MD_MAC = { 'gemini|web': 'gma/3.5-flash', 'gemini|api': 'gemini_free/gemini-3.5-flash-lite', 'chatgpt|web': 'cgf/gpt-5-6-luna', 'chatgpt|codex': 'cx/gpt-5.6-luna', 'claude|web': 'claude/sonnet-5-medium', 'grok|web': 'grok/fast', 'nvidia|api': 'nv/nvidia/nemotron-3-nano-omni-30b-a3b-reasoning', 'tokenrouter|api': 'tr/moonshotai/kimi-k3-free', 'opencode|api': 'oc/ling-3.0-flash-free' };
+// combo: một tên gọi, nhiều bước xếp theo thứ tự; bước đầu hết hạn mức thì lùi sang bước sau. Bước nào trỏ tới provider chưa có tài khoản thì báo.
+const PRE = { 'flow': ['flow', 'web'], 'cx': ['chatgpt', 'codex'], 'cgf': ['chatgpt', 'web'], 'gemini_free': ['gemini', 'api'], 'gma': ['gemini', 'web'], 'claude': ['claude', 'web'], 'grok': ['grok', 'web'], 'gw': ['grok', 'web'], 'nv': ['nvidia', 'api'], 'tr': ['tokenrouter', 'api'], 'oc': ['opencode', 'api'], 'oai': ['chatgpt', 'api'] };
+const CB0 = [
+  { id: 'b1', ten: 'AI text', mota: 'Cân bằng, dùng cho hầu hết việc', buoc: ['cx/auto', 'gemini_free/gemini-3.5-flash', 'oc/ling-3.0-flash-free'] },
+  { id: 'b2', ten: 'AI khó', mota: 'Việc phức tạp, trả lời chậm hơn', buoc: ['cx/gpt-5.6-luna', 'claude/sonnet-5-medium'] },
+  { id: 'b3', ten: 'AI nhẹ', mota: 'Việc đơn giản, trả lời nhanh', buoc: ['oc/ling-3.0-flash-free', 'gemini_free/gemini-3.5-flash-lite', 'nv/nvidia/nemotron-3-nano-omni-30b-a3b-reasoning'] },
+  { id: 'b4', ten: 'AI vision', mota: 'Hiểu ảnh', buoc: ['gemini_free/gemini-3.6-flash', 'grok/auto', 'oc/mimo-v2.5-free'] }
+];
+class Component extends DCLogic {
+  state = {
+    tab: (() => { try { const j = JSON.parse(localStorage.getItem('web2api_muc') || 'null'); if (j && j.khung === 'AI' && ['tk', 'pv', 'cb'].includes(j.muc)) { localStorage.removeItem('web2api_muc'); return j.muc; } } catch (e) { /* trình duyệt chặn */ } return 'tk'; })(),
+    menuMo: null, accMo: false, ghi: '', nid: 20,
+    tk: TK0.map((a) => Object.assign({}, a)), dv: JSON.parse(JSON.stringify(DV0)), ut: {}, xoa: null,
+    tkNhom: 'gmail', tkMo: null, tkThem: false, f: {}, fApi: '', tkLo: {}, tkMa: {}, tkSua: null, tkXem: {}, tNow: 0,
+    pvDd: false, pvSel: null, pvBt: null, pvTab: 'model', pvMo: null, en: {}, mdDef: {}, dirty: false,
+    cb: CB0.map((b) => Object.assign({}, b, { buoc: b.buoc.slice() })), cbMo: null, cbOn: {} };
+
+  // Mã TOTP đổi mỗi 30 giây: chỉ chạy nhịp 1 giây khi có mã đang hiện, tắt hết mã thì dừng.
+  tkNhip(bat) { clearInterval(this._tk); this._tk = null; if (bat) { this._tk = setInterval(() => { if (!Object.keys(this.state.tkMa || {}).length) { clearInterval(this._tk); this._tk = null; return; } this.setState({ tNow: Date.now() }); }, 1000); if (this._tk && this._tk.unref) this._tk.unref(); } }
+
+  // Bấm menu từ khung khác khi khung này ĐÃ mở sẵn: nó không dựng lại nên không đọc được «mục cần mở» lúc khởi tạo — nghe thêm khi đang chạy.
+  caiMuc() { this._tm = true; try { const f = () => this.tuMuc(); window.addEventListener('storage', f); window.addEventListener('focus', f); window.addEventListener('pageshow', f); document.addEventListener('visibilitychange', f); } catch (e) { /* không có cửa sổ */ } }
+  tuMuc() { try { const j = JSON.parse(localStorage.getItem('web2api_muc') || 'null'); if (j && j.khung === "AI" && ["tk", "pv", "cb"].includes(j.muc)) { localStorage.removeItem('web2api_muc'); this.setState(Object.assign({ tab: j.muc, menuMo: null, accMo: false, ddMo: null }, { ghi: '', xoa: null })); } } catch (e) { /* trình duyệt chặn */ } }
+
+  renderVals() {
+    if (!this._tm) this.caiMuc();
+    const s = this.state;
+    const navBase = 'flex:0 0 auto;display:flex;align-items:center;gap:8px;height:40px;padding:0 10px;border-radius:20px;white-space:nowrap;';
+    const navOn = navBase + 'background:#EFEDE8;color:#181816;font-weight:500';
+    const navOff = navBase + 'color:#66645F';
+    const ORDER = ['tk', 'pv', 'cb']; const tabs = ORDER.map((id) => ({ pick: () => this.setState({ tab: id, ghi: '', xoa: null }) }));
+    // ---- Menu của trang HỆ THỐNG: trang RIÊNG với các trang sử dụng, có nút «Quay lại» về trang vừa rời; mục thuộc khung khác thì nhớ mục rồi chuyển khung.
+    const SELF = 'Bo-nao.dc.html';
+    const ZNAV = [{"id": "tong", "label": "Tổng quan", "ngan": "Tổng quan", "d": "M3 12h4l3-7 4 14 3-7h4", "frame": "He-thong.dc.html", "khung": "Hệ thống", "muc": "tong"}, {"id": "ai", "label": "AI", "ngan": "AI", "d": "M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z M19 16l.7 2 2 .7-2 .7-.7 2-.7-2-2-.7 2-.7z", "frame": "Bo-nao.dc.html", "khung": "AI", "subs": [{"id": "tk", "label": "Tài khoản", "d": "M9 11a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7z M2.5 20a6.5 6.5 0 0 1 13 0 M16 4.5a3.5 3.5 0 0 1 0 6.5 M18 14a6.5 6.5 0 0 1 3.5 6"}, {"id": "pv", "label": "Provider", "d": "M7 18a4 4 0 0 1-.6-8 5.5 5.5 0 0 1 10.7 1.2A3.4 3.4 0 0 1 17 18z"}, {"id": "cb", "label": "Combo", "d": "M12 3l9 5-9 5-9-5z M3 13l9 5 9-5"}]}, {"id": "tien", "label": "Tiện ích", "ngan": "Tiện ích", "d": "M9 3v5 M15 3v5 M6 8h12v3a6 6 0 0 1-12 0z M12 17v4", "frame": "Tien-ich.dc.html", "khung": "Tiện ích"}, {"id": "nk", "label": "Nhật ký", "ngan": "Nhật ký", "d": "M6 3h9l4 4v14H6z M9 12h7 M9 16h7 M9 8h3", "frame": "Nhat-ky.dc.html", "khung": "Nhật ký", "subs": [{"id": "chay", "label": "Lượt chạy", "d": "M5 4l14 8-14 8z"}, {"id": "goi", "label": "Cuộc gọi", "d": "M7 18a4 4 0 0 1-.6-8 5.5 5.5 0 0 1 10.7 1.2A3.4 3.4 0 0 1 17 18z"}, {"id": "tk", "label": "Tài khoản", "d": "M9 11a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7z M2.5 20a6.5 6.5 0 0 1 13 0 M16 4.5a3.5 3.5 0 0 1 0 6.5 M18 14a6.5 6.5 0 0 1 3.5 6"}, {"id": "mang", "label": "Mạng nhà", "d": "M3 11l9-8 9 8 M5 10v10h14V10 M10 20v-6h4v6"}, {"id": "mat", "label": "Nhận diện", "d": "M9 11a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7z M2.5 20a6.5 6.5 0 0 1 13 0 M16 4.5a3.5 3.5 0 0 1 0 6.5 M18 14a6.5 6.5 0 0 1 3.5 6"}, {"id": "kh", "label": "Kích hoạt nhà", "d": "M13 3L5 14h6l-1 7 8-11h-6z"}, {"id": "he", "label": "Hệ thống", "d": "M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z M19 12a7 7 0 0 0-.1-1.2l2-1.6-2-3.4-2.4 1a7 7 0 0 0-2-1.2L14 3h-4l-.5 2.6a7 7 0 0 0-2 1.2l-2.4-1-2 3.4 2 1.6A7 7 0 0 0 5 12c0 .4 0 .8.1 1.2l-2 1.6 2 3.4 2.4-1a7 7 0 0 0 2 1.2L10 21h4l.5-2.6a7 7 0 0 0 2-1.2l2.4 1 2-3.4-2-1.6c.1-.4.1-.8.1-1.2z"}]}, {"id": "cd", "label": "Cấu hình", "ngan": "Cấu hình", "d": "M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z M19 12a7 7 0 0 0-.1-1.2l2-1.6-2-3.4-2.4 1a7 7 0 0 0-2-1.2L14 3h-4l-.5 2.6a7 7 0 0 0-2 1.2l-2.4-1-2 3.4 2 1.6A7 7 0 0 0 5 12c0 .4 0 .8.1 1.2l-2 1.6 2 3.4 2.4-1a7 7 0 0 0 2 1.2L10 21h4l.5-2.6a7 7 0 0 0 2-1.2l2.4 1 2-3.4-2-1.6c.1-.4.1-.8.1-1.2z", "frame": "He-thong.dc.html", "khung": "Hệ thống", "muc": "cd"}, {"id": "lh", "label": "Liên lạc & giọng nói", "ngan": "Liên lạc", "d": "M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z", "frame": "He-thong.dc.html", "khung": "Hệ thống", "muc": "lh"}, {"id": "lt", "label": "Lưu trữ & sao lưu", "ngan": "Lưu trữ", "d": "M7 18a4 4 0 0 1-.6-8 5.5 5.5 0 0 1 10.7 1.2A3.4 3.4 0 0 1 17 18z", "frame": "He-thong.dc.html", "khung": "Hệ thống", "muc": "lt"}, {"id": "ts", "label": "Tìm kiếm & dịch", "ngan": "Tìm kiếm", "d": "M11 4a7 7 0 1 0 0 14 7 7 0 0 0 0-14z M20 20l-4-4", "frame": "He-thong.dc.html", "khung": "Hệ thống", "muc": "ts"}, {"id": "mcp", "label": "MCP", "ngan": "MCP", "d": "M4 5h16v6H4z M4 13h16v6H4z M8 8h.01 M8 16h.01", "frame": "He-thong.dc.html", "khung": "Hệ thống", "muc": "mcp"}, {"id": "bm", "label": "Bảo mật & người dùng", "ngan": "Bảo mật", "d": "M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z", "frame": "He-thong.dc.html", "khung": "Hệ thống", "muc": "bm"}];
+    const ACTIVE = 'ai';
+    const iStyle = (on) => 'display:flex;align-items:center;gap:10px;width:100%;box-sizing:border-box;min-height:38px;padding:0 10px;border:0;border-radius:9px;text-align:left;font:inherit;font-size:14px;text-decoration:none;cursor:pointer;color:#181816;background:' + (on ? '#EFEDE8' : 'transparent') + ';font-weight:' + (on ? '600' : '400');
+    const goInner = (muc) => { const k = typeof ORDER !== 'undefined' ? ORDER.indexOf(muc) : -1; if (k >= 0 && tabs[k]) tabs[k].pick(); };
+    const hoiMuc = (muc, khung) => { try { localStorage.setItem('web2api_muc', JSON.stringify({ khung, muc })); } catch (e) { /* trình duyệt chặn */ } };
+    const BACK = { 'Studio': 'Main.dc.html', 'Tác phẩm': 'Tac-pham.dc.html', 'Nhà': 'Nha.dc.html', 'Đời sống': 'Doi-song.dc.html' };
+    const back = (() => { let b = { ten: 'Studio', href: 'Main.dc.html' }; try { const j = JSON.parse(localStorage.getItem('web2api_tu') || 'null'); if (j && BACK[j.label]) b = { ten: j.label, href: BACK[j.label] }; } catch (e) { /* trình duyệt chặn */ } return b; })();
+    const navX = ZNAV.map((n, ni, arr) => { const L = n.subs; const open = !!L && s.menuMo === n.label; const same = n.frame === SELF; const on = n.id === ACTIVE;
+      const subs = (L || []).map((u) => { const onS = same && s.tab === u.id;
+        return { label: u.label, d: u.d, coBao: false, bao: 0, on: onS, ext: !same, inner: same, href: n.frame, style: iStyle(onS),
+          pick: same ? () => { goInner(u.id); this.setState({ menuMo: null }); } : () => { hoiMuc(u.id, n.khung); this.setState({ menuMo: null }); } }; });
+      const style = on ? navOn : navOff;
+      const bst = 'flex:1 1 0;min-width:0;display:flex;flex-direction:column;align-items:center;gap:2px;padding:8px 2px;font-size:10px;font-weight:500;text-align:center;color:' + (on || open ? '#0F766E' : '#66645F');
+      return { label: n.label, ngan: n.ngan || n.label, d: n.d, href: n.frame, style, wst: '', bLink: !L, bSub: !!L, pos: 'left:clamp(8px,calc(' + (((ni + 0.5) / arr.length) * 100).toFixed(3) + '% - 100px),calc(100% - 208px))', arrow: 'left:calc(' + (((ni + 0.5) / arr.length) * 100).toFixed(3) + '% - 6px)', bstyle: bst, link: !L, hasSub: !!L, open, subs,
+        btnStyle: 'border:0;background:transparent;font:inherit;' + style, bbtn: 'border:0;background:transparent;font-family:inherit;' + bst,
+        chev: 'flex:0 0 auto;transition:transform .15s;transform:rotate(' + (open ? 180 : 0) + 'deg)',
+        toggle: () => this.setState({ menuMo: open ? null : n.label, accMo: false }),
+        dong: (e) => { if (same && !L) { if (e && e.preventDefault) e.preventDefault(); goInner(n.muc); } else if (n.muc) hoiMuc(n.muc, n.khung); this.setState({ menuMo: null, accMo: false }); } }; });
+    const sheet = navX.find((n) => n.open && n.bSub);
+    // ---- AI (bộ não): dữ liệu và hàm dựng giao diện ----
+    const TONE = { ok: 'background:#E2F0ED;color:#0B5A53', warn: 'background:#FBEFD5;color:#7A4B00', bad: 'background:#FBE4E1;color:#B42318', mute: 'background:#EFEDE8;color:#66645F' };
+    const pillSt = (t) => 'flex:0 0 auto;padding:3px 12px;border-radius:14px;font-size:12px;font-weight:500;white-space:nowrap;' + TONE[t];
+    const btnSt = (o) => 'flex:0 0 auto;min-height:40px;padding:0 16px;border-radius:20px;border:1px solid var(--line);background:var(--card);color:var(--ink);font:inherit;font-size:13px;font-weight:500;cursor:pointer;white-space:nowrap;display:inline-flex;align-items:center;gap:6px;' + (o && o.pri ? 'background:#181816;border-color:#181816;color:#fff;' : '') + (o && o.bad ? 'background:#FBE4E1;border-color:#B42318;color:#B42318;' : '') + (o && o.off ? 'opacity:.45;' : '');
+    const T = (tt, nhom) => ({ ok: [nhom === 'api' ? 'Đã kết nối' : 'Đã đăng nhập', 'ok'], err: ['Lỗi', 'bad'], out: [nhom === 'api' ? 'Chưa có khoá' : 'Chưa đăng nhập', 'mute'] })[tt];
+    const msg = (m) => this.setState({ ghi: m });
+    const PVM = (id) => PROV[id] || { ten: (s.tk.find((a) => a.pv === id) || { ten: id }).ten, mau: '#6B7280', bt: ['api'] };
+    const dvk = (a, pv, bt) => a.id + '|' + pv + '|' + bt;
+    const ord = (pv, bt) => { const key = pv + '|' + bt; const ids = s.tk.filter((a) => s.dv[dvk(a, pv, bt)]).map((a) => a.id); const u = (s.ut[key] || []).filter((id) => ids.includes(id)); return u.concat(ids.filter((id) => !u.includes(id))); };
+    const hang = (pv, bt) => ord(pv, bt).filter((id) => s.dv[id + '|' + pv + '|' + bt].tt === 'ok');
+    const LOAI_MAC = { 'flow|web': 'Google Labs Flow', 'gemini|web': 'Google AI Plus', 'chatgpt|web': 'ChatGPT Free', 'claude|web': 'Claude Free', 'chatgpt|codex': 'Codex · gói Plus', 'grok|web': 'Grok Free' };
+    // khối thông tin của MỘT tài khoản trên MỘT dịch vụ: loại, hạn mức, vị trí # trong hàng đợi, lượt dùng, nút
+    const khoi = (a, pv, bt, trongPv) => { const key = pv + '|' + bt; const d = s.dv[dvk(a, pv, bt)]; const hg = hang(pv, bt); const vt = hg.indexOf(a.id) + 1; const [pl, tone] = T(d.tt, a.nhom);
+      const bars = (d.hm || []).map((h) => { const pct = h.tong ? Math.round(h.con / h.tong * 100) : h.pct; const mau = pct > 70 ? '#10B981' : pct > 30 ? '#F59E0B' : '#E11D48'; return { ten: h.ten, txt: h.tong ? h.con + ' / ' + h.tong : 'còn ' + h.pct + '%', pct: pct + '%', reset: h.reset, fill: 'display:block;height:100%;border-radius:4px;width:' + pct + '%;background:' + mau }; });
+      const kv = d.tt === 'out' ? [{ k: 'Tình trạng', v: a.nhom === 'api' ? 'Chưa nhập khoá' : 'Chưa đăng nhập — chưa vào hàng đợi, chưa đọc được hạn mức' }]
+        : [{ k: 'Loại tài khoản', v: d.loai }, { k: 'Vị trí trong hàng đợi', v: vt ? '#' + vt + (vt === 1 ? ' — ưu tiên, được dùng trước' : ' — dùng khi #' + (vt - 1) + ' hết hạn mức hoặc lỗi') : 'Chưa vào hàng đợi (đang lỗi)' }, { k: 'Đã dùng', v: d.ok + ' lượt thành công · ' + d.loi + ' lỗi' }, { k: 'Lần dùng cuối', v: d.cuoi }];
+      if (pv === 'flow' && d.tt !== 'out') { kv.push({ k: 'Hồ sơ trình duyệt', v: d.profile || 'flow-…' }, { k: 'Project ID (từ địa chỉ Flow)', v: d.project || '—' }, { k: 'Chờ sau khi bị giới hạn', v: '3600 giây rồi tự thử lại; xoay sang tài khoản khác trong lúc chờ' }); }
+      const setDv = (patch, m) => this.setState({ dv: Object.assign({}, s.dv, { [dvk(a, pv, bt)]: Object.assign({}, d, patch) }), ghi: m });
+      const acts = []; const ten = PVM(pv).ten + (BTTEN[key] ? ' · ' + BTTEN[key] : '');
+      if (d.tt === 'out') acts.push({ nhan: a.nhom === 'api' ? 'Nhập khoá' : 'Đăng nhập', st: btnSt({ pri: true }), pick: () => setDv({ tt: 'ok', loai: LOAI_MAC[key] || 'Gói miễn phí', hm: [{ ten: 'Hạn mức', con: 20, tong: 20, reset: 'đầy' }], cuoi: 'vừa xong' }, (a.nhom === 'api' ? 'Đã nhập khoá cho «' : 'Đã đăng nhập «') + a.ten + '» vào ' + ten + ' (minh hoạ).') });
+      if (d.tt === 'err') acts.push({ nhan: a.nhom === 'api' ? 'Nhập khoá mới' : 'Đăng nhập lại', st: btnSt({ pri: true }), pick: () => setDv({ tt: 'ok', err: '', loi: 0, cuoi: 'vừa xong' }, 'Đã khôi phục «' + a.ten + '» ở ' + ten + ' (minh hoạ).') });
+      if (d.tt === 'ok') acts.push({ nhan: 'Làm mới', st: btnSt(), pick: () => setDv({ cuoi: 'vừa xong' }, 'Đã làm mới hạn mức «' + a.ten + '» ở ' + ten + ' (minh hoạ).') });
+      if (trongPv && d.tt === 'ok' && vt > 1) acts.push({ nhan: 'Đặt ưu tiên #1', st: btnSt(), pick: () => this.setState({ ut: Object.assign({}, s.ut, { [key]: [a.id].concat(hg.filter((x) => x !== a.id)) }), ghi: '«' + a.ten + '» giờ giữ vị trí #1 ở ' + ten + '.' }) });
+      return { ten, pill: pl, pillSt: pillSt(tone), coVt: !!vt, vt: vt === 1 ? '#1 ưu tiên' : '#' + vt, kv, bars, coBars: bars.length > 0, err: d.err || '', coErr: !!d.err, acts };
+    };
+    const chipSt = (on) => btnSt({ pri: on });
+    const mk = (a, sub, tt, chip, blocks, acts) => ({ ten: a.ten, sub, pill: T(tt, a.nhom)[0], pillSt: pillSt(T(tt, a.nhom)[1]), chip, coChip: !!chip, vt: '', coVt: false, open: false, blocks, acts: acts || [], coActs: !!(acts && acts.length), pick: () => {} });
+
+    // ===== Tab «Tài khoản»: chỉ chứa tài khoản, chia Gmail · ChatGPT · Grok · API =====
+    // ===== Tab «Tài khoản» = KHO THÔNG TIN ĐĂNG NHẬP (như ô «Tài khoản đã lưu» của dự án): email, nhãn, mật khẩu, hạt giống TOTP, mã TOTP, ngày tạo/sửa.
+    // Mức dùng, hạn mức, hàng đợi KHÔNG ở đây — xem ở tab Provider › Tài khoản. Mật khẩu / hạt giống / khoá chỉ lộ khi bấm «Xem»; mỗi lần xem ghi nhật ký.
+    const tkN = (n) => s.tk.filter((a) => a.nhom === n).length; const nhom = NHOM.some((x) => x[0] === s.tkNhom) ? s.tkNhom : 'gmail';
+    const sv = (a) => DV_MD(a).filter(([pv, bt]) => s.dv[dvk(a, pv, bt)]);
+    const p2 = (n) => String(n).padStart(2, '0');
+    const nowS = () => { const d = new Date(); return p2(d.getDate()) + '/' + p2(d.getMonth() + 1) + '/' + d.getFullYear() + ' ' + p2(d.getHours()) + ':' + p2(d.getMinutes()); };
+    const che = (v) => '•'.repeat(Math.min(14, Math.max(8, String(v || '').length)));
+    const chep = (v, nhan) => { try { if (navigator.clipboard) navigator.clipboard.writeText(v); } catch (e) { /* trình duyệt chặn */ } msg('Đã chép ' + nhan + '.'); };
+    const KHO = { gmail: 'Kho Google — dùng cho Gemini web, Claude web, ChatGPT đăng nhập bằng Google, Flow', chatgpt: 'Kho OpenAI gốc — tách khỏi kho Google: cùng một email có thể có hai mật khẩu khác nhau', grok: 'Đăng nhập bằng trình duyệt — Grok không lưu mật khẩu' };
+    const loOf = (a, k) => !!(s.tkLo || {})[a.id + '|' + k];
+    const doiLo = (a, k) => { const key = a.id + '|' + k; const n = Object.assign({}, s.tkLo); if (n[key]) delete n[key]; else n[key] = true;
+      this.setState(n[key] ? { tkLo: n, tkXem: Object.assign({}, s.tkXem, { [a.id]: nowS() }) } : { tkLo: n }); };
+    const doiMa = (a) => { const n = Object.assign({}, s.tkMa); if (n[a.id]) delete n[a.id]; else n[a.id] = true; this.setState({ tkMa: n }); this.tkNhip(Object.keys(n).length > 0); };
+    const bua = (a, ten, k, val, tieu) => { const lo = loOf(a, k); const acts = val ? [{ nhan: lo ? 'Ẩn' : 'Xem', al: (lo ? 'Ẩn ' : 'Xem ') + ten.toLowerCase() + ' của ' + a.ten, st: btnSt(), pick: () => doiLo(a, k) }].concat(lo ? [{ nhan: 'Chép', al: 'Chép ' + ten.toLowerCase(), st: btnSt(), pick: () => chep(val, ten.toLowerCase()) }] : []) : [];
+      return { k: ten, v: val ? (lo ? val : che(val)) : (tieu || 'Chưa lưu'), mono: !!val, mute: !val, acts, coActs: acts.length > 0 }; };
+    const rowsTk = s.tk.filter((a) => a.nhom === nhom).map((a) => { const open = s.tkMo === a.id; const xo = s.xoa === a.id; const svs = sv(a);
+      const kv = []; const chips = []; const ma = !!(s.tkMa || {})[a.id]; const sua = s.tkSua === a.id;
+      const fe = (k) => (s.f['e_' + k] !== undefined ? s.f['e_' + k] : ''); const setE = (k) => (e) => this.setState({ f: Object.assign({}, s.f, { ['e_' + k]: e.target.value }) });
+      let suaFields = []; let suaLuu = null;
+      if (a.nhom === 'gmail' || a.nhom === 'chatgpt') {
+        const coMk = !!a.mk; const coTotp = !!a.totp;
+        chips.push({ t: coMk ? 'Có mật khẩu' : 'Chưa có mật khẩu', st: pillSt(coMk ? 'ok' : 'bad') }, { t: coTotp ? 'Có TOTP' : 'Chưa có TOTP', st: pillSt(coTotp ? 'ok' : 'mute') });
+        kv.push({ k: 'Email', v: a.ten, mono: true, mute: false, acts: [{ nhan: 'Chép', al: 'Chép email ' + a.ten, st: btnSt(), pick: () => chep(a.ten, 'email') }], coActs: true });
+        kv.push({ k: 'Nhãn', v: a.nhan || 'Chưa đặt nhãn', mono: false, mute: !a.nhan, acts: [], coActs: false });
+        kv.push(bua(a, 'Mật khẩu', 'mk', a.mk, 'Chưa lưu mật khẩu — đăng nhập tự động sẽ không chạy'));
+        kv.push(bua(a, 'Hạt giống TOTP', 'totp', a.totp, 'Chưa lưu — tài khoản bật xác minh 2 bước sẽ không tự đăng nhập được'));
+        if (coTotp) { const t = Date.now(); const rem = 30 - Math.floor(t / 1000) % 30; const code = ma ? maTotp(a.totp, t) : '';
+          kv.push({ k: 'Mã TOTP hiện tại', v: ma ? code.slice(0, 3) + ' ' + code.slice(3) + '   ·   còn ' + rem + ' giây' : 'Bấm «Xem mã»: máy chủ tự sinh mã 6 số từ hạt giống, đổi mỗi 30 giây — so với ứng dụng xác thực trên điện thoại', mono: ma, mute: !ma,
+            acts: [{ nhan: ma ? 'Ẩn mã' : 'Xem mã', al: (ma ? 'Ẩn' : 'Xem') + ' mã TOTP của ' + a.ten, st: btnSt(), pick: () => doiMa(a) }].concat(ma ? [{ nhan: 'Chép mã', al: 'Chép mã TOTP', st: btnSt(), pick: () => chep(code, 'mã TOTP') }] : []), coActs: true }); }
+        kv.push({ k: 'Kho lưu', v: KHO[a.nhom], mono: false, mute: false, acts: [], coActs: false });
+        kv.push({ k: 'Tạo lúc', v: a.tao, mono: false, mute: false, acts: [], coActs: false }, { k: 'Sửa lúc', v: a.sua, mono: false, mute: false, acts: [], coActs: false });
+        if (s.tkXem[a.id]) kv.push({ k: 'Lần xem gần nhất', v: s.tkXem[a.id] + ' — đã ghi nhật ký (vault_reveal)', mono: false, mute: true, acts: [], coActs: false });
+        suaFields = [{ nhan: 'Nhãn', ph: a.nhan || 'vd Tài khoản chính', type: 'text', val: fe('nhan'), onIn: setE('nhan') }, { nhan: 'Mật khẩu mới (để trống = giữ nguyên)', ph: '', type: 'password', val: fe('mk'), onIn: setE('mk') }, { nhan: 'Hạt giống TOTP mới (để trống = giữ nguyên)', ph: 'vd ABCD EFGH IJKL MNOP', type: 'password', val: fe('totp'), onIn: setE('totp') }];
+        suaLuu = () => { const p = {}; if (fe('nhan').trim()) p.nhan = fe('nhan').trim(); if (fe('mk')) p.mk = fe('mk'); if (fe('totp').trim()) p.totp = fe('totp').trim(); if (!Object.keys(p).length) return msg('Chưa nhập gì để đổi.');
+          this.setState({ tk: s.tk.map((x) => (x.id === a.id ? Object.assign({}, x, p, { sua: nowS() }) : x)), tkSua: null, f: {}, tkLo: {}, ghi: 'Đã lưu thay đổi cho «' + a.ten + '» (minh hoạ).' }); };
+      } else if (a.nhom === 'grok') {
+        chips.push({ t: 'Đăng nhập bằng trình duyệt', st: pillSt('mute') }, { t: a.cookie ? 'Cookie ' + a.cookie.slice(0, 5) : 'Chưa đăng nhập', st: pillSt(a.cookie ? 'ok' : 'bad') });
+        kv.push({ k: 'Email', v: a.ten, mono: true, mute: false, acts: [{ nhan: 'Chép', al: 'Chép email ' + a.ten, st: btnSt(), pick: () => chep(a.ten, 'email') }], coActs: true });
+        kv.push({ k: 'Nhãn', v: a.nhan || 'Chưa đặt nhãn', mono: false, mute: !a.nhan, acts: [], coActs: false });
+        kv.push({ k: 'Hồ sơ trình duyệt', v: a.profile, mono: true, mute: false, acts: [], coActs: false });
+        kv.push({ k: 'Cách đăng nhập', v: KHO.grok + ': Firefox riêng mở trên noVNC, đăng nhập bằng Google hay email đều được; phiên sống thì cookie tự lưu và Firefox tự tắt.', mono: false, mute: false, acts: [], coActs: false });
+        kv.push({ k: 'Cookie ghi lúc', v: a.cookie || 'Chưa có — bấm «Đăng nhập»', mono: false, mute: !a.cookie, acts: [], coActs: false });
+        kv.push({ k: 'Tạo lúc', v: a.tao, mono: false, mute: false, acts: [], coActs: false });
+        suaFields = [{ nhan: 'Nhãn', ph: a.nhan || 'vd Grok chính', type: 'text', val: fe('nhan'), onIn: setE('nhan') }];
+        suaLuu = () => { if (!fe('nhan').trim()) return msg('Chưa nhập nhãn mới.'); this.setState({ tk: s.tk.map((x) => (x.id === a.id ? Object.assign({}, x, { nhan: fe('nhan').trim(), sua: nowS() }) : x)), tkSua: null, f: {}, ghi: 'Đã đổi nhãn «' + a.ten + '» (minh hoạ).' }); };
+      } else {
+        chips.push({ t: a.khoaDay ? 'Có khoá' : 'Chưa có khoá', st: pillSt(a.khoaDay ? 'ok' : 'bad') });
+        kv.push({ k: 'Nhà cung cấp', v: a.ten, mono: false, mute: false, acts: [], coActs: false });
+        if (a.url) kv.push({ k: 'Địa chỉ gốc', v: a.url, mono: true, mute: false, acts: [{ nhan: 'Chép', al: 'Chép địa chỉ gốc', st: btnSt(), pick: () => chep(a.url, 'địa chỉ gốc') }], coActs: true });
+        kv.push(bua(a, 'Khoá API', 'khoa', a.khoaDay, a.khoa === 'không cần' ? 'Không cần khoá' : 'Chưa nhập khoá'));
+        kv.push({ k: 'Số khoá', v: a.khoaDay ? '1 khoá — thêm nhiều khoá thì xoay vòng theo từng lượt gọi' : '0', mono: false, mute: false, acts: [], coActs: false });
+        kv.push({ k: 'Thêm lúc', v: a.tao, mono: false, mute: false, acts: [], coActs: false }, { k: 'Sửa lúc', v: a.sua, mono: false, mute: false, acts: [], coActs: false });
+        if (s.tkXem[a.id]) kv.push({ k: 'Lần xem gần nhất', v: s.tkXem[a.id] + ' — đã ghi nhật ký (vault_reveal)', mono: false, mute: true, acts: [], coActs: false });
+        suaFields = [{ nhan: 'Khoá API mới', ph: 'Dán khoá mới', type: 'password', val: fe('khoa'), onIn: setE('khoa') }];
+        suaLuu = () => { if (fe('khoa').trim().length < 6) return msg('Khoá API chưa đúng.'); this.setState({ tk: s.tk.map((x) => (x.id === a.id ? Object.assign({}, x, { khoaDay: fe('khoa').trim(), khoa: maKhoa(fe('khoa').trim()), sua: nowS() }) : x)), tkSua: null, f: {}, tkLo: {}, ghi: 'Đã thay khoá «' + a.ten + '» (minh hoạ).' }); };
+      }
+      const acts = [];
+      if (a.nhom === 'grok') acts.push({ nhan: a.cookie ? 'Đăng nhập lại' : 'Đăng nhập', st: btnSt({ pri: !a.cookie }), pick: () => this.setState({ tk: s.tk.map((x) => (x.id === a.id ? Object.assign({}, x, { cookie: nowS() }) : x)), ghi: 'Firefox đã mở trên noVNC — đăng nhập grok.com; xong thì cookie tự lưu (minh hoạ).' }) });
+      acts.push({ nhan: sua ? 'Đóng sửa' : (a.nhom === 'api' ? 'Thay khoá' : 'Sửa'), st: btnSt(), pick: () => this.setState({ tkSua: sua ? null : a.id, f: {} }) });
+      acts.push({ nhan: xo ? 'Bấm lần nữa để xoá' : 'Xoá tài khoản', st: btnSt({ bad: xo }), pick: () => { if (!xo) return this.setState({ xoa: a.id }); const dv = Object.assign({}, s.dv); svs.forEach(([pv, bt]) => { delete dv[dvk(a, pv, bt)]; }); this.setState({ tk: s.tk.filter((x) => x.id !== a.id), dv, xoa: null, tkMo: null, tkSua: null, ghi: 'Đã xoá «' + a.ten + '» khỏi kho. Provider nào hết tài khoản sẽ tự ẩn khỏi tab Provider.' }); } });
+      const sub = (a.nhan ? a.nhan + ' · ' : '') + (a.nhom === 'api' ? 'khoá ' + a.khoa : a.nhom === 'grok' ? 'hồ sơ ' + a.profile : 'sửa ' + a.sua);
+      const vSt = (x) => 'min-width:0;overflow-wrap:anywhere;font-size:14px;' + (x.mono ? 'font-family:ui-monospace,Menlo,Consolas,monospace;font-size:13px;' : '') + (x.mute ? 'color:var(--mute);' : '');
+      return { ten: a.ten, sub, chips, open, kv: kv.map((x) => Object.assign({}, x, { vSt: vSt(x) })), acts, sua: { co: sua, fields: suaFields, luu: { nhan: 'Lưu', st: btnSt({ pri: true }), pick: suaLuu || (() => {}) }, huy: { nhan: 'Huỷ', st: btnSt(), pick: () => this.setState({ tkSua: null, f: {} }) } },
+        pick: () => this.setState({ tkMo: open ? null : a.id, xoa: null, tkSua: null, f: {} }) }; });
+    // biểu mẫu thêm tài khoản
+    const apiCh = APIS.find((x) => x.id === s.fApi) || null; const fv = (k) => s.f[k] || ''; const setF = (k) => (e) => this.setState({ f: Object.assign({}, s.f, { [k]: e.target.value }) });
+    const maKhoa = (k) => (k.length > 8 ? k.slice(0, 4) + '…' + k.slice(-4) : '••••');
+    const them = (() => {
+      const lay = nhom === 'api' ? { tieu: 'Thêm API', ph: 'Dán khoá API' } : { tieu: nhom === 'gmail' ? 'Thêm Gmail' : nhom === 'chatgpt' ? 'Thêm tài khoản ChatGPT' : 'Thêm tài khoản Grok', ph: nhom === 'gmail' ? 'ten@gmail.com' : 'Email đăng nhập' };
+      const fields = nhom === 'api' ? (apiCh ? [].concat(apiCh.id === 'tuychinh' ? [{ k: 'ten', nhan: 'Tên nhà cung cấp', ph: 'vd Zenmux', type: 'text' }, { k: 'url', nhan: 'Địa chỉ gốc (base URL)', ph: 'https://…/v1', type: 'text' }] : []).concat(apiCh.id === 'opencode' ? [] : [{ k: 'khoa', nhan: 'Khoá API', ph: lay.ph, type: 'password' }]) : []) : [{ k: 'email', nhan: nhom === 'gmail' ? 'Địa chỉ Gmail' : 'Email', ph: lay.ph, type: 'text' }].concat(nhom === 'grok' ? [] : [{ k: 'mk', nhan: 'Mật khẩu', ph: '', type: 'password' }, { k: 'totp', nhan: 'Hạt giống TOTP (nếu bật xác minh 2 bước)', ph: 'vd ABCD EFGH IJKL MNOP', type: 'password' }]).concat([{ k: 'nhan', nhan: 'Nhãn (không bắt buộc)', ph: 'vd Tài khoản chính', type: 'text' }]);
+      const ok = () => {
+        if (nhom === 'api') { if (!apiCh) return msg('Chọn một nhà cung cấp API trước.'); if (apiCh.id === 'tuychinh' && (!fv('ten').trim() || !fv('url').trim())) return msg('Dịch vụ tuỳ chỉnh cần tên và địa chỉ gốc.'); if (apiCh.id !== 'opencode' && fv('khoa').trim().length < 6) return msg('Khoá API chưa đúng.');
+          const id = 'n' + s.nid; const pv = apiCh.pv || 'tc' + s.nid; const a = { id, nhom: 'api', api: apiCh.id, pv, ten: apiCh.id === 'tuychinh' ? fv('ten').trim() : apiCh.ten, khoa: apiCh.id === 'opencode' ? 'không cần' : maKhoa(fv('khoa').trim()), khoaDay: apiCh.id === 'opencode' ? '' : fv('khoa').trim(), url: apiCh.id === 'tuychinh' ? fv('url').trim() : '', tao: nowS(), sua: nowS() };
+          const k = pv + '|api'; const tonTai = s.tk.some((x) => x.pv === pv && x.nhom === 'api');
+          return this.setState({ tk: s.tk.concat([a]), dv: Object.assign({}, s.dv, { [id + '|' + k]: { tt: 'ok', loai: 'Khoá hợp lệ', hm: [], ok: 0, loi: 0, cuoi: 'chưa dùng' } }), nid: s.nid + 1, f: {}, tkThem: false, tkMo: id, ghi: 'Đã thêm «' + a.ten + '». ' + (tonTai ? 'Provider đã có sẵn, thêm vào hàng đợi.' : 'Provider «' + PVM(pv).ten + '» vừa hiện ở tab Provider.') }); }
+        const em = fv('email').trim(); if (!/^\S+@\S+\.\S+$/.test(em)) return msg('Địa chỉ email chưa đúng.'); if (s.tk.some((x) => x.nhom === nhom && x.ten.toLowerCase() === em.toLowerCase())) return msg('Tài khoản này đã có.');
+        if (nhom !== 'grok' && !fv('mk')) return msg('Cần nhập mật khẩu để tự đăng nhập được.'); const id = 'n' + s.nid; const a = { id, nhom, ten: em, nhan: fv('nhan').trim(), mk: nhom === 'grok' ? '' : fv('mk'), totp: nhom === 'grok' ? '' : fv('totp').trim(), profile: nhom === 'grok' ? 'grok-' + em.split('@')[0].replace(/[^a-z0-9]+/gi, '-').toLowerCase() : '', cookie: '', tao: nowS(), sua: nowS() }; const dv = Object.assign({}, s.dv); DV_MD(a).forEach(([pv, bt]) => { dv[id + '|' + pv + '|' + bt] = { tt: 'out', loai: '—', hm: [], ok: 0, loi: 0, cuoi: 'chưa dùng' }; });
+        this.setState({ tk: s.tk.concat([a]), dv, nid: s.nid + 1, f: {}, tkThem: false, tkMo: id, ghi: nhom === 'grok' ? 'Đã thêm «' + em + '». Bấm «Đăng nhập» để mở Firefox trên noVNC (minh hoạ).' : 'Đã lưu «' + em + '» vào kho đăng nhập — mật khẩu' + (a.totp ? ' và hạt giống TOTP' : '') + ' được mã hoá trên máy chủ (minh hoạ).' }); };
+      return { co: s.tkThem, nut: { nhan: s.tkThem ? 'Đóng' : '＋ ' + lay.tieu, st: btnSt({ pri: !s.tkThem }), pick: () => this.setState({ tkThem: !s.tkThem, f: {}, fApi: '' }) }, tieu: lay.tieu,
+        coApi: nhom === 'api', apis: APIS.map((x) => ({ nhan: x.ten, on: s.fApi === x.id, st: chipSt(s.fApi === x.id), pick: () => this.setState({ fApi: s.fApi === x.id ? '' : x.id, f: {} }) })), mota: apiCh ? apiCh.mota : 'Chọn một nhà cung cấp có sẵn trong dự án.',
+        fields: fields.map((x) => ({ nhan: x.nhan, ph: x.ph, type: x.type, val: fv(x.k), onIn: setF(x.k) })), coFields: fields.length > 0, ok: { nhan: nhom === 'api' ? 'Thêm API' : 'Thêm', st: btnSt({ pri: true }), pick: ok }, huy: { nhan: 'Huỷ', st: btnSt(), pick: () => this.setState({ tkThem: false, f: {}, fApi: '' }) } }; })();
+
+    // ===== Tab «Provider»: chỉ hiện provider đã có tài khoản; Gemini chia Web API | API; trong mỗi bản có Model | Tài khoản =====
+    const allPv = Object.keys(PROV).concat(s.tk.filter((a) => a.api === 'tuychinh').map((a) => a.pv));
+    const pvVis = allPv.map((id) => ({ id, m: PVM(id), bts: PVM(id).bt.filter((bt) => ord(id, bt).length) })).filter((x) => x.bts.length);
+    const pvCur = pvVis.find((x) => x.id === s.pvSel) || pvVis[0] || null; const btCur = pvCur ? (pvCur.bts.includes(s.pvBt) ? s.pvBt : pvCur.bts[0]) : null; const pvTab = s.pvTab === 'tk' ? 'tk' : 'model';
+    const keyCur = pvCur ? pvCur.id + '|' + btCur : '';
+    const dem = (pv, bt) => ord(pv, bt).length; const loi = (pv, bt) => ord(pv, bt).some((id) => s.dv[id + '|' + pv + '|' + bt].tt === 'err');
+    const c1pv = pvVis.map((x) => ({ nhan: x.m.ten, dem: x.bts.reduce((n, bt) => n + dem(x.id, bt), 0), coDem: true, coDot: true, dot: 'display:inline-block;width:9px;height:9px;border-radius:50%;background:' + x.m.mau, on: !!pvCur && pvCur.id === x.id, st: chipSt(!!pvCur && pvCur.id === x.id), pick: () => this.setState({ pvSel: x.id, pvBt: null, pvMo: null, pvTab: 'model' }) }));
+    const c2pv = pvCur && pvCur.bts.length > 1 ? pvCur.bts.map((bt) => ({ nhan: BTTEN[pvCur.id + '|' + bt] || 'API', dem: dem(pvCur.id, bt), coDem: true, coDot: false, dot: '', on: btCur === bt, st: chipSt(btCur === bt), pick: () => this.setState({ pvBt: bt, pvMo: null }) })) : [];
+    const mdList = pvCur ? (MD[keyCur] || [[pvCur.id + '/[tên model 1]', 'chat'], [pvCur.id + '/[tên model 2]', 'chat']]) : [];
+    const mdOn = (id) => s.en[keyCur + '|' + id] !== false; const mdMacChat = s.mdDef[keyCur + '|chat'] || MD_MAC[keyCur] || (mdList.find((m) => m[1] === 'chat') || [''])[0]; const mdMacAnh = s.mdDef[keyCur + '|anh'] || (mdList.find((m) => m[1] === 'anh') || [''])[0];
+    const c3pv = pvCur ? [{ nhan: 'Model', dem: mdList.filter((m) => mdOn(m[0])).length, coDem: true, coDot: false, dot: '', on: pvTab === 'model', st: chipSt(pvTab === 'model'), pick: () => this.setState({ pvTab: 'model' }) }, { nhan: 'Tài khoản', dem: dem(pvCur.id, btCur), coDem: true, coDot: false, dot: '', on: pvTab === 'tk', st: chipSt(pvTab === 'tk'), pick: () => this.setState({ pvTab: 'tk', pvMo: null }) }] : [];
+    const rowsPv = pvCur && pvTab === 'tk' ? ord(pvCur.id, btCur).map((id) => { const a = s.tk.find((x) => x.id === id); const d = s.dv[id + '|' + keyCur]; const hg = hang(pvCur.id, btCur); const vt = hg.indexOf(id) + 1; const open = s.pvMo === id;
+      const h0 = (d.hm || [])[0]; const sub = d.tt === 'out' ? (a.nhom === 'api' ? 'Chưa nhập khoá' : 'Chưa đăng nhập') : d.loai + (h0 ? ' · ' + h0.ten.toLowerCase() + ' ' + (h0.tong ? h0.con + '/' + h0.tong : 'còn ' + h0.pct + '%') : '');
+      return Object.assign(mk(a, sub, d.tt, '', [khoi(a, pvCur.id, btCur, true)]), { open, coVt: !!vt, vt: vt === 1 ? '#1 ưu tiên' : '#' + vt, pick: () => this.setState({ pvMo: open ? null : id }) }); }) : [];
+    const tkTrong = rowsTk.length === 0;
+    // model của provider đang chọn — quản lý như trang Model của dự án (bật/tắt từng model, đặt mặc định); KHÔNG còn model «:text»
+    const md = (() => { if (!pvCur || pvTab !== 'model') return { co: false, nhom: [] };
+      const nhomMd = [['chat', 'Trò chuyện và hiểu ảnh'], ['anh', 'Tạo ảnh'], ['video', 'Tạo video']].map(([k, ten]) => { const ds = mdList.filter((m) => m[1] === k); const mac = k === 'chat' ? mdMacChat : mdMacAnh;
+        return { ten, dem: ds.filter((m) => mdOn(m[0])).length + '/' + ds.length + ' đang bật', rows: ds.map(([id]) => { const on = mdOn(id); const la = id === mac;
+          return { id, chip: /\/auto$/.test(id) ? 'Tự động' : '', coChip: /\/auto$/.test(id), on, tr: 'display:block;position:relative;width:40px;height:24px;border-radius:12px;transition:background .15s;background:' + (on ? '#0F766E' : '#B9B6AE'), kn: 'position:absolute;top:2px;left:' + (on ? 18 : 2) + 'px;width:20px;height:20px;border-radius:50%;background:#fff;transition:left .15s', la, macNhan: la ? 'Mặc định' : 'Đặt mặc định', macSt: btnSt({ pri: la, off: !on }) + 'padding:0 12px;', tog: () => this.setState({ en: Object.assign({}, s.en, { [keyCur + '|' + id]: !on }), dirty: true, ghi: '' }), dat: () => { if (!on) return msg('Model đang tắt — bật lên rồi mới đặt mặc định.'); this.setState({ mdDef: Object.assign({}, s.mdDef, { [keyCur + '|' + k]: id }), dirty: true, ghi: '' }); } }; }) }; }).filter((g) => g.rows.length);
+      return { co: true, nhom: nhomMd, luu: { nhan: 'Lưu thay đổi', st: btnSt({ pri: true, off: !s.dirty }), pick: () => { if (!s.dirty) return; this.setState({ dirty: false, ghi: 'Đã lưu model của ' + pvCur.m.ten + (BTTEN[keyCur] ? ' · ' + BTTEN[keyCur] : '') + ' (minh hoạ).' }); } }, moi: { nhan: 'Làm mới danh sách', st: btnSt(), pick: () => msg('Đã lấy lại danh sách model từ ' + pvCur.m.ten + ' (minh hoạ).') }, dirty: s.dirty }; })();
+
+    // ===== Tab «Combo» =====
+    const cbList = s.cb.map((b) => { const open = s.cbMo === b.id; const on = s.cbOn[b.id] !== false;
+      const buoc = b.buoc.map((id, i) => { const pre = id.split('/')[0]; const pb = PRE[pre]; const co = !!pb && ord(pb[0], pb[1]).length > 0; const pvm = pb ? PVM(pb[0]) : { ten: pre };
+        const doi = (j) => this.setState({ cb: s.cb.map((x) => { if (x.id !== b.id) return x; const a = x.buoc.slice(); const t = a[i]; a[i] = a[j]; a[j] = t; return Object.assign({}, x, { buoc: a }); }), ghi: '' });
+        return { so: String(i + 1), id, pv: pvm.ten + (pb && BTTEN[pb.join('|')] && PVM(pb[0]).bt.length > 1 ? ' · ' + BTTEN[pb.join('|')] : ''), co, canh: co ? '' : 'chưa có tài khoản — bước này bị bỏ qua', coCanh: !co, len: { nhan: '↑', aria: 'Đưa bước ' + (i + 1) + ' lên', st: btnSt({ off: i === 0 }) + 'padding:0 12px;', pick: () => (i > 0 ? doi(i - 1) : null) }, xuong: { nhan: '↓', aria: 'Đưa bước ' + (i + 1) + ' xuống', st: btnSt({ off: i === b.buoc.length - 1 }) + 'padding:0 12px;', pick: () => (i < b.buoc.length - 1 ? doi(i + 1) : null) } }; });
+      const dung = buoc.filter((x) => x.co).length; const tone = !on ? 'mute' : dung === buoc.length ? 'ok' : dung ? 'warn' : 'bad';
+      return { ten: b.ten, sub: b.mota, chip: dung + '/' + buoc.length + ' bước dùng được', pill: !on ? 'Đã tắt' : dung === buoc.length ? 'Bình thường' : dung ? 'Cần chú ý' : 'Hỏng', pillSt: pillSt(tone), open, buoc, on,
+        tr: 'display:block;position:relative;width:40px;height:24px;border-radius:12px;transition:background .15s;background:' + (on ? '#0F766E' : '#B9B6AE'), kn: 'position:absolute;top:2px;left:' + (on ? 18 : 2) + 'px;width:20px;height:20px;border-radius:50%;background:#fff;transition:left .15s',
+        tog: () => this.setState({ cbOn: Object.assign({}, s.cbOn, { [b.id]: !on }), ghi: '' }), pick: () => this.setState({ cbMo: open ? null : b.id }) }; });
+
+    const K = { coTk: s.tab === 'tk', coPv: s.tab === 'pv', coCb: s.tab === 'cb', coMsg: !!s.ghi, msg: s.ghi, dongMsg: () => this.setState({ ghi: '' }),
+      // thanh chọn: Tài khoản = nhóm; Provider = provider › bản (Web API | API) › Model | Tài khoản
+      c1: { co: s.tab === 'tk' || (s.tab === 'pv' && pvVis.length > 0), coRieng: s.tab === 'tk', nhan: s.tab === 'tk' ? 'Nhóm tài khoản' : 'Provider', chips: s.tab === 'tk' ? NHOM.map(([id, ten]) => ({ nhan: ten, dem: tkN(id), coDem: true, coDot: false, dot: '', on: nhom === id, st: chipSt(nhom === id), pick: () => this.setState({ tkNhom: id, tkMo: null, tkThem: false, f: {}, fApi: '', xoa: null, ghi: '' }) })) : c1pv },
+      c2: { co: s.tab === 'pv' && c2pv.length > 0, nhan: 'Bản của provider', chips: c2pv }, c3: { co: s.tab === 'pv' && c3pv.length > 0, nhan: 'Mục trong provider', chips: c3pv },
+      pvHang: { co: s.tab === 'pv' && pvVis.length > 0, coG2: c2pv.length > 0, coG3: c3pv.length > 0, open: !!s.pvDd, toggle: () => this.setState({ pvDd: !s.pvDd }), dong: () => this.setState({ pvDd: false }),
+        cur: pvCur ? pvCur.m.ten : '', curDem: pvCur ? String(pvCur.bts.reduce((n, bt) => n + dem(pvCur.id, bt), 0)) : '', curDot: 'display:inline-block;width:9px;height:9px;border-radius:50%;flex:0 0 auto;background:' + (pvCur ? pvCur.m.mau : '#999'),
+        btn: chipSt(true) + 'gap:8px;', chev: 'flex:0 0 auto;transition:transform .15s;transform:rotate(' + (s.pvDd ? 180 : 0) + 'deg)',
+        items: c1pv.map((x) => ({ nhan: x.nhan, dem: String(x.dem), on: x.on, dot: x.dot + ';flex:0 0 auto', st: 'display:flex;align-items:center;gap:10px;width:100%;box-sizing:border-box;min-height:44px;padding:0 12px;border:0;border-radius:10px;font:inherit;font-size:14px;cursor:pointer;color:#181816;background:' + (x.on ? '#EFEDE8' : 'transparent'), pick: () => { x.pick(); this.setState({ pvDd: false }); } })) },
+      them, coThem: s.tab === 'tk', tkTrong: s.tab === 'tk' && tkTrong, tkTrongGhi: 'Chưa có tài khoản ' + (NHOM.find((x) => x[0] === nhom) || ['', ''])[1] + ' nào — bấm « ＋ » ở trên để thêm.',
+      pvTrong: s.tab === 'pv' && pvVis.length === 0, goTk: () => this.setState({ tab: 'tk' }),
+      rows: s.tab === 'pv' && pvTab === 'tk' ? rowsPv : [], coRows: s.tab === 'pv' && pvTab === 'tk' && rowsPv.length > 0, tkRows: rowsTk, coTkRows: s.tab === 'tk' && rowsTk.length > 0,
+      coTkGhiChu: s.tab === 'tk', tkGhiChu: 'Nơi lưu thông tin đăng nhập của từng tài khoản (email, mật khẩu, hạt giống TOTP, khoá API). Mật khẩu và khoá được mã hoá trên máy chủ; chọn một tài khoản không tự lộ — chỉ khi bấm «Xem» mới hiện, và mỗi lần xem được ghi nhật ký. Mức dùng, hạn mức và hàng đợi nằm ở tab Provider › Tài khoản.', md, coMd: s.tab === 'pv' && md.co,
+      tieuPv: pvCur ? pvCur.m.ten + (BTTEN[keyCur] && pvCur.bts.length > 1 ? ' · ' + BTTEN[keyCur] : '') : '',
+      cbList, coCbList: s.tab === 'cb' };
+    return Object.assign({
+      sinCtx: true, back, menuMo: s.menuMo, accMo: !!s.accMo, backdrop: !!(s.menuMo || s.accMo), accToggle: () => this.setState({ accMo: !s.accMo, menuMo: null }), dangXuat: () => this.setState({ accMo: false }), menuDong: () => this.setState({ menuMo: null, accMo: false }), sheet: sheet || { label: '', subs: [] }, coSheet: !!sheet,
+      navStyle: 'flex:0 0 auto;position:sticky;top:0;z-index:20;box-sizing:border-box;display:flex;align-items:center;gap:12px;min-height:60px;padding:6px 24px;border-bottom:1px solid #CFE0DB;background:#EAF3F0',
+      nav: navX, tabs }, K);
+  }
+}
+</script>
+</body>
+</html>

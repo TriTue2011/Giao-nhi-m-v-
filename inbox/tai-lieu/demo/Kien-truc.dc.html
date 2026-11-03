@@ -1,0 +1,275 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<title>Ý tưởng và kiến trúc</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600&family=Newsreader:opsz,wght@6..72,400;6..72,500&display=swap">
+<style>
+body{margin:0}
+a{color:#0F766E}
+</style>
+</helmet>
+<div style="--ink:#181816;--mute:#66645F;--line:#E4E2DC;--bg:#F6F5F2;--card:#FFFFFF;--acc:#0F766E;--accsoft:#E2F0ED;background:var(--bg);color:var(--ink);font-family:'Be Vietnam Pro',system-ui,sans-serif;font-size:15px;line-height:1.6;min-height:3000px">
+<div style="max-width:1120px;margin:0 auto;padding:64px 28px 96px;display:flex;flex-direction:column;gap:72px">
+
+<header style="display:flex;flex-direction:column;gap:18px;max-width:820px">
+<div style="font-size:13px;font-weight:600;letter-spacing:0.06em;text-transform:uppercase;color:var(--acc)">Bản thiết kế lại · chưa chạm mã</div>
+<h1 style="margin:0;font-family:Newsreader,Georgia,serif;font-weight:400;font-size:56px;line-height:1.05;letter-spacing:-0.025em;text-wrap:balance">Một lõi nhỏ, mọi thứ khác cắm vào như lego</h1>
+<p style="margin:0;font-size:18px;color:var(--mute);text-wrap:pretty">Làm thế nào để thêm một khả năng mới cho AI mà không phải mở phần lõi ra sửa, và giao diện vẫn gọn gàng khi số tính năng tăng gấp đôi?</p>
+</header>
+
+<section style="display:flex;flex-direction:column;gap:24px" aria-labelledby="h-van-de">
+<h2 id="h-van-de" style="margin:0;font-family:Newsreader,Georgia,serif;font-weight:400;font-size:34px;letter-spacing:-0.015em">Vì sao hiện nay lủng củng</h2>
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(300px,100%),1fr));gap:16px">
+<sc-for list="{{problems}}" as="p" hint-placeholder-count="3">
+<div style="background:var(--card);border:1px solid var(--line);border-radius:16px;padding:22px;display:flex;flex-direction:column;gap:8px">
+<div style="font-family:Newsreader,Georgia,serif;font-size:44px;line-height:1;letter-spacing:-0.02em">{{p.big}}</div>
+<div style="font-weight:600">{{p.title}}</div>
+<div style="color:var(--mute);font-size:14px;text-wrap:pretty">{{p.body}}</div>
+</div>
+</sc-for>
+</div>
+</section>
+
+<section style="display:flex;flex-direction:column;gap:24px" aria-labelledby="h-ban-do">
+<div style="display:flex;flex-direction:column;gap:8px;max-width:760px">
+<h2 id="h-ban-do" style="margin:0;font-family:Newsreader,Georgia,serif;font-weight:400;font-size:34px;letter-spacing:-0.015em">Bản đồ mới: 24 mục gom về 5 không gian</h2>
+<p style="margin:0;color:var(--mute);text-wrap:pretty">Người dùng chỉ cần nhớ bốn chỗ để dùng hằng ngày, còn quản lý và cài đặt nằm riêng trong Hệ thống. Trò chuyện, vẽ ảnh, tạo video và dịch là cùng một việc, nhờ AI làm ra thứ gì đó, nên chung một ô nhập và đổi chế độ bằng một hàng nút. Tìm kiếm không phải chế độ riêng: nó nằm trong trò chuyện, AI tự dùng khi tài khoản được cấp quyền.</p>
+</div>
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(320px,100%),1fr));gap:16px">
+<sc-for list="{{spaces}}" as="s" hint-placeholder-count="5">
+<div style="background:var(--card);border:1px solid var(--line);border-radius:16px;padding:22px;display:flex;flex-direction:column;gap:14px">
+<div style="display:flex;align-items:center;gap:12px">
+<div style="width:44px;height:44px;border-radius:12px;background:var(--accsoft);color:#0B5A53;display:flex;align-items:center;justify-content:center">
+<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="{{s.d}}"></path></svg>
+</div>
+<div style="display:flex;flex-direction:column;line-height:1.3">
+<span style="font-weight:600;font-size:17px">{{s.name}}</span>
+<span style="font-size:13px;color:var(--mute)">{{s.role}}</span>
+</div>
+</div>
+<div style="display:flex;flex-wrap:wrap;gap:6px">
+<sc-for list="{{s.pages}}" as="pg" hint-placeholder-count="4">
+<span style="padding:3px 10px;border-radius:12px;background:var(--bg);font-size:13px">{{pg}}</span>
+</sc-for>
+</div>
+</div>
+</sc-for>
+</div>
+</section>
+
+<section style="display:flex;flex-direction:column;gap:28px" aria-labelledby="h-lego">
+<div style="display:flex;flex-direction:column;gap:8px;max-width:760px">
+<h2 id="h-lego" style="margin:0;font-family:Newsreader,Georgia,serif;font-weight:400;font-size:34px;letter-spacing:-0.015em">Ba tầng của kiến trúc lego</h2>
+<p style="margin:0;color:var(--mute);text-wrap:pretty">Tầng dưới không biết gì về tầng trên. Thêm tiện ích mới chỉ là thêm một tệp khai báo ở tầng giữa, lõi không bị sửa.</p>
+</div>
+
+<div style="display:flex;flex-direction:column;gap:14px">
+<div style="background:var(--card);border:1px solid var(--line);border-radius:18px;padding:22px;display:flex;flex-direction:column;gap:14px">
+<div style="font-size:12px;font-weight:600;letter-spacing:0.06em;text-transform:uppercase;color:var(--mute)">Tầng 3 · Tiện ích, cắm vào qua năm loại ổ cắm</div>
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(190px,100%),1fr));gap:12px">
+<sc-for list="{{slots}}" as="o" hint-placeholder-count="5">
+<div style="border:1px solid var(--line);border-radius:12px;padding:14px;display:flex;flex-direction:column;gap:4px;background:var(--bg)">
+<span style="font-weight:600">{{o.name}}</span>
+<span style="font-size:13px;color:var(--mute);text-wrap:pretty">{{o.what}}</span>
+<span style="font-size:12px;color:var(--acc);font-weight:500">{{o.eg}}</span>
+</div>
+</sc-for>
+</div>
+</div>
+
+<div style="background:var(--accsoft);border:1px solid #BFDCD6;border-radius:18px;padding:22px;display:flex;flex-direction:column;gap:6px">
+<div style="font-size:12px;font-weight:600;letter-spacing:0.06em;text-transform:uppercase;color:#0B5A53">Tầng 2 · Hợp đồng phiên bản 1</div>
+<div style="font-weight:500;font-size:17px;text-wrap:pretty">Mỗi tiện ích là một tệp khai báo: tên, phiên bản, cần lõi bản nào, cắm vào ổ nào, xin quyền gì, có những ô cấu hình nào, kiểm sức khoẻ ở đâu.</div>
+</div>
+
+<div style="background:var(--ink);color:#fff;border-radius:18px;padding:22px;display:flex;flex-direction:column;gap:14px">
+<div style="font-size:12px;font-weight:600;letter-spacing:0.06em;text-transform:uppercase;color:#B9B7B0">Tầng 1 · Lõi, đúng bốn việc và không thêm</div>
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(220px,100%),1fr));gap:12px">
+<sc-for list="{{core}}" as="c" hint-placeholder-count="4">
+<div style="border:1px solid #3A3935;border-radius:12px;padding:14px;display:flex;flex-direction:column;gap:4px">
+<span style="font-weight:600">{{c.name}}</span>
+<span style="font-size:13px;color:#C9C7C0;text-wrap:pretty">{{c.what}}</span>
+</div>
+</sc-for>
+</div>
+</div>
+</div>
+
+<div style="display:flex;flex-wrap:wrap;gap:20px;align-items:flex-start">
+<div style="flex:1 1 380px;background:var(--card);border:1px solid var(--line);border-radius:16px;padding:22px;display:flex;flex-direction:column;gap:10px">
+<div style="font-weight:600">Ví dụ một tệp khai báo (đề xuất)</div>
+<pre style="margin:0;padding:16px;border-radius:12px;background:#1B1B19;color:#E8E6DF;font-size:13px;line-height:1.55;overflow-x:auto;font-family:ui-monospace,Menlo,Consolas,monospace">{
+  "id": "youtube-loa",
+  "phien_ban": "0.27.0",
+  "can_loi": "&gt;=1",
+  "o_cam": ["cong_cu", "giao_dien"],
+  "quyen": ["loa.phat"],
+  "cong_cu": [
+    { "ten": "phat_youtube", "mo_ta": "Phát bài ra loa nhà" }
+  ],
+  "cau_hinh": [
+    { "khoa": "loa_mac_dinh", "kieu": "chon", "nhan": "Loa mặc định" }
+  ],
+  "suc_khoe": "/health"
+}</pre>
+</div>
+<div style="flex:1 1 320px;display:flex;flex-direction:column;gap:12px">
+<div style="font-weight:600">Phần đã có sẵn trong dự án</div>
+<ul style="margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:10px">
+<sc-for list="{{have}}" as="h" hint-placeholder-count="4">
+<li style="display:flex;gap:10px;align-items:flex-start">
+<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#0F766E" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex:0 0 18px;margin-top:3px"><path d="M5 12l5 5 9-10"></path></svg>
+<span style="text-wrap:pretty">{{h}}</span>
+</li>
+</sc-for>
+</ul>
+</div>
+</div>
+</section>
+
+<section style="display:flex;flex-direction:column;gap:24px" aria-labelledby="h-bat-bien">
+<div style="display:flex;flex-direction:column;gap:8px;max-width:760px">
+<h2 id="h-bat-bien" style="margin:0;font-family:Newsreader,Georgia,serif;font-weight:400;font-size:34px;letter-spacing:-0.015em">Thế nào là «ghép gì cũng không lỗi»</h2>
+<p style="margin:0;color:var(--mute);text-wrap:pretty">Không có bộ não hoàn hảo, chỉ có bộ não mà lỗi của một mảnh ghép không lan ra được. Sáu điều sau giữ cho điều đó đúng.</p>
+</div>
+<ol style="margin:0;padding:0;list-style:none;display:grid;grid-template-columns:repeat(auto-fit,minmax(min(320px,100%),1fr));gap:16px">
+<sc-for list="{{rules}}" as="r" hint-placeholder-count="6">
+<li style="background:var(--card);border:1px solid var(--line);border-radius:16px;padding:20px;display:flex;gap:14px">
+<div style="flex:0 0 32px;height:32px;border-radius:50%;background:var(--ink);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:600;font-size:14px">{{r.n}}</div>
+<div style="display:flex;flex-direction:column;gap:4px">
+<span style="font-weight:600">{{r.title}}</span>
+<span style="color:var(--mute);font-size:14px;text-wrap:pretty">{{r.body}}</span>
+</div>
+</li>
+</sc-for>
+</ol>
+</section>
+
+<section style="display:flex;flex-direction:column;gap:24px" aria-labelledby="h-hoc">
+<h2 id="h-hoc" style="margin:0;font-family:Newsreader,Georgia,serif;font-weight:400;font-size:34px;letter-spacing:-0.015em">Đã tham khảo gì</h2>
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(300px,100%),1fr));gap:16px">
+<sc-for list="{{refs}}" as="x" hint-placeholder-count="3">
+<div style="background:var(--card);border:1px solid var(--line);border-radius:16px;padding:22px;display:flex;flex-direction:column;gap:8px">
+<div style="font-weight:600;font-size:17px">{{x.name}}</div>
+<div style="color:var(--mute);font-size:14px;text-wrap:pretty">{{x.saw}}</div>
+<div style="font-size:14px;text-wrap:pretty"><span style="font-weight:600;color:var(--acc)">Lấy về: </span>{{x.take}}</div>
+</div>
+</sc-for>
+</div>
+</section>
+
+<section style="display:flex;flex-wrap:wrap;gap:32px;align-items:flex-start" aria-labelledby="h-khong">
+<div style="flex:1 1 440px;display:flex;flex-direction:column;gap:16px">
+<h2 id="h-khong" style="margin:0;font-family:Newsreader,Georgia,serif;font-weight:400;font-size:34px;letter-spacing:-0.015em">Chưa làm, và vì sao</h2>
+<ul style="margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:12px">
+<sc-for list="{{nots}}" as="n" hint-placeholder-count="5">
+<li style="padding-left:16px;border-left:2px solid var(--line);text-wrap:pretty"><span style="font-weight:600">{{n.what}}</span><span style="color:var(--mute)"> — {{n.why}}</span></li>
+</sc-for>
+</ul>
+</div>
+<div style="flex:1 1 440px;display:flex;flex-direction:column;gap:16px">
+<h2 style="margin:0;font-family:Newsreader,Georgia,serif;font-weight:400;font-size:34px;letter-spacing:-0.015em">Thứ tự tích hợp sau khi chốt</h2>
+<ol style="margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:12px">
+<sc-for list="{{steps}}" as="t" hint-placeholder-count="5">
+<li style="display:flex;gap:12px;align-items:flex-start">
+<span style="flex:0 0 28px;height:28px;border-radius:50%;border:1px solid var(--ink);display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:600">{{t.n}}</span>
+<span style="text-wrap:pretty"><span style="font-weight:600">{{t.what}}</span><span style="color:var(--mute)"> — {{t.how}}</span></span>
+</li>
+</sc-for>
+</ol>
+</div>
+</section>
+
+<section style="background:var(--card);border:1px solid var(--line);border-radius:18px;padding:28px;display:flex;flex-direction:column;gap:14px" aria-labelledby="h-hoi">
+<h2 id="h-hoi" style="margin:0;font-family:Newsreader,Georgia,serif;font-weight:400;font-size:28px">Ba điều cần bạn chọn trước khi dựng thật</h2>
+<ol style="margin:0;padding-left:20px;display:flex;flex-direction:column;gap:10px;text-wrap:pretty">
+<li><span style="font-weight:600">Tiện ích chỉ dùng trong nhà, hay sau này người ngoài cũng tải được?</span> Nếu chỉ trong nhà thì không cần chợ công khai, chấm điểm hay ký số, bản nhỏ gọn hơn nhiều.</li>
+<li><span style="font-weight:600">Ai được bật hoặc tắt tiện ích?</span> Chỉ quản trị viên, hay từng tài khoản tự bật cho riêng mình như sổ chi tiêu hiện nay.</li>
+<li><span style="font-weight:600">Giao diện sáng như bản này là đủ, hay cần thêm chế độ tối?</span></li>
+</ol>
+</section>
+
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1280,"height":3000}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const IC = {
+      chat: 'M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z',
+      folder: 'M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z',
+      home: 'M3 11l9-8 9 8 M5 10v10h14V10 M10 20v-6h4v6',
+      plug: 'M9 3v5 M15 3v5 M6 8h12v3a6 6 0 0 1-12 0z M12 17v4',
+      sliders: 'M4 7h10 M18 7h2 M4 17h2 M10 17h10 M16 5v4 M8 15v4'
+    };
+    return {
+      problems: [
+        { big: '24', title: 'mục trong một menu phẳng', body: 'Chat, vẽ ảnh, thư viện ảnh, video, thư viện video, dịch, tìm kiếm… nằm chung hàng với nhật ký, sao lưu và cài đặt. Người mới không biết bắt đầu từ đâu.' },
+        { big: '5', title: 'trang làm cùng một việc', body: 'Chat, ảnh, video, dịch và tìm kiếm đều là «nhờ AI làm ra thứ gì đó», nhưng mỗi nơi một ô nhập, một cách chọn model.' },
+        { big: '3', title: 'chỗ phải sửa khi thêm tính năng', body: 'Thêm một nhóm công cụ hiện nay phải đụng vài chỗ trong lõi cùng lúc, nên mỗi lần thêm là một lần có thể làm hỏng cái cũ.' }
+      ],
+      spaces: [
+        { name: 'Studio', role: 'Nơi tạo ra mọi thứ', d: IC.chat, pages: ['Trò chuyện (gồm tìm kiếm)', 'Vẽ ảnh', 'Tạo video', 'Dịch'] },
+        { name: 'Tác phẩm', role: 'Mọi thứ đã tạo, một thư viện', d: IC.folder, pages: ['Thư viện ảnh', 'Thư viện video'] },
+        { name: 'Nhà', role: 'Thiết bị và những gì bot học về nhà', d: IC.home, pages: ['Camera', 'Khuôn mặt', 'Mạng nhà', 'YouTube', 'Học hỏi'] },
+        { name: 'Đời sống', role: 'Giải trí, chi tiêu, giáo viên — các tiện ích dùng hằng ngày', d: 'M12 21s-7-4.4-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 11c0 5.6-7 10-7 10z', pages: ['Giải trí', 'Chi tiêu', 'Giáo viên'] },
+        { name: 'Hệ thống', role: 'Trang riêng có nút «Quay lại»: quản lý và cài đặt, tách khỏi các trang sử dụng', d: IC.sliders, pages: ['Tổng quan', 'AI (bộ não): Tài khoản, Provider (có Model bên trong), Combo', 'Tiện ích (cài, bật, tắt như lego)', 'Nhật ký (lượt chạy, cuộc gọi, tài khoản, mạng nhà, nhận diện, kích hoạt nhà)', 'Sao lưu', 'Cài đặt'] }
+      ],
+      slots: [
+        { name: 'Công cụ AI', what: 'Việc AI có thể gọi: tra cứu, ghi sổ, xem camera.', eg: 'Tra cứu Việt Nam, Chi tiêu' },
+        { name: 'Kênh chat', what: 'Nơi người dùng nói chuyện với AI.', eg: 'Zalo, Telegram' },
+        { name: 'Nhà thông minh', what: 'Thiết bị và cảm biến AI nhìn thấy hoặc điều khiển.', eg: 'Home Assistant, Camera' },
+        { name: 'Nguồn model', what: 'Nơi lấy trí tuệ: tài khoản, khoá, máy tại nhà.', eg: 'Claude, Gemini, Antigravity' },
+        { name: 'Kỹ năng', what: 'Hướng dẫn viết bằng chữ cho một loại việc.', eg: 'Giáo viên, sách giáo khoa' }
+      ],
+      core: [
+        { name: 'Nhận lời nhờ', what: 'Gom tin từ mọi kênh về một phiên làm việc, biết ai đang hỏi.' },
+        { name: 'Chọn model', what: 'Theo combo và hạng tài khoản, tự lùi khi hết hạn mức.' },
+        { name: 'Gọi công cụ', what: 'Chọn đúng công cụ trong số tiện ích đang bật, kiểm quyền rồi gọi.' },
+        { name: 'Nhớ và học', what: 'Giữ ngữ cảnh, sổ lỗi và bài học để lần sau làm tốt hơn.' }
+      ],
+      have: [
+        'Công cụ MCP và bộ cài sẵn (Context7…) đã là hình dạng đầu tiên của ổ «Công cụ AI».',
+        'Kỹ năng bằng chữ cho bot đã tách thành kho riêng, có giới hạn số lượng để bot không chậm.',
+        'Cầu dao ngắt nhà cung cấp lỗi và thời gian nghỉ của model đã có, dùng lại cho cách ly tiện ích.',
+        'Định tuyến công cụ bằng embedding đã đo 81,6%, đủ để chọn công cụ khi số tiện ích tăng.'
+      ],
+      rules: [
+        { n: '1', title: 'Hợp đồng có số phiên bản', body: 'Lõi hứa không phá hợp đồng v1. Tiện ích ghi cần lõi bản nào, lõi từ chối bật nếu không khớp, thay vì chạy rồi hỏng.' },
+        { n: '2', title: 'Lõi không biết tên tiện ích', body: 'Trong lõi không có câu «nếu là YouTube thì…». Mọi hành vi riêng nằm trong khai báo của tiện ích.' },
+        { n: '3', title: 'Mỗi tiện ích chạy riêng', body: 'Tiện ích là tiến trình hoặc máy chủ MCP riêng. Nó sập thì cầu dao ngắt riêng nó, các tiện ích khác và lõi vẫn chạy.' },
+        { n: '4', title: 'Quyền khai báo trước, chủ nhà duyệt', body: 'Quyền cấp theo từng tài khoản, nên ô nhập không cần công tắc tìm web hay điều khiển nhà. Khoá cửa, bếp, bình nóng lạnh vẫn không bao giờ tự làm: không tiện ích nào xin được quyền đó.' },
+        { n: '5', title: 'Giao diện tự sinh từ khai báo', body: 'Ô cấu hình dựng từ lược đồ trong tệp khai báo. Tiện ích mới không kéo theo một trang web mới phải viết.' },
+        { n: '6', title: 'Một bộ kiểm chung trước khi bật', body: 'Mọi tiện ích qua cùng bài kiểm hợp đồng và kiểm sức khoẻ. Có nút tắt tức thì, và kết quả kiểm đo trên dữ liệu thật, không chỉ test giả.' }
+      ],
+      refs: [
+        { name: 'Hermes Agent', saw: 'Mở rộng chủ yếu bằng plugin và skill chứ không làm lõi phình to. Skill là tệp chữ, plugin thêm công cụ và móc vào bốn thời điểm, MCP khai báo trong cấu hình.', take: 'Tách rõ skill (chữ), plugin (mã), MCP (kết nối ngoài). Có thể dùng bốn móc trước và sau khi gọi model làm điểm cắm.' },
+        { name: 'Picsart AI Playground', saw: 'Một ô nhập dẫn tới hơn 90 model của 24 nhà cung cấp, trải từ ảnh sang video và âm thanh.', take: 'Người dùng chọn việc cần làm, không chọn model. Model là chuyện của combo phía sau.' },
+        { name: 'Manus, ChatGPT, Gemini', saw: 'Màn hình đầu chỉ có một câu hỏi, một ô nhập lớn và một hàng nút chế độ. Mọi thứ còn lại ẩn sau menu thu gọn.', take: 'Nguyên tắc bố cục: một cửa vào, ít chữ, thứ quản trị lùi ra sau. Hình thức và màu là thiết kế riêng của dự án.' }
+      ],
+      nots: [
+        { what: 'Viết lại lõi AI', why: 'Chỉ bọc lõi hiện có bằng hợp đồng, bot đang chạy thật nên không đập đi làm lại.' },
+        { what: 'Chợ tiện ích công khai', why: 'Cần ký số và duyệt mã, quá nặng nếu chỉ dùng trong nhà (chờ bạn trả lời câu 1).' },
+        { what: 'Giao diện riêng cho từng tiện ích', why: 'Chính điều này làm website lủng củng. Ô cấu hình tự sinh là đủ cho phần lớn.' },
+        { what: 'Đổi địa chỉ trang cũ ngay', why: 'Giữ chuyển hướng cho thói quen và đường dẫn đã lưu của người dùng.' },
+        { what: 'Chế độ tối ở bản đầu', why: 'Chốt bố cục trước, màu thêm sau khi bộ màu đã ổn.' }
+      ],
+      steps: [
+        { n: '1', what: 'Vỏ mới và Studio', how: 'dựng vỏ, menu năm mục, ô nhập chung, gọi lại đúng các API đang có.' },
+        { n: '2', what: 'Tác phẩm', how: 'gộp thư viện ảnh và video thành một.' },
+        { n: '3', what: 'Hệ thống', how: 'dời các trang quản trị cũ vào, chưa đổi ruột.' },
+        { n: '4', what: 'Hợp đồng v1', how: 'viết lược đồ khai báo, chuyển MCP và Chi tiêu thành hai tiện ích đầu tiên.' },
+        { n: '5', what: 'Nhà và kênh', how: 'chuyển Home Assistant, camera, Zalo, Telegram, từng cái một, mỗi lần đẩy lên đều đo lại.' }
+      ]
+    };
+  }
+}
+</script>
+</body>
+</html>

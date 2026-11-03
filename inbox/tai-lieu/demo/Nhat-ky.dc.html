@@ -1,0 +1,331 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<title>Nhật ký web2api</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600&family=Newsreader:opsz,wght@6..72,400;6..72,500&display=swap">
+<style>
+body{margin:0}
+button{font:inherit;cursor:pointer}
+a{color:inherit;text-decoration:none}
+select,input{font:inherit}
+input:focus{outline:none}
+button:focus-visible,a:focus-visible,select:focus-visible,input:focus-visible{outline:2px solid #0F766E;outline-offset:2px}
+.cuon{scrollbar-width:thin;scrollbar-color:#B9B6AE transparent}
+.cuon::-webkit-scrollbar{width:8px;height:8px}
+.cuon::-webkit-scrollbar-thumb{background:#B9B6AE;border-radius:4px}
+.o .nutto{opacity:0;transition:opacity .15s}
+.o:hover .nutto,.o:focus-within .nutto{opacity:1}
+.bn{display:none}
+.wmp{display:none}
+.ctxt{display:none}
+.tm a>svg:first-child,.tm button>svg:first-child{display:none}
+@media (max-width:1023px){
+.tb{min-height:52px !important;height:auto !important;padding:6px 14px !important;gap:10px !important}
+.tm{display:none !important}
+.wmd{display:none}.wmp{display:block}
+.ctxt{display:flex !important}
+.ctxb{display:none !important}
+.tao{display:none !important}
+.bn{display:flex !important;position:relative;z-index:20;flex:0 0 auto;align-items:stretch;border-top:1px solid #E4E2DC;background:#FBFAF8;padding:0 4px env(safe-area-inset-bottom,0px)}
+.bn > a,.bn > button{min-height:52px;justify-content:center}
+main.pg{padding:12px 16px 0 !important}
+}
+@media (pointer:coarse){input,select,textarea{font-size:16px !important}[role=menuitem]{min-height:44px !important}}
+</style>
+</helmet>
+<div style="--ink:#181816;--mute:#66645F;--line:#E4E2DC;--bg:#F6F5F2;--card:#FFFFFF;--acc:#0F766E;--accsoft:#E2F0ED;height:100vh;height:100dvh;min-height:560px;overflow-x:hidden;display:flex;flex-direction:column;flex-wrap:nowrap;background:var(--bg);color:var(--ink);font-family:'Be Vietnam Pro',system-ui,sans-serif;font-size:14px;line-height:1.5">
+
+<nav aria-label="Điều hướng chính" class="tb" style="{{navStyle}}">
+<div style="display:flex;align-items:center;gap:12px;flex:0 0 auto">
+<a href="{{back.href}}" aria-label="Quay lại {{back.ten}}" title="Quay lại {{back.ten}}" style="display:flex;align-items:center;gap:6px;height:40px;padding:0 16px 0 12px;box-sizing:border-box;border:1px solid var(--line);border-radius:20px;background:var(--card);color:var(--ink);font-size:14px;font-weight:500;white-space:nowrap"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 12H5 M11 6l-6 6 6 6"></path></svg><span>Quay lại</span></a>
+</div>
+<div class="tm" style="display:flex;flex-wrap:wrap;align-items:center;gap:2px 2px;flex:1 1 auto;min-width:0">
+<sc-for list="{{nav}}" as="n" hint-placeholder-count="6">
+<div style="position:relative;flex:0 0 auto">
+<sc-if value="{{n.link}}" hint-placeholder-val="{{true}}"><a href="{{n.href}}" aria-label="{{n.label}}" onClick="{{n.dong}}" style="{{n.style}}"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="{{n.d}}"></path></svg><span>{{n.label}}</span></a></sc-if>
+<sc-if value="{{n.hasSub}}" hint-placeholder-val="{{false}}"><button type="button" aria-haspopup="menu" aria-expanded="{{n.open}}" onClick="{{n.toggle}}" style="{{n.btnStyle}}"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="{{n.d}}"></path></svg><span>{{n.label}}</span><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="{{n.chev}}"><path d="M6 9l6 6 6-6"></path></svg></button>
+<sc-if value="{{n.open}}" hint-placeholder-val="{{false}}">
+<div role="menu" aria-label="Mục trong {{n.label}}" style="position:absolute;top:calc(100% + 8px);left:50%;transform:translateX(-50%);z-index:30;width:200px;box-sizing:border-box;background:var(--card);border:1px solid var(--line);border-radius:14px;box-shadow:0 12px 32px rgba(24,24,22,0.14);padding:4px;display:flex;flex-direction:column;gap:1px">
+<sc-for list="{{n.subs}}" as="u" hint-placeholder-count="5">
+<sc-if value="{{u.ext}}" hint-placeholder-val="{{false}}"><a role="menuitem" href="{{u.href}}" onClick="{{u.pick}}" style="{{u.style}}"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="{{u.d}}"></path></svg><span>{{u.label}}</span><sc-if value="{{u.coBao}}" hint-placeholder-val="{{false}}"><span style="margin-left:auto;min-width:20px;height:20px;box-sizing:border-box;padding:0 6px;border-radius:10px;background:#B42318;color:#fff;font-size:12px;font-weight:600;display:flex;align-items:center;justify-content:center">{{u.bao}}</span></sc-if></a></sc-if>
+<sc-if value="{{u.inner}}" hint-placeholder-val="{{false}}"><button type="button" role="menuitem" aria-current="{{u.on}}" onClick="{{u.pick}}" style="{{u.style}}"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="{{u.d}}"></path></svg><span>{{u.label}}</span><sc-if value="{{u.coBao}}" hint-placeholder-val="{{false}}"><span style="margin-left:auto;min-width:20px;height:20px;box-sizing:border-box;padding:0 6px;border-radius:10px;background:#B42318;color:#fff;font-size:12px;font-weight:600;display:flex;align-items:center;justify-content:center">{{u.bao}}</span></sc-if></button></sc-if>
+</sc-for>
+</div>
+</sc-if></sc-if>
+</div>
+</sc-for>
+</div>
+<div class="acc" style="position:relative;flex:0 0 auto;margin-left:auto">
+<button type="button" aria-haspopup="menu" aria-expanded="{{accMo}}" aria-label="Tài khoản" onClick="{{accToggle}}" style="width:36px;height:36px;padding:0;border-radius:50%;border:0;background:var(--accsoft);color:#0B5A53;display:flex;align-items:center;justify-content:center;font:inherit;font-weight:600;cursor:pointer">C</button>
+<sc-if value="{{accMo}}" hint-placeholder-val="{{false}}">
+<div role="menu" aria-label="Tài khoản" style="position:absolute;top:calc(100% + 8px);right:0;z-index:30;width:248px;max-width:calc(100vw - 24px);box-sizing:border-box;background:var(--card);border:1px solid var(--line);border-radius:14px;box-shadow:0 12px 32px rgba(24,24,22,0.14);padding:6px;display:flex;flex-direction:column;gap:2px">
+<div style="display:flex;align-items:center;gap:12px;padding:10px 10px 12px">
+<div style="flex:0 0 auto;width:40px;height:40px;border-radius:50%;background:var(--accsoft);color:#0B5A53;display:flex;align-items:center;justify-content:center;font-weight:600;font-size:16px">C</div>
+<div style="display:flex;flex-direction:column;line-height:1.35;min-width:0"><span style="font-weight:600">Chủ nhà</span><span style="font-size:12px;color:var(--mute)">Quản trị viên</span></div>
+</div>
+<div style="height:1px;background:var(--line);margin:0 4px 4px"></div>
+<button type="button" role="menuitem" onClick="{{dangXuat}}" style="display:flex;align-items:center;gap:10px;width:100%;box-sizing:border-box;min-height:44px;padding:0 12px;border:0;border-radius:10px;background:transparent;color:#B42318;font:inherit;font-size:14px;font-weight:500;text-align:left;cursor:pointer"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 4H5v16h5 M15 8l4 4-4 4 M19 12H9"></path></svg>Đăng xuất</button>
+</div>
+</sc-if>
+</div>
+</nav>
+
+<main class="pg" style="flex:1 1 0;min-width:0;min-height:0;overflow-x:hidden;display:flex;flex-direction:column;gap:16px;box-sizing:border-box;padding:20px 32px 0">
+
+<div class="cuon" style="flex:1 1 0;min-width:0;min-height:0;overflow-y:auto;display:flex;flex-direction:column;gap:16px;padding:0 8px 24px 0">
+
+
+<sc-if value="{{coBar}}" hint-placeholder-val="{{true}}">
+<div style="display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;justify-content:space-between">
+<sc-if value="{{coLoc}}" hint-placeholder-val="{{true}}">
+<div style="display:flex;flex-wrap:wrap;gap:8px;flex:1 1 320px;min-width:0">
+<label style="flex:1 1 220px;max-width:360px;height:44px;box-sizing:border-box;padding:0 14px;border-radius:22px;border:1px solid var(--line);background:var(--card);display:flex;align-items:center;gap:8px">
+<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#66645F" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="{{iSearch}}"></path></svg>
+<input type="search" aria-label="Tìm trong danh sách" placeholder="Tìm…" value="{{q}}" onInput="{{onQ}}" style="border:0;background:transparent;color:var(--ink);font-size:14px;flex:1;min-width:0;height:100%">
+</label>
+<label style="height:44px;box-sizing:border-box;padding:0 8px 0 14px;border-radius:22px;border:1px solid var(--line);background:var(--card);display:flex;align-items:center">
+<select aria-label="Lọc theo mức" value="{{tt}}" onChange="{{onTt}}" style="border:0;background:transparent;color:var(--ink);font-size:13px;font-weight:500;height:100%;cursor:pointer">
+<option value="all">Mọi mức</option>
+<option value="ok">Thông tin</option>
+<option value="warn">Cảnh báo</option>
+<option value="err">Lỗi</option>
+</select>
+</label>
+</div>
+</sc-if>
+<sc-if value="{{cur.coNut}}" hint-placeholder-val="{{true}}">
+<button type="button" onClick="{{bamNut}}" style="margin-left:auto;min-height:44px;padding:0 18px;border-radius:22px;border:0;background:var(--ink);color:#fff;font-weight:500">{{cur.nut}}</button>
+</sc-if>
+</div>
+</sc-if>
+
+<div style="display:flex;flex-direction:column;gap:8px">
+<sc-for list="{{rows}}" as="r" hint-placeholder-count="5">
+<div class="o" style="background:var(--card);border:1px solid var(--line);border-radius:14px;overflow:hidden">
+<div style="display:flex;flex-wrap:wrap;align-items:center;gap:8px 16px;padding:8px 12px 8px 16px;min-height:60px;box-sizing:border-box">
+<sc-if value="{{r.coAv}}" hint-placeholder-val="{{false}}"><span style="width:44px;height:44px;border-radius:50%;background:#EFEDE8;color:#8F8D86;display:flex;align-items:center;justify-content:center;flex:0 0 auto" aria-hidden="true"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4a4 4 0 1 0 0 8 4 4 0 0 0 0-8z M5 20a7 7 0 0 1 14 0"></path></svg></span></sc-if>
+<button type="button" aria-expanded="{{r.open}}" aria-label="{{r.label}}" onClick="{{r.pick}}" style="flex:1 1 240px;min-width:0;min-height:44px;border:0;background:transparent;color:var(--ink);text-align:left;padding:0;display:flex;flex-direction:column;justify-content:center;line-height:1.35">
+<span style="font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{r.title}}</span>
+<span style="font-size:12px;color:var(--mute);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{r.sub}}</span>
+</button>
+<sc-if value="{{r.coChip}}" hint-placeholder-val="{{false}}">
+<span style="font-size:12px;color:var(--mute);padding:3px 10px;border-radius:12px;background:var(--bg);border:1px solid var(--line)">{{r.chip}}</span>
+</sc-if>
+<span style="{{r.pillStyle}}">{{r.pill}}</span>
+<div class="nutto" style="display:flex;flex-wrap:nowrap;gap:6px">
+<sc-for list="{{r.acts}}" as="a" hint-placeholder-count="2">
+<button type="button" aria-label="{{a.aria}}" style="min-height:44px;padding:0 14px;border-radius:22px;border:1px solid var(--line);background:var(--card);color:var(--ink);font-size:13px;font-weight:500;white-space:nowrap">{{a.label}}</button>
+</sc-for>
+</div>
+<sc-if value="{{r.coTog}}" hint-placeholder-val="{{false}}">
+<button type="button" role="switch" aria-checked="{{r.on}}" aria-label="{{r.togLabel}}" onClick="{{r.tog}}" style="width:52px;height:44px;border:0;background:transparent;padding:0;display:flex;align-items:center;justify-content:center">
+<span style="{{r.trackStyle}}"><span style="{{r.knobStyle}}"></span></span>
+</button>
+</sc-if>
+</div>
+<sc-if value="{{r.open}}" hint-placeholder-val="{{false}}">
+<div style="border-top:1px solid var(--line);background:#FBFAF8;padding:12px 16px">
+<span style="font-size:13px;color:var(--mute);text-wrap:pretty">{{r.detail}}</span>
+</div>
+</sc-if>
+</div>
+</sc-for>
+<sc-if value="{{trong}}" hint-placeholder-val="{{false}}">
+<div style="border:1px dashed #CFCCC3;border-radius:14px;padding:32px 16px;text-align:center;color:var(--mute)">Không có mục nào khớp bộ lọc.</div>
+</sc-if>
+</div>
+
+<div style="font-size:12px;color:var(--mute);text-wrap:pretty">Bản mẫu minh hoạ. Nội dung các dòng là ví dụ, bản thật lấy từ máy chủ.</div>
+</div>
+</main>
+<nav aria-label="Điều hướng chính (điện thoại)" class="bn">
+<sc-for list="{{nav}}" as="n" hint-placeholder-count="6">
+<sc-if value="{{n.bLink}}" hint-placeholder-val="{{true}}"><a href="{{n.href}}" aria-label="{{n.label}}" onClick="{{n.dong}}" style="{{n.bstyle}}"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="{{n.d}}"></path></svg><span>{{n.ngan}}</span></a></sc-if>
+<sc-if value="{{n.bSub}}" hint-placeholder-val="{{false}}"><button type="button" aria-haspopup="menu" aria-expanded="{{n.open}}" aria-label="{{n.label}}" onClick="{{n.toggle}}" style="{{n.bbtn}}"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="{{n.d}}"></path></svg><span>{{n.ngan}}</span></button></sc-if>
+</sc-for>
+<sc-if value="{{coSheet}}" hint-placeholder-val="{{false}}">
+<div aria-hidden="true" style="position:absolute;{{sheet.arrow}};bottom:calc(100% + 4px);z-index:31;width:12px;height:12px;box-sizing:border-box;background:var(--card);border-right:1px solid var(--line);border-bottom:1px solid var(--line);transform:rotate(45deg)"></div>
+<div role="menu" aria-label="Mục trong {{sheet.label}}" style="position:absolute;{{sheet.pos}};width:200px;bottom:calc(100% + 10px);z-index:30;box-sizing:border-box;background:var(--card);border:1px solid var(--line);border-radius:14px;box-shadow:0 -6px 24px rgba(24,24,22,0.16);padding:4px;display:flex;flex-direction:column;gap:1px;max-height:60vh;overflow-y:auto">
+<sc-for list="{{sheet.subs}}" as="u" hint-placeholder-count="5">
+<sc-if value="{{u.ext}}" hint-placeholder-val="{{false}}"><a role="menuitem" href="{{u.href}}" onClick="{{u.pick}}" style="{{u.style}}"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="{{u.d}}"></path></svg><span>{{u.label}}</span><sc-if value="{{u.coBao}}" hint-placeholder-val="{{false}}"><span style="margin-left:auto;min-width:20px;height:20px;box-sizing:border-box;padding:0 6px;border-radius:10px;background:#B42318;color:#fff;font-size:12px;font-weight:600;display:flex;align-items:center;justify-content:center">{{u.bao}}</span></sc-if></a></sc-if>
+<sc-if value="{{u.inner}}" hint-placeholder-val="{{false}}"><button type="button" role="menuitem" aria-current="{{u.on}}" onClick="{{u.pick}}" style="{{u.style}}"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="{{u.d}}"></path></svg><span>{{u.label}}</span><sc-if value="{{u.coBao}}" hint-placeholder-val="{{false}}"><span style="margin-left:auto;min-width:20px;height:20px;box-sizing:border-box;padding:0 6px;border-radius:10px;background:#B42318;color:#fff;font-size:12px;font-weight:600;display:flex;align-items:center;justify-content:center">{{u.bao}}</span></sc-if></button></sc-if>
+</sc-for>
+</div>
+</sc-if>
+</nav>
+<sc-if value="{{backdrop}}" hint-placeholder-val="{{false}}"><div aria-hidden="true" onClick="{{menuDong}}" style="position:fixed;top:0;right:0;bottom:0;left:0;z-index:19"></div></sc-if>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1280,"height":860}}'>
+class Component extends DCLogic {
+  state = { 
+    tab: (() => { try { const j = JSON.parse(localStorage.getItem('web2api_muc') || 'null'); if (j && j.khung === 'Nhật ký' && ["chay", "goi", "tk", "mang", "mat", "kh", "he"].includes(j.muc)) { localStorage.removeItem('web2api_muc'); return j.muc; } } catch (e) { /* trình duyệt chặn */ } return 'chay'; })(), menuMo: null, accMo: false, q: '', tt: 'all', open: null, tg: {}, ghi: '' };
+
+  // Bấm menu từ khung khác khi khung này ĐÃ mở sẵn: nó không dựng lại nên không đọc được «mục cần mở» lúc khởi tạo — nghe thêm khi đang chạy.
+  caiMuc() { this._tm = true; try { const f = () => this.tuMuc(); window.addEventListener('storage', f); window.addEventListener('focus', f); window.addEventListener('pageshow', f); document.addEventListener('visibilitychange', f); } catch (e) { /* không có cửa sổ */ } }
+  tuMuc() { try { const j = JSON.parse(localStorage.getItem('web2api_muc') || 'null'); if (j && j.khung === "Nhật ký" && ["chay", "goi", "tk", "mang", "mat", "kh", "he"].includes(j.muc)) { localStorage.removeItem('web2api_muc'); this.setState(Object.assign({ tab: j.muc, menuMo: null, accMo: false, ddMo: null }, {})); } } catch (e) { /* trình duyệt chặn */ } }
+
+  renderVals() {
+    if (!this._tm) this.caiMuc();
+    const s = this.state;
+    const IC = {
+      logo: 'M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z',
+      plus: 'M12 5v14 M5 12h14',
+      chat: 'M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z',
+      home: 'M3 11l9-8 9 8 M5 10v10h14V10 M10 20v-6h4v6',
+      plug: 'M9 3v5 M15 3v5 M6 8h12v3a6 6 0 0 1-12 0z M12 17v4',
+      sliders: 'M4 7h10 M18 7h2 M4 17h2 M10 17h10 M16 5v4 M8 15v4',
+      folder: 'M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z',
+      search: 'M11 4a7 7 0 1 0 0 14 7 7 0 0 0 0-14z M20 20l-4-4',
+      pulse: 'M3 12h4l3-7 4 14 3-7h4',
+      users: 'M9 11a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7z M2.5 20a6.5 6.5 0 0 1 13 0 M16 4.5a3.5 3.5 0 0 1 0 6.5 M18 14a6.5 6.5 0 0 1 3.5 6',
+      cloud: 'M7 18a4 4 0 0 1-.6-8 5.5 5.5 0 0 1 10.7 1.2A3.4 3.4 0 0 1 17 18z',
+      cpu: 'M7 7h10v10H7z M10 3v4 M14 3v4 M10 17v4 M14 17v4 M3 10h4 M3 14h4 M17 10h4 M17 14h4',
+      layers: 'M12 3l9 5-9 5-9-5z M3 13l9 5 9-5',
+      run: 'M5 4l14 8-14 8z',
+      log: 'M6 3h9l4 4v14H6z M9 12h7 M9 16h7 M9 8h3',
+      save: 'M5 4h12l3 3v13H5z M8 4v5h8V4 M8 20v-6h8v6',
+      gear: 'M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z M19 12a7 7 0 0 0-.1-1.2l2-1.6-2-3.4-2.4 1a7 7 0 0 0-2-1.2L14 3h-4l-.5 2.6a7 7 0 0 0-2 1.2l-2.4-1-2 3.4 2 1.6A7 7 0 0 0 5 12c0 .4 0 .8.1 1.2l-2 1.6 2 3.4 2.4-1a7 7 0 0 0 2 1.2L10 21h4l.5-2.6a7 7 0 0 0 2-1.2l2.4 1 2-3.4-2-1.6c.1-.4.1-.8.1-1.2z'
+    };
+    const navBase = 'flex:0 0 auto;display:flex;align-items:center;gap:8px;height:40px;padding:0 10px;border-radius:20px;white-space:nowrap;';
+    const navOn = navBase + 'background:#EFEDE8;color:#181816;font-weight:500';
+    const navOff = navBase + 'color:#66645F';
+
+    // ---- dữ liệu mẫu theo từng trang. tone: ok | warn | err | off
+    const TONE = {
+      ok: ['Thông tin', 'background:#E2F0ED;color:#0B5A53'],
+      warn: ['Cảnh báo', 'background:#FBEFD5;color:#7A4B00'],
+      err: ['Lỗi', 'background:#FDECEA;color:#8A1C12'],
+      off: ['Đã tắt', 'background:#EFEDE8;color:#4A4944']
+    };
+    const R = (key, title, sub, tone, o) => Object.assign({ key, title, sub, tone, detail: '', acts: [], chip: '', tog: false }, o || {});
+    const PAGES = {
+      chay: { label: 'Lượt chạy', d: IC.run, title: 'Lượt chạy agent', sub: '', loc: true, nut: 'Xoá nhật ký cũ',
+        rows: [
+          R('l1', '[kênh] · [giờ]', '[tóm tắt yêu cầu]', 'ok', { chip: '[x] giây', detail: 'Công cụ đã dùng: [tên công cụ], [tên công cụ].', acts: ['Xem chi tiết'] }),
+          R('l2', '[kênh] · [giờ]', '[tóm tắt yêu cầu]', 'ok', { chip: '[x] giây', detail: 'Công cụ đã dùng: [tên công cụ].', acts: ['Xem chi tiết'] }),
+          R('l3', '[kênh] · [giờ]', '[tóm tắt yêu cầu]', 'warn', { chip: '[x] giây', detail: 'Chạy lâu hơn thường lệ và lặp lại cùng một công cụ nhiều lần.', acts: ['Xem chi tiết'] }),
+          R('l4', '[kênh] · [giờ]', '[tóm tắt yêu cầu]', 'err', { chip: '[x] giây', detail: 'Dừng giữa chừng vì công cụ trả lỗi.', acts: ['Xem chi tiết'] })
+        ] },
+      goi: { label: 'Cuộc gọi', d: IC.cloud, title: 'Cuộc gọi', sub: '', loc: true, nut: 'Xoá nhật ký cũ',
+        rows: [
+          R('g1', '[giờ] · [nguồn]', '[model] · [số] token', 'ok', { chip: '[x] giây', detail: 'Gửi tới [nhà cung cấp] bằng [tài khoản].', acts: ['Xem chi tiết'] }),
+          R('g2', '[giờ] · [nguồn]', '[model] · [số] token', 'ok', { chip: '[x] giây', acts: ['Xem chi tiết'] }),
+          R('g3', '[giờ] · [nguồn]', '[model] · [số] token', 'warn', { chip: '[x] giây', detail: 'Chậm hơn thường lệ, đã tự chuyển sang nguồn kế tiếp.', acts: ['Xem chi tiết'] }),
+          R('g4', '[giờ] · [nguồn]', '[model]', 'err', { chip: '[mã lỗi]', detail: 'Nhà cung cấp từ chối: hết hạn mức.', acts: ['Xem chi tiết'] })
+        ] },
+      tk: { label: 'Tài khoản', d: IC.users, title: 'Tài khoản', sub: '', loc: true, nut: 'Xoá nhật ký cũ',
+        rows: [
+          R('t1', '[giờ] · [tài khoản]', 'Đã làm mới phiên đăng nhập', 'ok', {}),
+          R('t2', '[giờ] · [tài khoản]', 'Hết hạn mức, tự nghỉ đến [giờ]', 'warn', { detail: 'Hệ thống tự dùng tài khoản khác.' }),
+          R('t3', '[giờ] · [tài khoản]', 'Phiên hết hạn, cần đăng nhập lại', 'err', { detail: 'Đăng nhập lại ở Hệ thống › Tài khoản.' }),
+          R('t4', '[giờ] · [quản trị viên]', 'Đã thêm tài khoản mới', 'ok', {})
+        ] },
+      mang: { label: 'Mạng nhà', d: IC.home, title: 'Mạng nhà', sub: '', loc: true, nut: 'Xoá nhật ký cũ',
+        rows: [
+          R('m1', '[giờ] · [địa chỉ MAC]', 'Thiết bị lạ xin vào mạng, đang chờ duyệt', 'warn', { acts: ['Mở Chờ duyệt'] }),
+          R('m2', '[giờ] · [tên thiết bị]', 'Đã duyệt vào nhóm [nhóm]', 'ok', {}),
+          R('m3', '[giờ] · [tên thiết bị]', 'Đã kick và xoá khỏi router', 'warn', { detail: 'Nối lại sẽ thành thiết bị lạ, chờ duyệt từ đầu.' }),
+          R('m4', '[giờ] · [tên thiết bị]', 'Hết hạn dùng mạng, đã gỡ', 'ok', {}),
+          R('m5', '[giờ] · [tên thiết bị]', 'Đã xoá IP vì quá [số] ngày không dùng mạng', 'ok', {}),
+          R('m6', '[giờ] · [tên thiết bị]', 'Dùng nhờ hết [thời gian], đã tự kích ra', 'ok', {}),
+          R('m7', '[giờ] · [tên thiết bị]', 'Đã chặn internet', 'warn', {}),
+          R('m8', '[giờ]', 'Internet rớt, [x] phút sau có lại', 'err', {})
+        ] },
+      mat: { label: 'Nhận diện', d: IC.users, title: 'Nhận diện', sub: '', loc: true, nut: 'Xoá nhật ký cũ',
+        rows: [
+          R('f1', '[giờ] · Cam cửa', 'Mặt chưa khớp ai · gần nhất [Người 2] [x]%', 'warn', { av: true, chip: 'Gặp [x] lần', acts: ['Đặt tên', 'Bỏ qua'], detail: 'Dưới ngưỡng nhận diện nên không ghi vào Lịch sử của người nào.' }),
+          R('f2', '[giờ] · Cam ban công', 'Mặt chưa khớp ai · gần nhất [Người 1] [x]%', 'warn', { av: true, chip: 'Gặp [x] lần', acts: ['Đặt tên', 'Bỏ qua'] }),
+          R('f3', '[giờ] · Cam bếp', 'Mặt chưa khớp ai · gần nhất [Người 3] [x]%', 'warn', { av: true, chip: 'Gặp [x] lần', acts: ['Đặt tên', 'Bỏ qua'] }),
+          R('f4', '[giờ] · Cam cửa', 'Không dò ra mặt (người cúi đầu hoặc quay lưng)', 'ok', { chip: '[x] lần', acts: ['Xem chi tiết'] })
+        ] },
+      kh: { label: 'Kích hoạt nhà', d: 'M13 3L5 14h6l-1 7 8-11h-6z', title: 'Kích hoạt nhà', sub: 'Mỗi lần bot bật, tắt, hỏi hoặc không làm một thiết bị trong nhà — kèm nguồn kích hoạt và lý do. (Trước đây nằm trong Nhà › Học hỏi.)', loc: true, nut: 'Làm mới',
+        rows: [
+          R("k1", "Bình nóng lạnh · bật — không làm", "09/10 16:05 · Camera cửa thấy người có người vào", "off", { pt: "Không làm", chip: "09/10 16:05", detail: "Nguồn: Camera cửa thấy người có người vào. Lý do: luật chưa qua kiểm tiến dần. Không có điều kiện số đo kèm.", acts: ['Mở thiết bị'] }),
+          R("k2", "Bình nóng lạnh · bật — không làm", "09/10 15:43 · Cảm biến âm thanh ban công có người vào", "off", { pt: "Không làm", chip: "09/10 15:43", detail: "Nguồn: Cảm biến âm thanh ban công có người vào. Lý do: luật chưa qua kiểm tiến dần. Không có điều kiện số đo kèm.", acts: ['Mở thiết bị'] }),
+          R("k3", "Bình nóng lạnh · bật — không làm", "09/10 15:14 · Camera cửa thấy người có người vào", "off", { pt: "Không làm", chip: "09/10 15:14", detail: "Nguồn: Camera cửa thấy người có người vào. Lý do: luật chưa qua kiểm tiến dần. Không có điều kiện số đo kèm.", acts: ['Mở thiết bị'] }),
+          R("k4", "Bình nóng lạnh · bật — không làm", "09/10 11:24 · Camera cửa thấy người có người vào", "off", { pt: "Không làm", chip: "09/10 11:24", detail: "Nguồn: Camera cửa thấy người có người vào. Lý do: luật chưa qua kiểm tiến dần. Không có điều kiện số đo kèm.", acts: ['Mở thiết bị'] }),
+          R("k5", "Bình nóng lạnh · bật — không làm", "09/10 11:14 · Camera ban công thấy người có người vào", "off", { pt: "Không làm", chip: "09/10 11:14", detail: "Nguồn: Camera ban công thấy người có người vào. Lý do: luật chưa qua kiểm tiến dần. Không có điều kiện số đo kèm.", acts: ['Mở thiết bị'] }),
+          R("k6", "ir quat Phòng khách · tắt — không làm", "09/10 07:12 · Camera phòng khách thấy người vắng", "off", { pt: "Không làm", chip: "09/10 07:12", detail: "Nguồn: Camera phòng khách thấy người vắng. Lý do: thiết bị đang «off» sẵn. Không có điều kiện số đo kèm.", acts: ['Mở thiết bị'] }),
+          R("k7", "ir quat Phòng khách · tắt — không làm", "09/10 07:12 · Camera bếp thấy người vắng", "off", { pt: "Không làm", chip: "09/10 07:12", detail: "Nguồn: Camera bếp thấy người vắng. Lý do: thiết bị đang «off» sẵn. Không có điều kiện số đo kèm.", acts: ['Mở thiết bị'] }),
+          R("k8", "Đèn trần · tắt — không làm", "09/10 07:12 · Hiện diện phòng khách Có người vắng 90 giây", "off", { pt: "Không làm", chip: "09/10 07:12", detail: "Nguồn: Hiện diện phòng khách Có người vắng 90 giây. Lý do: trường hợp duyệt #9: chưa đủ điều kiện — binary_sensor.phong_khach_person_occupancy=off✗, sensor.hien_dien_phong_khach_distance=0✓ (xét 5 lần trong 45 giây). Không có điều kiện số đo kèm.", acts: ['Mở thiết bị'] }),
+          R("k9", "ir quat Phòng khách · tắt — đã làm", "09/10 07:11 · ", "ok", { pt: "Đã làm", chip: "09/10 07:11", detail: "Nguồn: . Lý do: tắt khi vắng: Có người — Quạt phòng khách — vắng 2 phút; tự xác minh: không nguồn nào thấy người: Cam phòng khách, Cam bếp, binary_sensor.hien_dien_phong_khach_presence (nhìn 6 lần trong 45 giây). Điều kiện lúc đó: phut_cho 2.", acts: ['Mở thiết bị'] }),
+          R("k10", "Đèn trần · tắt — người tự làm", "09/10 07:08 · ", "ok", { pt: "Người tự làm", chip: "09/10 07:08", detail: "Nguồn: . Lý do: người tự bật/tắt (công tắc, app, giọng nói). Không có điều kiện số đo kèm.", acts: ['Mở thiết bị'] }),
+          R("k11", "Đèn trần · tắt — không làm", "09/10 07:07 · Hiện diện phòng khách Có người vắng 90 giây", "off", { pt: "Không làm", chip: "09/10 07:07", detail: "Nguồn: Hiện diện phòng khách Có người vắng 90 giây. Lý do: trường hợp duyệt #9: chưa đủ điều kiện — binary_sensor.phong_khach_person_occupancy=on✗, sensor.hien_dien_phong_khach_distance=0✓ (xét 5 lần trong 45 giây). Không có điều kiện số đo kèm.", acts: ['Mở thiết bị'] })
+        ] },
+      he: { label: 'Hệ thống', d: IC.gear, title: 'Hệ thống', sub: '', loc: true, nut: 'Xoá nhật ký cũ',
+        rows: [
+          R('h1', '[giờ] · [dịch vụ]', 'Đã khởi động', 'ok', {}),
+          R('h2', '[giờ] · Home Assistant', 'Mất kết nối, đang nối lại', 'warn', { detail: 'Nhịp nối lại bình thường sau khi khởi động.' }),
+          R('h3', '[giờ] · Sao lưu', 'Sao lưu thành công', 'ok', { chip: '[dung lượng]' }),
+          R('h4', '[giờ] · [dịch vụ]', 'Ổ đĩa còn ít chỗ', 'warn', {}),
+          R('h5', '[giờ] · [dịch vụ]', 'Lỗi không xử lý được yêu cầu', 'err', { detail: '[nội dung lỗi]' })
+        ] }
+    };
+    const ORDER = ['chay', 'goi', 'tk', 'mang', 'mat', 'kh', 'he'];
+    const cur = PAGES[s.tab];
+
+    const tabStyle = (on) => 'display:flex;align-items:center;gap:10px;width:100%;box-sizing:border-box;min-height:44px;padding:0 12px;border:0;border-radius:12px;text-align:left;white-space:nowrap;background:' + (on ? '#EFEDE8' : 'transparent') + ';color:' + (on ? '#181816' : '#66645F') + ';font-size:14px;font-weight:' + (on ? '600' : '400');
+    const tabs = ORDER.map((id) => ({ label: PAGES[id].label, d: PAGES[id].d, on: s.tab === id, style: tabStyle(s.tab === id),
+      pick: () => this.setState({ tab: id, q: '', tt: 'all', open: null }) }));
+
+    const q = (s.q || '').trim().toLowerCase();
+    const list = cur.rows.filter((r) => (s.tt === 'all' || r.tone === s.tt) && (!q || (r.title + ' ' + r.sub).toLowerCase().includes(q)));
+    const rows = list.map((r) => {
+      const id = s.tab + ':' + r.key;
+      const on = id in s.tg ? s.tg[id] : (r.on !== undefined ? r.on : r.tone !== 'off');
+      const tone = r.tog && !on && r.tone !== 'err' ? 'off' : r.tone;
+      const open = s.open === id;
+      return { open, title: r.title, sub: r.sub, label: 'Xem chi tiết: ' + r.title,
+        chip: r.chip, coChip: !!r.chip, pill: r.pt || TONE[tone][0], pillStyle: 'flex:0 0 auto;padding:3px 12px;border-radius:14px;font-size:12px;font-weight:500;' + TONE[tone][1],
+        coAv: !!r.av, coTog: !!r.tog, on, togLabel: (on ? 'Tắt ' : 'Bật ') + r.title,
+        trackStyle: 'display:block;position:relative;width:40px;height:24px;border-radius:12px;transition:background .15s;background:' + (on ? '#0F766E' : '#B9B6AE'),
+        knobStyle: 'position:absolute;top:2px;left:' + (on ? 18 : 2) + 'px;width:20px;height:20px;border-radius:50%;background:#fff;transition:left .15s',
+        tog: () => this.setState({ tg: Object.assign({}, s.tg, { [id]: !on }) }),
+        detail: r.detail || 'Chưa có thông tin thêm.', acts: (r.acts.length ? r.acts : ['Mở']).map((label) => ({ label, aria: label + ': ' + r.title })),
+        pick: () => this.setState({ open: open ? null : id }) };
+    });
+
+    // ---- Menu của trang HỆ THỐNG: trang RIÊNG với các trang sử dụng, có nút «Quay lại» về trang vừa rời; mục thuộc khung khác thì nhớ mục rồi chuyển khung.
+    const SELF = 'Nhat-ky.dc.html';
+    const ZNAV = [{"id": "tong", "label": "Tổng quan", "ngan": "Tổng quan", "d": "M3 12h4l3-7 4 14 3-7h4", "frame": "He-thong.dc.html", "khung": "Hệ thống", "muc": "tong"}, {"id": "ai", "label": "AI", "ngan": "AI", "d": "M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z M19 16l.7 2 2 .7-2 .7-.7 2-.7-2-2-.7 2-.7z", "frame": "Bo-nao.dc.html", "khung": "AI", "subs": [{"id": "tk", "label": "Tài khoản", "d": "M9 11a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7z M2.5 20a6.5 6.5 0 0 1 13 0 M16 4.5a3.5 3.5 0 0 1 0 6.5 M18 14a6.5 6.5 0 0 1 3.5 6"}, {"id": "pv", "label": "Provider", "d": "M7 18a4 4 0 0 1-.6-8 5.5 5.5 0 0 1 10.7 1.2A3.4 3.4 0 0 1 17 18z"}, {"id": "cb", "label": "Combo", "d": "M12 3l9 5-9 5-9-5z M3 13l9 5 9-5"}]}, {"id": "tien", "label": "Tiện ích", "ngan": "Tiện ích", "d": "M9 3v5 M15 3v5 M6 8h12v3a6 6 0 0 1-12 0z M12 17v4", "frame": "Tien-ich.dc.html", "khung": "Tiện ích"}, {"id": "nk", "label": "Nhật ký", "ngan": "Nhật ký", "d": "M6 3h9l4 4v14H6z M9 12h7 M9 16h7 M9 8h3", "frame": "Nhat-ky.dc.html", "khung": "Nhật ký", "subs": [{"id": "chay", "label": "Lượt chạy", "d": "M5 4l14 8-14 8z"}, {"id": "goi", "label": "Cuộc gọi", "d": "M7 18a4 4 0 0 1-.6-8 5.5 5.5 0 0 1 10.7 1.2A3.4 3.4 0 0 1 17 18z"}, {"id": "tk", "label": "Tài khoản", "d": "M9 11a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7z M2.5 20a6.5 6.5 0 0 1 13 0 M16 4.5a3.5 3.5 0 0 1 0 6.5 M18 14a6.5 6.5 0 0 1 3.5 6"}, {"id": "mang", "label": "Mạng nhà", "d": "M3 11l9-8 9 8 M5 10v10h14V10 M10 20v-6h4v6"}, {"id": "mat", "label": "Nhận diện", "d": "M9 11a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7z M2.5 20a6.5 6.5 0 0 1 13 0 M16 4.5a3.5 3.5 0 0 1 0 6.5 M18 14a6.5 6.5 0 0 1 3.5 6"}, {"id": "kh", "label": "Kích hoạt nhà", "d": "M13 3L5 14h6l-1 7 8-11h-6z"}, {"id": "he", "label": "Hệ thống", "d": "M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z M19 12a7 7 0 0 0-.1-1.2l2-1.6-2-3.4-2.4 1a7 7 0 0 0-2-1.2L14 3h-4l-.5 2.6a7 7 0 0 0-2 1.2l-2.4-1-2 3.4 2 1.6A7 7 0 0 0 5 12c0 .4 0 .8.1 1.2l-2 1.6 2 3.4 2.4-1a7 7 0 0 0 2 1.2L10 21h4l.5-2.6a7 7 0 0 0 2-1.2l2.4 1 2-3.4-2-1.6c.1-.4.1-.8.1-1.2z"}]}, {"id": "cd", "label": "Cấu hình", "ngan": "Cấu hình", "d": "M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z M19 12a7 7 0 0 0-.1-1.2l2-1.6-2-3.4-2.4 1a7 7 0 0 0-2-1.2L14 3h-4l-.5 2.6a7 7 0 0 0-2 1.2l-2.4-1-2 3.4 2 1.6A7 7 0 0 0 5 12c0 .4 0 .8.1 1.2l-2 1.6 2 3.4 2.4-1a7 7 0 0 0 2 1.2L10 21h4l.5-2.6a7 7 0 0 0 2-1.2l2.4 1 2-3.4-2-1.6c.1-.4.1-.8.1-1.2z", "frame": "He-thong.dc.html", "khung": "Hệ thống", "muc": "cd"}, {"id": "lh", "label": "Liên lạc & giọng nói", "ngan": "Liên lạc", "d": "M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z", "frame": "He-thong.dc.html", "khung": "Hệ thống", "muc": "lh"}, {"id": "lt", "label": "Lưu trữ & sao lưu", "ngan": "Lưu trữ", "d": "M7 18a4 4 0 0 1-.6-8 5.5 5.5 0 0 1 10.7 1.2A3.4 3.4 0 0 1 17 18z", "frame": "He-thong.dc.html", "khung": "Hệ thống", "muc": "lt"}, {"id": "ts", "label": "Tìm kiếm & dịch", "ngan": "Tìm kiếm", "d": "M11 4a7 7 0 1 0 0 14 7 7 0 0 0 0-14z M20 20l-4-4", "frame": "He-thong.dc.html", "khung": "Hệ thống", "muc": "ts"}, {"id": "mcp", "label": "MCP", "ngan": "MCP", "d": "M4 5h16v6H4z M4 13h16v6H4z M8 8h.01 M8 16h.01", "frame": "He-thong.dc.html", "khung": "Hệ thống", "muc": "mcp"}, {"id": "bm", "label": "Bảo mật & người dùng", "ngan": "Bảo mật", "d": "M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z", "frame": "He-thong.dc.html", "khung": "Hệ thống", "muc": "bm"}];
+    const ACTIVE = 'nk';
+    const iStyle = (on) => 'display:flex;align-items:center;gap:10px;width:100%;box-sizing:border-box;min-height:38px;padding:0 10px;border:0;border-radius:9px;text-align:left;font:inherit;font-size:14px;text-decoration:none;cursor:pointer;color:#181816;background:' + (on ? '#EFEDE8' : 'transparent') + ';font-weight:' + (on ? '600' : '400');
+    const goInner = (muc) => { const k = typeof ORDER !== 'undefined' ? ORDER.indexOf(muc) : -1; if (k >= 0 && tabs[k]) tabs[k].pick(); };
+    const hoiMuc = (muc, khung) => { try { localStorage.setItem('web2api_muc', JSON.stringify({ khung, muc })); } catch (e) { /* trình duyệt chặn */ } };
+    const BACK = { 'Studio': 'Main.dc.html', 'Tác phẩm': 'Tac-pham.dc.html', 'Nhà': 'Nha.dc.html', 'Đời sống': 'Doi-song.dc.html' };
+    const back = (() => { let b = { ten: 'Studio', href: 'Main.dc.html' }; try { const j = JSON.parse(localStorage.getItem('web2api_tu') || 'null'); if (j && BACK[j.label]) b = { ten: j.label, href: BACK[j.label] }; } catch (e) { /* trình duyệt chặn */ } return b; })();
+    const navX = ZNAV.map((n, ni, arr) => { const L = n.subs; const open = !!L && s.menuMo === n.label; const same = n.frame === SELF; const on = n.id === ACTIVE;
+      const subs = (L || []).map((u) => { const onS = same && s.tab === u.id;
+        return { label: u.label, d: u.d, coBao: false, bao: 0, on: onS, ext: !same, inner: same, href: n.frame, style: iStyle(onS),
+          pick: same ? () => { goInner(u.id); this.setState({ menuMo: null }); } : () => { hoiMuc(u.id, n.khung); this.setState({ menuMo: null }); } }; });
+      const style = on ? navOn : navOff;
+      const bst = 'flex:1 1 0;min-width:0;display:flex;flex-direction:column;align-items:center;gap:2px;padding:8px 2px;font-size:10px;font-weight:500;text-align:center;color:' + (on || open ? '#0F766E' : '#66645F');
+      return { label: n.label, ngan: n.ngan || n.label, d: n.d, href: n.frame, style, wst: '', bLink: !L, bSub: !!L, pos: 'left:clamp(8px,calc(' + (((ni + 0.5) / arr.length) * 100).toFixed(3) + '% - 100px),calc(100% - 208px))', arrow: 'left:calc(' + (((ni + 0.5) / arr.length) * 100).toFixed(3) + '% - 6px)', bstyle: bst, link: !L, hasSub: !!L, open, subs,
+        btnStyle: 'border:0;background:transparent;font:inherit;' + style, bbtn: 'border:0;background:transparent;font-family:inherit;' + bst,
+        chev: 'flex:0 0 auto;transition:transform .15s;transform:rotate(' + (open ? 180 : 0) + 'deg)',
+        toggle: () => this.setState({ menuMo: open ? null : n.label, accMo: false }),
+        dong: (e) => { if (same && !L) { if (e && e.preventDefault) e.preventDefault(); goInner(n.muc); } else if (n.muc) hoiMuc(n.muc, n.khung); this.setState({ menuMo: null, accMo: false }); } }; });
+    const sheet = navX.find((n) => n.open && n.bSub);
+    return {
+      sinCtx: true, back, menuMo: s.menuMo, accMo: !!s.accMo, backdrop: !!(s.menuMo || s.accMo), accToggle: () => this.setState({ accMo: !s.accMo, menuMo: null }), dangXuat: () => this.setState({ accMo: false }), menuDong: () => this.setState({ menuMo: null, accMo: false }), sheet: sheet || { label: '', subs: [] }, coSheet: !!sheet,
+      navStyle: 'flex:0 0 auto;position:sticky;top:0;z-index:20;box-sizing:border-box;display:flex;align-items:center;gap:12px;min-height:60px;padding:6px 24px;border-bottom:1px solid #CFE0DB;background:#EAF3F0',
+      logo: IC.logo, plus: IC.plus, iSearch: IC.search, nav: navX, tabs,
+      cur: { title: cur.title, sub: cur.sub, coSub: !!cur.sub, coNut: !!cur.nut, nut: cur.nut || '' },
+      bamNut: () => this.setState({ ghi: cur.nut }),
+      coTile: !!cur.tiles, tiles: cur.tiles || [],
+      coBar: !!cur.loc || !!cur.nut, coLoc: !!cur.loc, q: s.q, onQ: (e) => this.setState({ q: e.target.value }),
+      tt: s.tt, onTt: (e) => this.setState({ tt: e.target.value }),
+      rows, trong: rows.length === 0
+    };
+  }
+}
+</script>
+</body>
+</html>
