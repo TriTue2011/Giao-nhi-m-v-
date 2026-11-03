@@ -1,0 +1,334 @@
+diff --git a/app/kham_pha.py b/app/kham_pha.py
+index f645a5b..31f59bb 100644
+--- a/app/kham_pha.py
++++ b/app/kham_pha.py
+@@ -460,7 +460,9 @@ def _chuan_hoa_giao_dien(m: dict) -> None:
+     "chip": [{"id", "nhan", "nhom": [mã nhóm thực thể], "thu_tu": số nhỏ đứng trước}]}. `nhom` rỗng = các thực thể module
+     KHÔNG gắn nhóm; thực thể tự gắn `nhom` qua trường `nhom` của nó (xem app/thiet_bi.py).
+     Nhiều module cùng `muc` thì chung một trang mục (vd hai module mạng cùng mục «Mạng»). Khác `nhom_con` (làn của tab
+-    Module, KHÔNG đụng tới). Sai định dạng → cảnh báo và bỏ trường (không chặn nạp module); khi đó khung suy từ cấu trúc."""
++    Module, KHÔNG đụng tới). Sai định dạng → cảnh báo và bỏ trường (không chặn nạp module); khi đó khung suy từ cấu trúc.
++    NV304a: `nhung_tab: true` (tuỳ chọn, phải là bool) — trang khu nhúng trang tab riêng của module (iframe) thay vì
++    vẽ ô thực thể thô cho chip đó; chỉ có hiệu lực khi module đã liên kết và có mục tab trong /api/tinh-nang."""
+     if "giao_dien" not in m:
+         return
+     g = m["giao_dien"]
+@@ -499,7 +501,12 @@ def _chuan_hoa_giao_dien(m: dict) -> None:
+         if thu_tu is not None and type(thu_tu) is not int:
+             return bo("chip[].thu_tu phải là số nguyên (nhỏ đứng trước)")
+         chip_ra.append({"id": c["id"], "nhan": c["nhan"].strip(), "nhom": list(nhom), "thu_tu": thu_tu})
++    nhung_tab = g.get("nhung_tab", False)
++    if not isinstance(nhung_tab, bool):
++        return bo("nhung_tab phải là true/false")
+     m["giao_dien"] = {"khu": g["khu"], "muc": muc, "nhan": nhan.strip(), "chip": chip_ra}
++    if nhung_tab:
++        m["giao_dien"]["nhung_tab"] = True
+ 
+ 
+ def _chuan_hoa_thay_the(m: dict) -> None:
+diff --git a/modules/youtube/manifest.json b/modules/youtube/manifest.json
+index e8134c3..f96541f 100644
+--- a/modules/youtube/manifest.json
++++ b/modules/youtube/manifest.json
+@@ -1 +1 @@
+-{"cung_cap":["thiet_bi"],"duong_module":{"lan_chi":true},"giao_dien":{"chip":[],"khu":"doi_song","muc":"youtube","nhan":"YouTube"},"giao_thuc":"https","hang":"B","id":"youtube","loai":"tien_ich","loai_ten":"Tiện ích","loai_thu_tu":48,"mo_ta":"Máy phát YouTube/Zing chạy thẳng trong web2api cho Home Assistant (tích hợp tritue_youtube_player), KHÔNG cần container dịch vụ phụ riêng và không cần c2a. Phục vụ qua đường riêng của lõi /m/youtube/api/integration/* (Bearer = khoá khách phạm vi tich_hop@youtube do web2api tự tạo ở «Bảo mật & người dùng» > «Khoá cho dịch vụ ngoài gọi vào») và đường luồng mở bằng vé ký có hạn /m/youtube/api/stream/<vé> (loa không gửi được header); chỉ nhận nguồn LAN. Tìm kiếm + giải luồng bằng yt-dlp (YouTube) và endpoint gợi ý công khai của Zing; rơ-le nối lại tối đa 5 lần từ đúng byte, dừng là dừng hẳn (phiên chỉ ở RAM; danh sách phát và lịch sử lưu ở thư mục dữ liệu của module). HOÀN TOÀN RIÊNG với module youtube-phat (module đó chỉ là máy khách của dịch vụ phụ dich-vu/youtube-phat). CHƯA thử với YouTube thật / loa thật / HA thật; giải luồng Zing/Facebook chưa chuyển (trả 502 rõ, không bịa link); danh sách phát nhập được từ link playlist YouTube và mã chia sẻ TTPL1. (NV301).","nhom_con":"doi-song-va-giai-tri","phien_ban":"0.1.0","tab_web":{"nhan":"YouTube","trang":"web/index.html"},"tai_nguyen":{"dia_mb":null,"ghi_chu":"Chạy cùng tiến trình lõi. Trích xuất bằng yt-dlp tốn vài chục tới trăm MB + một lõi CPU mỗi lần (trần 2 lần cùng lúc, như dịch vụ cũ). Cần yt-dlp/yt-dlp-ejs/deno trong ảnh lõi (requirements.txt); thiếu thì module báo 502 rõ. RAM/đĩa chưa đo trên máy thật.","gpu":false,"mang_ra":["youtube.com","googlevideo.com","ytimg.com","zingmp3.vn","ac.zingmp3.vn"],"ram_them_mb":null},"ten":"YouTube (chạy thẳng trong web2api)","thay_the":["youtube-phat"],"tien_to":"youtube","truong_cau_hinh":[],"yeu_cau_goi":["httpx"]}
++{"cung_cap":["thiet_bi"],"duong_module":{"lan_chi":true},"giao_dien":{"chip":[],"khu":"doi_song","muc":"youtube","nhan":"YouTube","nhung_tab":true},"giao_thuc":"https","hang":"B","id":"youtube","loai":"tien_ich","loai_ten":"Tiện ích","loai_thu_tu":48,"mo_ta":"Máy phát YouTube/Zing chạy thẳng trong web2api cho Home Assistant (tích hợp tritue_youtube_player), KHÔNG cần container dịch vụ phụ riêng và không cần c2a. Phục vụ qua đường riêng của lõi /m/youtube/api/integration/* (Bearer = khoá khách phạm vi tich_hop@youtube do web2api tự tạo ở «Bảo mật & người dùng» > «Khoá cho dịch vụ ngoài gọi vào») và đường luồng mở bằng vé ký có hạn /m/youtube/api/stream/<vé> (loa không gửi được header); chỉ nhận nguồn LAN. Tìm kiếm + giải luồng bằng yt-dlp (YouTube) và endpoint gợi ý công khai của Zing; rơ-le nối lại tối đa 5 lần từ đúng byte, dừng là dừng hẳn (phiên chỉ ở RAM; danh sách phát và lịch sử lưu ở thư mục dữ liệu của module). HOÀN TOÀN RIÊNG với module youtube-phat (module đó chỉ là máy khách của dịch vụ phụ dich-vu/youtube-phat). CHƯA thử với YouTube thật / loa thật / HA thật; giải luồng Zing/Facebook chưa chuyển (trả 502 rõ, không bịa link); danh sách phát nhập được từ link playlist YouTube và mã chia sẻ TTPL1. (NV301). Trình phát nhúng trong tab Đời sống; tab riêng ẩn khỏi thanh Hệ thống (NV304a).","nhom_con":"doi-song-va-giai-tri","phien_ban":"0.1.0","tab_web":{"nhan":"YouTube","trang":"web/index.html","an_khoi_thanh":true},"tai_nguyen":{"dia_mb":null,"ghi_chu":"Chạy cùng tiến trình lõi. Trích xuất bằng yt-dlp tốn vài chục tới trăm MB + một lõi CPU mỗi lần (trần 2 lần cùng lúc, như dịch vụ cũ). Cần yt-dlp/yt-dlp-ejs/deno trong ảnh lõi (requirements.txt); thiếu thì module báo 502 rõ. RAM/đĩa chưa đo trên máy thật.","gpu":false,"mang_ra":["youtube.com","googlevideo.com","ytimg.com","zingmp3.vn","ac.zingmp3.vn"],"ram_them_mb":null},"ten":"YouTube (chạy thẳng trong web2api)","thay_the":["youtube-phat"],"tien_to":"youtube","truong_cau_hinh":[],"yeu_cau_goi":["httpx"]}
+diff --git a/modules/youtube/web/index.html b/modules/youtube/web/index.html
+index 1a4de85..cc5bb05 100644
+--- a/modules/youtube/web/index.html
++++ b/modules/youtube/web/index.html
+@@ -31,6 +31,9 @@
+     .thanh-chip-duoi .nut { flex: 0 0 auto; white-space: nowrap; }
+   }
+   .hang-kq .kenh { color: #555; font-size: 13px; }
++  /* NV304a: nhúng trong tab Đời sống (?nhung=1) thì ẩn chrome của trang tab
++     (nút quay lại + tiêu đề) — Đời sống đã có tiêu đề và chip của nó. */
++  html.nhung .quay-lai, html.nhung .tieu-de-trang { display: none; }
+   .hang-kq .hang-nut { margin: 6px 0 0; }
+   .hang-kq .hang-nut .nut { flex: none; }
+   .phien-dang-chon { background: #fff8e1; }
+@@ -42,13 +45,14 @@
+     .phien-dang-chon { background: #332f00; }
+   }
+ </style>
++<script>if (new URLSearchParams(location.search).has('nhung')) document.documentElement.classList.add('nhung');</script>
+ <script src="trang.js" defer></script>
+ </head>
+ <body>
+ <div class="goc">
+ <main class="trang-tb">
+   <a class="quay-lai" href="../../He-thong.dc.html">← Hệ thống</a>
+-  <h1>YouTube</h1>
++  <h1 class="tieu-de-trang">YouTube</h1>
+   <p class="phu">Trình phát YouTube/Zing chạy thẳng trong web2api. Mọi lệnh đi qua
+     máy chủ (trình duyệt không giữ khoá nào). Mục nào chưa có thì ẩn — không có nút chết.</p>
+   <p class="bao bao-loi" id="loi-chung" role="alert" hidden></p>
+diff --git a/test/test_module_youtube_nv304_a.py b/test/test_module_youtube_nv304_a.py
+new file mode 100644
+index 0000000..aa2a596
+--- /dev/null
++++ b/test/test_module_youtube_nv304_a.py
+@@ -0,0 +1,107 @@
++"""NV304 mảnh (a) — trình phát YouTube trong tab Đời sống + ẩn tab_web.
++
++Quy ước kiểm (đỏ-trước-xanh, không Internet thật):
++- Manifest module youtube: giao_dien khai `nhung_tab: true` (khu Đời sống
++  nhúng trang tab thay vì vẽ ô thực thể thô) và tab_web khai
++  `an_khoi_thanh: true` (cơ chế NV263 sẵn có ẩn khỏi thanh Hệ thống —
++  trang vẫn mở được bằng đường dẫn trực tiếp).
++- app/kham_pha.py `_chuan_hoa_giao_dien`: giữ `nhung_tab` bool, sai
++  kiểu thì bỏ cả giao_dien (như mọi trường sai định dạng khác).
++- web/khung.js `Khung.tabNhungCua` (hàm thuần, test bằng node như test
++  markdown): chỉ chọn tab khi module ĐÃ LIÊN KẾT và khai nhung_tab và
++  có mục tab trong /api/tinh-nang; chưa nối / không khai / không có tab
++  → None.
++- Mẫu trang khu có khung nhúng (iframe, cùng sandbox như trang Module);
++  trang tab YouTube ẩn chrome (nút quay lại + tiêu đề) khi ?nhung=1.
++"""
++
++from __future__ import annotations
++
++import json
++import pathlib
++import shutil
++import subprocess
++import sys
++
++import pytest
++
++GOC = pathlib.Path(__file__).resolve().parents[1]
++sys.path.insert(0, str(GOC))
++
++KHUNG = GOC / "web" / "khung.js"
++NODE = shutil.which("node")
++
++MANIFEST = json.loads((GOC / "modules" / "youtube" / "manifest.json").read_text())
++
++
++def test_manifest_youtube_nhung_tab_va_an_khoi_thanh():
++    assert MANIFEST["giao_dien"]["khu"] == "doi_song"
++    assert MANIFEST["giao_dien"]["nhung_tab"] is True
++    assert MANIFEST["tab_web"]["an_khoi_thanh"] is True
++
++
++def test_chuan_hoa_giao_dien_giu_nhung_tab():
++    from app.kham_pha import _chuan_hoa_giao_dien
++
++    m = {"id": "youtube",
++         "giao_dien": {"khu": "doi_song", "muc": "youtube", "nhan": "YouTube",
++                       "chip": [], "nhung_tab": True}}
++    _chuan_hoa_giao_dien(m)
++    assert m["giao_dien"]["nhung_tab"] is True
++
++    m2 = {"id": "youtube",
++          "giao_dien": {"khu": "doi_song", "muc": "youtube", "nhan": "YouTube",
++                        "chip": [], "nhung_tab": "co"}}
++    _chuan_hoa_giao_dien(m2)
++    assert "giao_dien" not in m2
++
++
++def test_template_khu_co_khung_nhung():
++    for ten in ("Doi-song.dc.html", "Nha.dc.html", "Tac-pham.dc.html"):
++        chu = (GOC / "web" / ten).read_text()
++        assert "nhungDuong" in chu, ten
++        assert "<iframe" in chu, ten
++        assert "allow-same-origin" in chu, ten
++
++
++def test_trang_youtube_an_chrome_khi_nhung():
++    chu = (GOC / "modules" / "youtube" / "web" / "index.html").read_text()
++    assert "nhung" in chu
++    assert "quay-lai" in chu
++
++
++CHAY_NODE = r"""
++const fs = require('fs'), vm = require('vm');
++const ctx = { window: {}, URL }; vm.createContext(ctx);
++vm.runInContext(fs.readFileSync(process.argv[1], 'utf8'), ctx);
++const vao = JSON.parse(fs.readFileSync(0, 'utf8'));
++const ra = vao.map((c) => ctx.window.Khung.tabNhungCua(c.mods, c.tab));
++process.stdout.write(JSON.stringify(ra));
++"""
++
++
++def tab_nhung_cua(*truong_hop):
++    r = subprocess.run([NODE, "-e", CHAY_NODE, str(KHUNG)],
++                       input=json.dumps(truong_hop), capture_output=True,
++                       text=True, timeout=60)
++    assert r.returncode == 0, r.stderr
++    return json.loads(r.stdout)
++
++
++@pytest.mark.skipif(not NODE, reason="cần node")
++def test_khung_tab_nhung_chi_khi_da_lien_ket_va_co_tab():
++    da_noi = [{"id": "youtube", "da_lien_ket": True,
++               "giao_dien": {"khu": "doi_song", "nhung_tab": True}}]
++    tab = [{"module": "youtube", "nhan": "YouTube",
++            "duong": "m/youtube/index.html", "an_khoi_thanh": True}]
++    (co, chua_noi, khong_khai, khong_tab) = tab_nhung_cua(
++        {"mods": da_noi, "tab": tab},
++        {"mods": [{**da_noi[0], "da_lien_ket": False}], "tab": tab},
++        {"mods": [{**da_noi[0],
++                   "giao_dien": {"khu": "doi_song"}}], "tab": tab},
++        {"mods": da_noi, "tab": []},
++    )
++    assert co == {"duong": "m/youtube/index.html", "nhan": "YouTube"}
++    assert chua_noi is None
++    assert khong_khai is None
++    assert khong_tab is None
+diff --git a/web/Doi-song.dc.html b/web/Doi-song.dc.html
+index f16cf31..fec4e93 100644
+--- a/web/Doi-song.dc.html
++++ b/web/Doi-song.dc.html
+@@ -18,6 +18,7 @@
+ .goc.khu a{color:inherit;text-decoration:none}
+ .hang-chip-khu{display:flex;flex-wrap:wrap;gap:8px;padding-bottom:16px;border-bottom:1px solid var(--line)}
+ .hang-chip-khu .chip{font:inherit;font-size:13.5px;cursor:pointer}
++.khung-module{display:block;width:100%;border:1px solid var(--line);border-radius:10px;background:var(--nen,#fff);box-sizing:border-box;height:calc(100vh - 220px);min-height:640px}
+ .luoi-o{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:12px}
+ .o-gon{min-width:0;box-sizing:border-box;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px 16px;display:flex;flex-direction:column;gap:6px}
+ .o-gon .ten-o{font-weight:500;overflow-wrap:anywhere}
+@@ -80,14 +81,15 @@
+ <sc-if value="{{coChuaNoi}}"><sc-for list="{{chuaNoi}}" as="n"><div class="bao bao-vang dong-nut" id="chua-noi" style="gap:10px"><span style="flex:1 1 240px;min-width:0">Chưa nối {{n.ten}} nên chưa có số liệu.</span><button type="button" class="nut nut-nho nut-chinh" onClick="{{n.noiNgay}}">Nối ngay</button></div></sc-for></sc-if>
+ <sc-if value="{{dangDoc}}"><p role="status" class="bao-cho">Đang đọc số liệu…</p></sc-if>
+ <sc-if value="{{thucTheLoi}}"><p role="alert" class="bao bao-loi">Chưa đọc được số liệu: {{thucTheLoi}}</p></sc-if>
+-<div class="luoi-o" id="luoi-o"><sc-for list="{{o}}" as="x"><div class="o-gon" data-o>
++<sc-if value="{{coNhung}}"><section class="the" aria-label="{{nhungNhan}}"><iframe class="khung-module" title="{{nhungNhan}}" src="{{nhungDuong}}" referrerpolicy="no-referrer" sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox allow-downloads"></iframe></section></sc-if>
++<sc-if value="{{khongNhung}}"><div class="luoi-o" id="luoi-o"><sc-for list="{{o}}" as="x"><div class="o-gon" data-o>
+ <span class="ten-o">{{x.ten}}</span>
+ <sc-if value="{{x.coPhu}}"><span class="phu">{{x.phu}}</span></sc-if>
+ <span class="{{x.lopGiaTri}}">{{x.giaTri}}</span>
+ <sc-if value="{{x.luc}}"><span class="phu">{{x.luc}}</span></sc-if>
+ <sc-if value="{{x.coHd}}"><div class="dong-hd"><sc-for list="{{x.hd}}" as="h"><button type="button" class="nut-chu" aria-pressed="{{h.dangChon}}" onClick="{{h.bam}}" disabled="{{h.khoa}}">{{h.nhan}}</button></sc-for></div></sc-if>
+ <sc-if value="{{x.hoiXn}}"><div class="tb-hoi" role="alertdialog" aria-label="Xác nhận"><span>{{x.xnChu}}</span><div class="dong-hd"><button type="button" class="nut-chu" style="background:#181816;border-color:#181816;color:#fff" onClick="{{x.xacNhan}}">Xác nhận</button><button type="button" class="nut-chu" onClick="{{x.thoi}}">Thôi</button></div></div></sc-if>
+-</div></sc-for></div>
++</div></sc-for></div></sc-if>
+ <sc-if value="{{chuaCo}}"><p class="rong" id="chua-co-du-lieu">Chưa có dữ liệu.</p></sc-if>
+ </sc-if>
+ 
+diff --git a/web/Nha.dc.html b/web/Nha.dc.html
+index 945d2c4..d819591 100644
+--- a/web/Nha.dc.html
++++ b/web/Nha.dc.html
+@@ -18,6 +18,7 @@
+ .goc.khu a{color:inherit;text-decoration:none}
+ .hang-chip-khu{display:flex;flex-wrap:wrap;gap:8px;padding-bottom:16px;border-bottom:1px solid var(--line)}
+ .hang-chip-khu .chip{font:inherit;font-size:13.5px;cursor:pointer}
++.khung-module{display:block;width:100%;border:1px solid var(--line);border-radius:10px;background:var(--nen,#fff);box-sizing:border-box;height:calc(100vh - 220px);min-height:640px}
+ .luoi-o{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:12px}
+ .o-gon{min-width:0;box-sizing:border-box;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px 16px;display:flex;flex-direction:column;gap:6px}
+ .o-gon .ten-o{font-weight:500;overflow-wrap:anywhere}
+@@ -80,14 +81,15 @@
+ <sc-if value="{{coChuaNoi}}"><sc-for list="{{chuaNoi}}" as="n"><div class="bao bao-vang dong-nut" id="chua-noi" style="gap:10px"><span style="flex:1 1 240px;min-width:0">Chưa nối {{n.ten}} nên chưa có số liệu.</span><button type="button" class="nut nut-nho nut-chinh" onClick="{{n.noiNgay}}">Nối ngay</button></div></sc-for></sc-if>
+ <sc-if value="{{dangDoc}}"><p role="status" class="bao-cho">Đang đọc số liệu…</p></sc-if>
+ <sc-if value="{{thucTheLoi}}"><p role="alert" class="bao bao-loi">Chưa đọc được số liệu: {{thucTheLoi}}</p></sc-if>
+-<div class="luoi-o" id="luoi-o"><sc-for list="{{o}}" as="x"><div class="o-gon" data-o>
++<sc-if value="{{coNhung}}"><section class="the" aria-label="{{nhungNhan}}"><iframe class="khung-module" title="{{nhungNhan}}" src="{{nhungDuong}}" referrerpolicy="no-referrer" sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox allow-downloads"></iframe></section></sc-if>
++<sc-if value="{{khongNhung}}"><div class="luoi-o" id="luoi-o"><sc-for list="{{o}}" as="x"><div class="o-gon" data-o>
+ <span class="ten-o">{{x.ten}}</span>
+ <sc-if value="{{x.coPhu}}"><span class="phu">{{x.phu}}</span></sc-if>
+ <span class="{{x.lopGiaTri}}">{{x.giaTri}}</span>
+ <sc-if value="{{x.luc}}"><span class="phu">{{x.luc}}</span></sc-if>
+ <sc-if value="{{x.coHd}}"><div class="dong-hd"><sc-for list="{{x.hd}}" as="h"><button type="button" class="nut-chu" aria-pressed="{{h.dangChon}}" onClick="{{h.bam}}" disabled="{{h.khoa}}">{{h.nhan}}</button></sc-for></div></sc-if>
+ <sc-if value="{{x.hoiXn}}"><div class="tb-hoi" role="alertdialog" aria-label="Xác nhận"><span>{{x.xnChu}}</span><div class="dong-hd"><button type="button" class="nut-chu" style="background:#181816;border-color:#181816;color:#fff" onClick="{{x.xacNhan}}">Xác nhận</button><button type="button" class="nut-chu" onClick="{{x.thoi}}">Thôi</button></div></div></sc-if>
+-</div></sc-for></div>
++</div></sc-for></div></sc-if>
+ <sc-if value="{{chuaCo}}"><p class="rong" id="chua-co-du-lieu">Chưa có dữ liệu.</p></sc-if>
+ </sc-if>
+ 
+diff --git a/web/Tac-pham.dc.html b/web/Tac-pham.dc.html
+index 1bc4074..90fa850 100644
+--- a/web/Tac-pham.dc.html
++++ b/web/Tac-pham.dc.html
+@@ -18,6 +18,7 @@
+ .goc.khu a{color:inherit;text-decoration:none}
+ .hang-chip-khu{display:flex;flex-wrap:wrap;gap:8px;padding-bottom:16px;border-bottom:1px solid var(--line)}
+ .hang-chip-khu .chip{font:inherit;font-size:13.5px;cursor:pointer}
++.khung-module{display:block;width:100%;border:1px solid var(--line);border-radius:10px;background:var(--nen,#fff);box-sizing:border-box;height:calc(100vh - 220px);min-height:640px}
+ .luoi-o{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:12px}
+ .o-gon{min-width:0;box-sizing:border-box;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px 16px;display:flex;flex-direction:column;gap:6px}
+ .o-gon .ten-o{font-weight:500;overflow-wrap:anywhere}
+@@ -80,14 +81,15 @@
+ <sc-if value="{{coChuaNoi}}"><sc-for list="{{chuaNoi}}" as="n"><div class="bao bao-vang dong-nut" id="chua-noi" style="gap:10px"><span style="flex:1 1 240px;min-width:0">Chưa nối {{n.ten}} nên chưa có số liệu.</span><button type="button" class="nut nut-nho nut-chinh" onClick="{{n.noiNgay}}">Nối ngay</button></div></sc-for></sc-if>
+ <sc-if value="{{dangDoc}}"><p role="status" class="bao-cho">Đang đọc số liệu…</p></sc-if>
+ <sc-if value="{{thucTheLoi}}"><p role="alert" class="bao bao-loi">Chưa đọc được số liệu: {{thucTheLoi}}</p></sc-if>
+-<div class="luoi-o" id="luoi-o"><sc-for list="{{o}}" as="x"><div class="o-gon" data-o>
++<sc-if value="{{coNhung}}"><section class="the" aria-label="{{nhungNhan}}"><iframe class="khung-module" title="{{nhungNhan}}" src="{{nhungDuong}}" referrerpolicy="no-referrer" sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox allow-downloads"></iframe></section></sc-if>
++<sc-if value="{{khongNhung}}"><div class="luoi-o" id="luoi-o"><sc-for list="{{o}}" as="x"><div class="o-gon" data-o>
+ <span class="ten-o">{{x.ten}}</span>
+ <sc-if value="{{x.coPhu}}"><span class="phu">{{x.phu}}</span></sc-if>
+ <span class="{{x.lopGiaTri}}">{{x.giaTri}}</span>
+ <sc-if value="{{x.luc}}"><span class="phu">{{x.luc}}</span></sc-if>
+ <sc-if value="{{x.coHd}}"><div class="dong-hd"><sc-for list="{{x.hd}}" as="h"><button type="button" class="nut-chu" aria-pressed="{{h.dangChon}}" onClick="{{h.bam}}" disabled="{{h.khoa}}">{{h.nhan}}</button></sc-for></div></sc-if>
+ <sc-if value="{{x.hoiXn}}"><div class="tb-hoi" role="alertdialog" aria-label="Xác nhận"><span>{{x.xnChu}}</span><div class="dong-hd"><button type="button" class="nut-chu" style="background:#181816;border-color:#181816;color:#fff" onClick="{{x.xacNhan}}">Xác nhận</button><button type="button" class="nut-chu" onClick="{{x.thoi}}">Thôi</button></div></div></sc-if>
+-</div></sc-for></div>
++</div></sc-for></div></sc-if>
+ <sc-if value="{{chuaCo}}"><p class="rong" id="chua-co-du-lieu">Chưa có dữ liệu.</p></sc-if>
+ </sc-if>
+ 
+diff --git a/web/khung.js b/web/khung.js
+index 9c2d1cf..6771e93 100644
+--- a/web/khung.js
++++ b/web/khung.js
+@@ -707,6 +707,19 @@
+   }
+   const thucTheCuaChip = (chip, ds) => (ds || []).filter((e) => chip.loc.some((l) => l.module === e.module
+     && (l.nhom == null || (l.nhom.length ? l.nhom.includes(e.nhom) : !e.nhom))));
++  // NV304a: tab nhúng của một chip khu — module ĐÃ LIÊN KẾT khai giao_dien.nhung_tab và có mục tab trong
++  // /api/tinh-nang thì khu nhúng trang tab đó (iframe) thay vì vẽ ô thực thể thô. Chưa nối / không khai /
++  // không có tab → null (giữ đường ô thực thể cũ). Hàm thuần — test bằng node, không DOM.
++  function tabNhungCua(mods, tab) {
++    for (const m of mods || []) {
++      if (!m || !m.da_lien_ket) continue;
++      const g = m.giao_dien;
++      if (!g || g.nhung_tab !== true) continue;
++      const t = (tab || []).find((x) => x && x.module === m.id && x.duong);
++      if (t) return { duong: t.duong, nhan: t.nhan };
++    }
++    return null;
++  }
+ 
+   // Chữ hiển thị của MỘT giá trị đo: tiếng Việt thường, không mã kỹ thuật. Chưa đọc được → «Chưa có dữ liệu» (không số giả).
+   const TT_CHU = { bat: 'Bật', tat: 'Tắt', on: 'Bật', off: 'Tắt', len: 'Đang nối', xuong: 'Mất kết nối' };
+@@ -806,7 +819,12 @@
+       const mods = chip && !laCaiDat ? chip.loc.map((l) => muc.modules.find((m) => m.id === l.module)).filter(Boolean) : [];
+       const chuaNoi = mods.filter((m) => !m.da_lien_ket).map((m) => ({ ten: tenGon(m), noiNgay: chon('cai-dat') }));
+       const noi = new Set(mods.filter((m) => m.da_lien_ket).map((m) => m.id));
+-      const o = chip && !laCaiDat ? thucTheCuaChip(chip, ds.filter((e) => noi.has(e.module))).map((e) => {
++      // NV304a: có tab nhúng thì khu nhúng trang tab (iframe) thay vì vẽ ô thực thể — địa chỉ tuyệt đối
++      // suy từ đường tương đối của lõi, kèm ?nhung=1 để trang tab tự ẩn chrome của nó.
++      const nhung = chip && !laCaiDat ? tabNhungCua(mods.filter((m) => m.da_lien_ket), (tn && tn.tab) || []) : null;
++      const duongNhungGoc = nhung ? lienKetAnToan(nhung.duong) : null;
++      const duongNhung = duongNhungGoc ? duongNhungGoc + (duongNhungGoc.includes('?') ? '&' : '?') + 'nhung=1' : null;
++      const o = chip && !laCaiDat && !nhung ? thucTheCuaChip(chip, ds.filter((e) => noi.has(e.module))).map((e) => {
+         const g = giaTriHienThi(e);
+         const hd = hanhDongDon(e).map((h) => {
+           const ttV = e.trang_thai && e.trang_thai.gia_tri;
+@@ -829,7 +847,7 @@
+           thoi: () => comp.setState({ hdHoi: null })
+         };
+       }) : [];
+-      const chuaCo = !!chip && !laCaiDat && s.thucThe !== null && o.length === 0 && chuaNoi.length === 0;
++      const chuaCo = !!chip && !laCaiDat && !nhung && s.thucThe !== null && o.length === 0 && chuaNoi.length === 0;
+ 
+       // Chip «Cài đặt» (luôn ẩn tới khi bấm): từng module một khối, giá trị đã lưu thu gọn, bí mật «••••• đã lưu» + Đổi.
+       const cd = laCaiDat && muc ? muc.modules.map((m) => {
+@@ -851,7 +869,8 @@
+         tenNguoiDung: tenNguoiDung(s.nguoiDung), nhanVai: s.nguoiDung ? (s.nguoiDung.vai === 'admin' ? 'Quản trị viên' : 'Người dùng') : '', dangXuat: () => dangXuat(),
+         tnLoi: s.tnLoi, thucTheLoi: s.thucTheLoi, dangTai: s.dangTai, tenMuc: muc ? muc.nhan : '',
+         hangChip: chips.map((c) => ({ id: c.id, nhan: c.nhan, on: c.id === chipId ? 'true' : 'false', chon: chon(c.id) })), coChip: chips.length > 0,
+-        laDuLieu: !!chip && !laCaiDat, laCaiDat, dangDoc: !!chip && !laCaiDat && s.thucThe === null && mods.some((m) => m.da_lien_ket),
++        laDuLieu: !!chip && !laCaiDat, laCaiDat, dangDoc: !!chip && !laCaiDat && !nhung && s.thucThe === null && mods.some((m) => m.da_lien_ket),
++        coNhung: !!duongNhung, khongNhung: !duongNhung, nhungDuong: duongNhung || '', nhungNhan: nhung ? nhung.nhan : '',
+         chuaNoi, coChuaNoi: chuaNoi.length > 0, o, coO: o.length > 0, chuaCo,
+         tinNoi: s.tinNoi, hdTin: s.hdTin, hdLoi: s.hdLoi, cd,
+         hangCho, coHangCho: hangCho.length > 0, soHangCho: hangCho.length
+@@ -1162,7 +1181,7 @@
+     });
+   }
+ 
+-  window.Khung = { AI, DIEU_KIEN, khu, mucCua, navTren, navDuoiMenu, thieu, du, dungDuoc, dkMuc, tenMa, coMa, moduleDapUng, trangChinhCua, noiThemKhoa, chuaKhoaCho, docKhoa, luuKhoa, thongDiep, taoLoi, goi, taiTinhNang,
++  window.Khung = { AI, DIEU_KIEN, khu, mucCua, tabNhungCua, navTren, navDuoiMenu, thieu, du, dungDuoc, dkMuc, tenMa, coMa, moduleDapUng, trangChinhCua, noiThemKhoa, chuaKhoaCho, docKhoa, luuKhoa, thongDiep, taoLoi, goi, taiTinhNang,
+     BIEU_TUONG, navChinh, navDuoi, navHeThong, trangThaiChung, menuNav, quayLai, trangDau, chanNeuThieu, loiThieu, lienKetAnToan, dl, ngayGio, tuongDoi, boDau, diaChiV1,
+     dongKhoa, cauHinh, mdLienKet, phanTichMarkdown, markdownRaDom,
+     datCsrf, layCsrf, napToi, layNguoiDung, tenNguoiDung, dangXuat, duongVeHopLe, chuyenDangNhap };
