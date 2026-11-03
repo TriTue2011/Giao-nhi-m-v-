@@ -1,0 +1,377 @@
+From 45826667cda442816374e6ae54e27f1aa7891075 Mon Sep 17 00:00:00 2001
+From: Muse <muse@local>
+Date: Tue, 3 Nov 2026 02:45:12 +0000
+Subject: [PATCH] =?UTF-8?q?NV301=20m=E1=BA=A3nh=20tab:=20tab=20ri=C3=AAng?=
+ =?UTF-8?q?=20YouTube=20+=20th=E1=BB=B1c=20th=E1=BB=83=20=C4=91=E1=BB=8Dc?=
+ =?UTF-8?q?=20tr=E1=BA=A1ng=20th=C3=A1i=20ph=C3=A1t?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+- manifest tab_web (nhan YouTube, trang web/index.html) để khung hiện tab
+  khi module chạy; trang tĩnh chỉ đọc trạng thái qua hành động thực thể
+  của lõi (phiên quản trị), không gọi thẳng đường riêng của module, không
+  chứa bí mật.
+- thuc_the/trang_thai/thuc_hien: thực thể youtube.xem chỉ-đọc (rui_ro
+  doc), trạng thái chua_phat/dang_phat/dung theo phiên trong RAM.
+- Chưa có nút điều khiển: phát/dừng/chuyển bài đi theo mảnh lõi/giao diện.
+- Test đỏ-trước-xanh: test/test_module_youtube_tab.py 5/5.
+---
+ modules/youtube/manifest.json   |   2 +-
+ modules/youtube/module.py       |  66 +++++++++++++++++
+ modules/youtube/web/index.html  |  28 +++++++
+ modules/youtube/web/trang.js    |  88 ++++++++++++++++++++++
+ test/test_module_youtube_tab.py | 126 ++++++++++++++++++++++++++++++++
+ 5 files changed, 309 insertions(+), 1 deletion(-)
+ create mode 100644 modules/youtube/web/index.html
+ create mode 100644 modules/youtube/web/trang.js
+ create mode 100644 test/test_module_youtube_tab.py
+
+diff --git a/modules/youtube/manifest.json b/modules/youtube/manifest.json
+index 355b631..740a951 100644
+--- a/modules/youtube/manifest.json
++++ b/modules/youtube/manifest.json
+@@ -1 +1 @@
+-{"cung_cap":[],"duong_module":{"lan_chi":true},"giao_dien":{"chip":[],"khu":"doi_song","muc":"youtube","nhan":"YouTube"},"giao_thuc":"https","hang":"B","id":"youtube","loai":"tien_ich","loai_ten":"Tiện ích","loai_thu_tu":48,"mo_ta":"Máy phát YouTube/Zing chạy thẳng trong web2api cho Home Assistant (tích hợp tritue_youtube_player), KHÔNG cần container dịch vụ phụ riêng và không cần c2a. Phục vụ qua đường riêng của lõi /m/youtube/api/integration/* (Bearer = khoá khách phạm vi tich_hop@youtube do web2api tự tạo ở «Bảo mật & người dùng» > «Khoá cho dịch vụ ngoài gọi vào») và đường luồng mở bằng vé ký có hạn /m/youtube/api/stream/<vé> (loa không gửi được header); chỉ nhận nguồn LAN. Tìm kiếm + giải luồng bằng yt-dlp (YouTube) và endpoint gợi ý công khai của Zing; rơ-le nối lại tối đa 5 lần từ đúng byte, dừng là dừng hẳn (phiên chỉ ở RAM; danh sách phát và lịch sử lưu ở thư mục dữ liệu của module). HOÀN TOÀN RIÊNG với module youtube-phat (module đó chỉ là máy khách của dịch vụ phụ dich-vu/youtube-phat). CHƯA thử với YouTube thật / loa thật / HA thật; giải luồng Zing/Facebook chưa chuyển (trả 502 rõ, không bịa link); danh sách phát mới là tập con của dịch vụ cũ (chưa nhập từ liên kết/mã chia sẻ).","nhom_con":"doi-song-va-giai-tri","phien_ban":"0.1.0","tai_nguyen":{"dia_mb":null,"ghi_chu":"Chạy cùng tiến trình lõi. Trích xuất bằng yt-dlp tốn vài chục tới trăm MB + một lõi CPU mỗi lần (trần 2 lần cùng lúc, như dịch vụ cũ). Cần yt-dlp/yt-dlp-ejs/deno trong ảnh lõi (requirements.txt); thiếu thì module báo 502 rõ. RAM/đĩa chưa đo trên máy thật.","gpu":false,"mang_ra":["youtube.com","googlevideo.com","ytimg.com","zingmp3.vn","ac.zingmp3.vn"],"ram_them_mb":null},"ten":"YouTube (chạy thẳng trong web2api)","tien_to":"youtube","truong_cau_hinh":[],"yeu_cau_goi":["httpx"]}
+\ No newline at end of file
++{"cung_cap":[],"duong_module":{"lan_chi":true},"giao_dien":{"chip":[],"khu":"doi_song","muc":"youtube","nhan":"YouTube"},"giao_thuc":"https","hang":"B","id":"youtube","loai":"tien_ich","loai_ten":"Tiện ích","loai_thu_tu":48,"mo_ta":"Máy phát YouTube/Zing chạy thẳng trong web2api cho Home Assistant (tích hợp tritue_youtube_player), KHÔNG cần container dịch vụ phụ riêng và không cần c2a. Phục vụ qua đường riêng của lõi /m/youtube/api/integration/* (Bearer = khoá khách phạm vi tich_hop@youtube do web2api tự tạo ở «Bảo mật & người dùng» > «Khoá cho dịch vụ ngoài gọi vào») và đường luồng mở bằng vé ký có hạn /m/youtube/api/stream/<vé> (loa không gửi được header); chỉ nhận nguồn LAN. Tìm kiếm + giải luồng bằng yt-dlp (YouTube) và endpoint gợi ý công khai của Zing; rơ-le nối lại tối đa 5 lần từ đúng byte, dừng là dừng hẳn (phiên chỉ ở RAM; danh sách phát và lịch sử lưu ở thư mục dữ liệu của module). HOÀN TOÀN RIÊNG với module youtube-phat (module đó chỉ là máy khách của dịch vụ phụ dich-vu/youtube-phat). CHƯA thử với YouTube thật / loa thật / HA thật; giải luồng Zing/Facebook chưa chuyển (trả 502 rõ, không bịa link); danh sách phát mới là tập con của dịch vụ cũ (chưa nhập từ liên kết/mã chia sẻ).","nhom_con":"doi-song-va-giai-tri","phien_ban":"0.1.0","tab_web":{"nhan":"YouTube","trang":"web/index.html"},"tai_nguyen":{"dia_mb":null,"ghi_chu":"Chạy cùng tiến trình lõi. Trích xuất bằng yt-dlp tốn vài chục tới trăm MB + một lõi CPU mỗi lần (trần 2 lần cùng lúc, như dịch vụ cũ). Cần yt-dlp/yt-dlp-ejs/deno trong ảnh lõi (requirements.txt); thiếu thì module báo 502 rõ. RAM/đĩa chưa đo trên máy thật.","gpu":false,"mang_ra":["youtube.com","googlevideo.com","ytimg.com","zingmp3.vn","ac.zingmp3.vn"],"ram_them_mb":null},"ten":"YouTube (chạy thẳng trong web2api)","tien_to":"youtube","truong_cau_hinh":[],"yeu_cau_goi":["httpx"]}
+diff --git a/modules/youtube/module.py b/modules/youtube/module.py
+index 62d45ca..b36c82e 100644
+--- a/modules/youtube/module.py
++++ b/modules/youtube/module.py
+@@ -204,6 +204,72 @@ class Module:
+         self._phien_hien_tai = None
+         self._luong.clear()
+ 
++    # ── thực thể cho trang Đời sống + tab riêng (NV301 mảnh tab) ──────────
++    # Mảnh tab chỉ có thực thể ĐỌC trạng thái: tab tĩnh + ô Đời sống đọc
++    # trạng thái qua đây; nút điều khiển (phát/dừng/chuyển bài/…) đi theo
++    # mảnh lõi và mảnh giao diện. Trang tĩnh KHÔNG gọi thẳng đường
++    # integration (đường đó cần khoá khách tich_hop@youtube, trình duyệt
++    # không có) — mọi lệnh đi qua hành động thực thể của lõi, phiên quản trị.
++
++    def _tien_to_thuc_the(self) -> str:
++        return str((self.manifest or {}).get("tien_to") or "youtube")
++
++    def _phien_trang_thai(self):
++        """(gia_tri, phien) cho ô trạng thái: phiên hiện tại, nếu không còn
++        thì phiên dừng gần nhất, nếu chưa từng phát thì chua_phat."""
++        phien = None
++        if self._phien_hien_tai:
++            phien = self._phien.get(self._phien_hien_tai)
++        if phien is None and self._phien:
++            phien = next(reversed(list(self._phien.values())))
++        if phien is None:
++            return "chua_phat", None
++        if phien.get("status") == "playing":
++            return "dang_phat", phien
++        return "dung", phien
++
++    async def thuc_the(self, loc=None) -> list[dict]:
++        """Một thực thể chỉ-đọc trạng thái phát (rủi ro «doc»).
++
++        Không mang khoá, URL luồng hay thông tin kết nối nào: trạng thái
++        phát là dữ liệu hiển thị, không phải bí mật."""
++        tien_to = self._tien_to_thuc_the()
++        return [{
++            "id": f"{tien_to}.xem",
++            "ten": "YouTube — trạng thái phát",
++            "loai": "cong_cu",
++            "thuoc_tinh": {"nguon_phat": "YouTube, Zing MP3, HTTP trực tiếp"},
++            "mo_ta": ("Trạng thái phát của máy phát YouTube/Zing chạy thẳng "
++                       "trong web2api: bài đang phát, đã dừng hay chưa phát. "
++                       "Điều khiển đầy đủ ở tab YouTube."),
++            "tinh_nang": [{
++                "hanh_dong": "trang_thai",
++                "mo_ta": "Đọc bài đang phát và trạng thái lúc hỏi",
++                "tham_so": {"type": "object", "additionalProperties": False,
++                            "properties": {}},
++            }],
++            "rui_ro_mac_dinh": "doc",
++        }]
++
++    async def trang_thai(self, ids) -> dict:
++        """Trạng thái THẬT lúc hỏi (hợp đồng C1 — lõi `await m.trang_thai(ids)`):
++        chỉ đọc RAM, không gọi mạng, không bao giờ ném."""
++        luc = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
++        gia_tri, _ = self._phien_trang_thai()
++        return {str(i): {"gia_tri": gia_tri, "luc": luc} for i in (ids or [])}
++
++    async def thuc_hien(self, id: str, hanh_dong: str, tham_so: dict | None) -> dict:
++        """Điều phối hành động thực thể — mảnh tab chỉ có `trang_thai` (đọc).
++        Lỗi → dict {"ok": False, "loi": ...}, KHÔNG ném."""
++        tham_so = dict(tham_so or {})
++        if id != f"{self._tien_to_thuc_the()}.xem":
++            return {"ok": False, "loi": "khong_thay_thuc_the"}
++        if hanh_dong != "trang_thai":
++            return {"ok": False, "loi": "hanh_dong_khong_ho_tro"}
++        gia_tri, phien = self._phien_trang_thai()
++        return {"ok": True, "trang_thai": gia_tri,
++                "phien": self._anh_xa_phien(phien) if phien else None}
++
+     # ── tiện ích nội bộ ─────────────────────────────────────────────────
+ 
+     def _sem_trich_xuat(self) -> asyncio.Semaphore:
+diff --git a/modules/youtube/web/index.html b/modules/youtube/web/index.html
+new file mode 100644
+index 0000000..bbe7af0
+--- /dev/null
++++ b/modules/youtube/web/index.html
+@@ -0,0 +1,28 @@
++<!doctype html>
++<html lang="vi">
++<head>
++<meta charset="utf-8">
++<meta name="viewport" content="width=device-width, initial-scale=1">
++<meta name="referrer" content="no-referrer">
++<title>YouTube</title>
++<link rel="stylesheet" href="../../khung.css">
++<script src="trang.js" defer></script>
++</head>
++<body>
++<div class="goc">
++<main class="trang-tb">
++  <a class="quay-lai" href="../../He-thong.dc.html">← Hệ thống</a>
++  <h1>YouTube</h1>
++  <p class="phu">Máy phát YouTube/Zing chạy thẳng trong web2api. Mọi lệnh đi qua
++    máy chủ (trình duyệt không giữ khoá nào). Mục nào chưa có thì ẩn — không có nút chết.</p>
++  <p class="bao bao-loi" id="loi-chung" role="alert" hidden></p>
++
++  <section class="the" aria-labelledby="tieu-de-trang-thai">
++    <h2 id="tieu-de-trang-thai">Đang phát</h2>
++    <p id="trang-thai" aria-live="polite">Đang tải…</p>
++    <p class="phu" id="bai-hien-tai" hidden></p>
++  </section>
++</main>
++</div>
++</body>
++</html>
+diff --git a/modules/youtube/web/trang.js b/modules/youtube/web/trang.js
+new file mode 100644
+index 0000000..fe7139c
+--- /dev/null
++++ b/modules/youtube/web/trang.js
+@@ -0,0 +1,88 @@
++/* Tab YouTube (NV301 mảnh tab) — chỉ ĐỌC trạng thái qua hành động thực thể
++   của lõi (phiên quản trị). Không gọi thẳng đường riêng của module (đường đó
++   cần khoá khách, trình duyệt không có) và không giữ bí mật nào. Nút điều khiển
++   (phát/dừng/chuyển bài/…) đi theo mảnh lõi và mảnh giao diện. */
++'use strict';
++
++const $ = (id) => document.getElementById(id);
++
++function hienLoi(chu) {
++  const o = $('loi-chung');
++  if (!o) return;
++  o.textContent = chu || '';
++  o.hidden = !chu;
++}
++
++let csrfToken = '';
++async function layCsrf() {
++  if (csrfToken) return csrfToken;
++  try {
++    const r = await fetch('../../../api/toi', { credentials: 'same-origin', cache: 'no-store' });
++    if (r.ok) {
++      const j = await r.json();
++      if (j && j.csrf) csrfToken = j.csrf;
++    }
++  } catch (e) { /* lõi sẽ 403 và báo rõ */ }
++  return csrfToken;
++}
++
++async function goi(duong, than) {
++  const method = than === undefined ? 'GET' : 'POST';
++  const hd = {};
++  if (method !== 'GET') {
++    hd['Content-Type'] = 'application/json';
++    const csrf = await layCsrf();
++    if (csrf) hd['X-CSRF-Token'] = csrf;
++  }
++  const r = await fetch('../../../' + duong, {
++    method, cache: 'no-store', credentials: 'same-origin', headers: hd,
++    body: than === undefined ? undefined : JSON.stringify(than),
++  });
++  let du = null;
++  try { du = await r.json(); } catch (e) { du = null; }
++  if (r.status === 401) {
++    location.replace('../../Dang-nhap.dc.html?ve=' + encodeURIComponent(location.pathname + location.search));
++    throw new Error('het_phien');
++  }
++  return { r, du };
++}
++
++const CHU_TRANG_THAI = {
++  chua_phat: 'Chưa phát bài nào.',
++  dang_phat: 'Đang phát.',
++  dung: 'Đã dừng.',
++};
++
++async function taiTrangThai() {
++  try {
++    const kq = await goi('api/thiet-bi?module=youtube');
++    if (!kq.r.ok) throw new Error('Không đọc được danh sách thiết bị (HTTP ' + kq.r.status + ').');
++    const ds = ((kq.du || {}).thuc_the || []);
++    const thucThe = ds.find((e) => String(e.id || '').startsWith('youtube.'));
++    if (!thucThe) throw new Error('Chưa thấy thực thể YouTube — module có thể chưa chạy.');
++    const hd = await goi('api/thiet-bi/' + encodeURIComponent(thucThe.id) + '/hanh-dong',
++      { hanh_dong: 'trang_thai', tham_so: {} });
++    if (!hd.r.ok) throw new Error('Không đọc được trạng thái (HTTP ' + hd.r.status + ').');
++    const du = hd.du || {};
++    if (du.ok === false) throw new Error(du.loi || 'Không đọc được trạng thái.');
++    const o = $('trang-thai');
++    if (o) o.textContent = CHU_TRANG_THAI[du.trang_thai] || 'Chưa có dữ liệu.';
++    const bai = $('bai-hien-tai');
++    const phien = du.phien || null;
++    const ten = phien && (phien.title || (phien.current_item && (phien.current_item.title || phien.current_item.id)));
++    if (bai) {
++      bai.hidden = !ten;
++      if (ten) bai.textContent = 'Bài: ' + ten;
++    }
++    hienLoi('');
++  } catch (e) {
++    const o = $('trang-thai');
++    if (o) o.textContent = 'Chưa có dữ liệu.';
++    hienLoi(e && e.message ? e.message : 'Không tải được trạng thái.');
++  }
++}
++
++document.addEventListener('DOMContentLoaded', () => {
++  taiTrangThai();
++  setInterval(taiTrangThai, 20000);
++});
+diff --git a/test/test_module_youtube_tab.py b/test/test_module_youtube_tab.py
+new file mode 100644
+index 0000000..2f38e5e
+--- /dev/null
++++ b/test/test_module_youtube_tab.py
+@@ -0,0 +1,126 @@
++"""Test tab riêng + thực thể trạng thái của module youtube (NV301 mảnh tab).
++
++Mảnh này chỉ gồm: manifest `tab_web`, trang tĩnh modules/youtube/web/index.html,
++thực thể đọc trạng thái (thuc_the/trang_thai) và hành động đọc `trang_thai`
++qua thuc_hien — chưa có nút điều khiển (điều khiển đi theo mảnh lõi/giao diện).
++Trang tĩnh không chứa bí mật và mọi lệnh đều đi qua hành động thực thể của lõi
++(phiên quản trị), KHÔNG gọi thẳng đường integration (đường đó cần khoá khách
++tich_hop@youtube, trình duyệt không có).
++
++Chạy async qua asyncio.run (kho chưa có pytest-asyncio), theo khuôn
++test_module_youtube_nv277.py. Không Internet thật.
++"""
++
++from __future__ import annotations
++
++import asyncio
++import importlib.util
++import json
++import pathlib
++import sys
++
++import pytest
++
++from app.kham_pha import kiem_manifest
++
++GOC = pathlib.Path(__file__).resolve().parent.parent
++THU_MUC_MODULE = GOC / "modules" / "youtube"
++MANIFEST_PATH = THU_MUC_MODULE / "manifest.json"
++MODULE_PY = THU_MUC_MODULE / "module.py"
++TRANG_TAB = THU_MUC_MODULE / "web" / "index.html"
++VIDEO_ID = "dQw4w9WgXcQ"
++
++
++def tai_module():
++    ten = "mod_youtube_tab_test"
++    if ten in sys.modules:
++        del sys.modules[ten]
++    spec = importlib.util.spec_from_file_location(
++        ten, MODULE_PY, submodule_search_locations=[str(THU_MUC_MODULE)])
++    mod = importlib.util.module_from_spec(spec)
++    sys.modules[ten] = mod
++    spec.loader.exec_module(mod)
++    return mod
++
++
++def tao_module(tmp_path):
++    mod = tai_module()
++    m = mod.Module({}, _thu_muc_du_lieu=str(tmp_path))
++
++    class TrichXuatGia:
++        async def tim_kiem(self, source, query, limit):
++            return []
++
++        async def giai_am_thanh(self, source, target):
++            return {"url": "fake://am-thanh-1", "title": "Bài giả",
++                    "duration": 213, "source": source}
++
++    m.trich_xuat = TrichXuatGia()
++    return m
++
++
++def test_manifest_co_tab_web_hop_le():
++    man = json.loads(MANIFEST_PATH.read_text(encoding="utf-8"))
++    assert kiem_manifest(man) is None
++    tab = man.get("tab_web")
++    assert isinstance(tab, dict)
++    assert isinstance(tab.get("nhan"), str) and tab["nhan"].strip()
++    assert tab.get("trang") == "web/index.html"
++    assert TRANG_TAB.is_file()
++
++
++def test_trang_tab_khong_chua_bi_mat_va_goi_qua_thuc_the():
++    html = TRANG_TAB.read_text(encoding="utf-8")
++    js = (THU_MUC_MODULE / "web" / "trang.js").read_text(encoding="utf-8")
++    assert "trang.js" in html
++    # Trang gọi lõi qua hành động thực thể, không gọi thẳng integration.
++    assert "api/thiet-bi" in js
++    assert "hanh-dong" in js
++    # Trang tĩnh phục vụ cả khi chưa liên kết: không được chứa khoá/token.
++    assert "Bearer" not in html + js
++    assert "tich_hop@" not in html + js
++    assert "integration" not in html + js
++    assert 'id="trang-thai"' in html or "id='trang-thai'" in html
++
++
++def test_thuc_the_co_thuc_the_trang_thai_khong_lo_bi_mat(tmp_path):
++    m = tao_module(tmp_path)
++    ds = asyncio.run(m.thuc_the())
++    assert ds, "module youtube phải có ít nhất một thực thể cho trang Đời sống"
++    tt = [e for e in ds if str(e.get("id", "")).startswith("youtube.")]
++    assert tt
++    for e in tt:
++        assert isinstance(e.get("ten"), str) and e["ten"].strip()
++        assert isinstance(e.get("mo_ta"), str) and e["mo_ta"].strip()
++        assert isinstance(e.get("tinh_nang"), list)
++    dump = json.dumps(ds, ensure_ascii=False)
++    assert "Bearer" not in dump
++    assert "tich_hop@" not in dump
++
++
++def test_trang_thai_chua_phat_dang_phat_dung(tmp_path):
++    m = tao_module(tmp_path)
++    ds = asyncio.run(m.thuc_the())
++    eid = ds[0]["id"]
++    tt = asyncio.run(m.trang_thai([eid]))
++    assert tt[eid]["gia_tri"] == "chua_phat"
++    ma, _, _ = asyncio.run(m.tich_hop("integration/play", "POST", {},
++                                      {"source": "youtube", "target": VIDEO_ID}))
++    assert ma == 200
++    tt = asyncio.run(m.trang_thai([eid]))
++    assert tt[eid]["gia_tri"] == "dang_phat"
++    ma, _, _ = asyncio.run(m.tich_hop("integration/stop", "POST", {}, {}))
++    assert ma == 200
++    tt = asyncio.run(m.trang_thai([eid]))
++    assert tt[eid]["gia_tri"] == "dung"
++
++
++def test_thuc_hien_trang_thai_va_loi(tmp_path):
++    m = tao_module(tmp_path)
++    ds = asyncio.run(m.thuc_the())
++    eid = ds[0]["id"]
++    kq = asyncio.run(m.thuc_hien(eid, "trang_thai", {}))
++    assert kq.get("ok") is True
++    assert kq.get("trang_thai") == "chua_phat"
++    assert asyncio.run(m.thuc_hien("youtube.khong-co", "trang_thai", {})).get("ok") is False
++    assert asyncio.run(m.thuc_hien(eid, "hanh_dong_khong_co", {})).get("ok") is False
+-- 
+2.43.0
+
