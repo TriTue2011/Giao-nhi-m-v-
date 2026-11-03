@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<!-- NV299 — MẪU GIAO DIỆN TĨNH (chưa chạy qua trình duyệt thật; theo token web/Nha.dc.html + khung.css).
+     Dữ liệu trong mẫu là dữ liệu MINH HOẠ cho bố cục, không phải số thật.
+     Bản triển khai phải thay bằng dữ liệu thật từ module adguard/mikrotik, chưa có thì «Chưa có dữ liệu». -->
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NV299 — Mẫu tab AdGuard (Nhà ▾ → Mạng ▾ → DNS &amp; chặn)</title>
+<style>
+:root{--bg:#FAF9F6;--card:#fff;--line:#E5E1D8;--ink:#1F1E1C;--mute:#6B675F;--acc:#2F6B4F;--warn:#B42318}
+*{box-sizing:border-box} body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.55 system-ui,sans-serif}
+main{max-width:720px;margin:0 auto;padding:16px}
+.hang-chip-khu{display:flex;flex-wrap:wrap;gap:8px;padding-bottom:16px;border-bottom:1px solid var(--line)}
+.chip{min-height:36px;padding:0 16px;border-radius:18px;border:1px solid var(--line);background:var(--card);font:inherit;cursor:pointer}
+.chip[aria-selected="true"]{background:var(--ink);color:#fff;border-color:var(--ink)}
+.the{border:1px solid var(--line);border-radius:14px;background:var(--card);padding:16px;margin-top:16px}
+.the h2{font-size:16px;margin:0 0 8px}.the p{margin:4px 0;color:var(--mute);font-size:14px}
+.so{font-size:28px;font-weight:700;color:var(--ink)}
+.hang{display:flex;gap:16px;flex-wrap:wrap}.hang>div{flex:1;min-width:120px}
+.nut{min-height:44px;padding:0 20px;border-radius:22px;border:0;background:var(--acc);color:#fff;font:inherit;cursor:pointer}
+.nut-phu{background:var(--card);color:var(--ink);border:1px solid var(--line)}
+.canh-bao{border-color:#EAC9C5}.canh-bao strong{color:var(--warn)}
+input,select{height:44px;border:1px solid var(--line);border-radius:12px;padding:0 12px;font:inherit;width:100%}
+label{display:block;font-size:13px;color:var(--mute);margin:12px 0 4px}
+table{width:100%;border-collapse:collapse;font-size:14px} td,th{text-align:left;padding:8px 4px;border-bottom:1px solid var(--line)}
+</style>
+</head>
+<body>
+<main>
+  <h1 style="font-size:20px">Mạng</h1>
+  <!-- Hàng chip khu (theo demo): Thiết bị · Chờ duyệt · VPN · DNS & chặn · Cài đặt (cuối, luôn ẩn tới khi bấm) -->
+  <div class="hang-chip-khu" role="tablist" aria-label="Mục con của Mạng">
+    <button class="chip" type="button">Thiết bị</button>
+    <button class="chip" type="button">Chờ duyệt</button>
+    <button class="chip" type="button">VPN</button>
+    <button class="chip" type="button" aria-selected="true">DNS &amp; chặn</button>
+    <button class="chip" type="button">Cài đặt</button>
+  </div>
+
+  <!-- Dòng «Ai làm gì» (NV299 §1) -->
+  <div class="the">
+    <h2>Ai làm gì</h2>
+    <p><strong style="color:var(--ink)">MikroTik giữ quyền cao hơn</strong> — chặn thật ở tầng mạng,
+    không vòng qua được. <strong style="color:var(--ink)">AdGuard lo tên miền và ứng dụng theo tên.</strong>
+    AdGuard lỗi thì MikroTik giữ phần chặn thô, lọc quảng cáo tạm tắt, mạng không mất.</p>
+  </div>
+
+  <!-- Hàng chip con trong tab (MỚI — NV299 §3) -->
+  <div class="hang-chip-khu" role="tablist" aria-label="Mục con của DNS và chặn" style="border-bottom:0;padding:16px 0 0">
+    <button class="chip" type="button" aria-selected="true">Tổng quan</button>
+    <button class="chip" type="button">Máy khách</button>
+    <button class="chip" type="button">Đã chặn</button>
+    <button class="chip" type="button">Trạng thái dự phòng</button>
+    <button class="chip" type="button">Cài đặt</button>
+  </div>
+
+  <!-- Chip con: Tổng quan -->
+  <div class="the">
+    <h2>Tổng quan</h2>
+    <p>Bảo vệ: <strong style="color:var(--ink)">Đang bật</strong>
+      <button class="nut nut-phu" type="button" style="min-height:36px;padding:0 14px;border-radius:18px">Tắt có hẹn</button>
+      <span style="font-size:13px">(tắt thì tự bật lại sau 5 phút)</span></p>
+    <div class="hang">
+      <div><div class="so">12.480</div><p>Tổng truy vấn</p></div>
+      <div><div class="so">31%</div><p>Tỉ lệ chặn</p></div>
+      <div><div class="so">0,02 giây</div><p>Thời gian xử lý trung bình</p></div>
+    </div>
+    <p>Biểu đồ nhỏ theo giờ: <em>chưa có dữ liệu thì hiện «Chưa có dữ liệu», không vẽ số giả.</em></p>
+  </div>
+
+  <!-- Chip con: Máy khách -->
+  <div class="the">
+    <h2>Máy khách</h2>
+    <table>
+      <tr><th>Máy</th><th>Truy vấn</th><th></th></tr>
+      <tr><td>Điện thoại của mẹ</td><td>3.210</td><td><button class="nut nut-phu" type="button" style="min-height:36px">Xem tên miền gần nhất</button></td></tr>
+      <tr><td>Tivi phòng khách</td><td>1.870</td><td><button class="nut nut-phu" type="button" style="min-height:36px">Xem tên miền gần nhất</button></td></tr>
+    </table>
+    <label for="chinh-sach-may">Đặt chính sách cho máy / nhóm</label>
+    <select id="chinh-sach-may"><option>Điện thoại của mẹ</option><option>Tivi phòng khách</option></select>
+    <label for="dich-vu-chan">Dịch vụ bị chặn (theo tên)</label>
+    <input id="dich-vu-chan" placeholder="Ví dụ: YouTube, TikTok">
+    <label for="gio-chan">Giờ chặn</label>
+    <input id="gio-chan" placeholder="Ví dụ: 21:00 – 06:00">
+    <p><button class="nut" type="button">Lưu chính sách</button>
+    <span style="font-size:13px;color:var(--mute)">Hành động ghi cần xác nhận một lần.</span></p>
+  </div>
+
+  <!-- Chip con: Đã chặn -->
+  <div class="the">
+    <h2>Đã chặn</h2>
+    <table>
+      <tr><th>Tên miền</th><th>Số lần</th></tr>
+      <tr><td>quang-cao.vi-du.com</td><td>1.240</td></tr>
+      <tr><td>theo-doi.vi-du.com</td><td>860</td></tr>
+    </table>
+  </div>
+
+  <!-- Chip con: Trạng thái dự phòng (MỚI) -->
+  <div class="the canh-bao">
+    <h2>Trạng thái dự phòng</h2>
+    <p><strong>AdGuard lỗi — MikroTik đang giữ phần chặn, lọc quảng cáo tạm tắt.</strong></p>
+    <p>Ai đang giữ quyền: MikroTik · DNS đang dùng: DNS dự phòng đã chọn ·
+    Bộ chặn dự phòng đang bật: 3 chính sách quan trọng · Lần đồng bộ cuối: hôm nay, 09:12 ·
+    Lần kiểm cuối: 30 giây trước, lỗi liên tiếp: 4.</p>
+    <p style="font-size:13px">Khi AdGuard khoẻ lại, hệ thống tự trả quyền và báo một lần — không cần bấm gì.</p>
+  </div>
+
+  <!-- Chip con: Cài đặt (luôn ẩn, bấm mới mở sửa — nội dung minh hoạ) -->
+  <div class="the">
+    <h2>Cài đặt</h2>
+    <label for="dc-adguard">Địa chỉ AdGuard trong nhà (lấy ở đâu: địa chỉ LAN của AdGuard Home, thường cổng 3000)</label>
+    <input id="dc-adguard" placeholder="Ví dụ: 192.168.1.10:3000">
+    <label for="tk-adguard">Tài khoản AdGuard</label>
+    <input id="tk-adguard" placeholder="Tài khoản đăng nhập AdGuard Home">
+    <label for="mk-adguard">Mật khẩu (chỉ ghi đè, không hiện lại mật khẩu cũ)</label>
+    <input id="mk-adguard" type="password" placeholder="••••• đã lưu">
+    <label for="dns-du-phong">DNS dự phòng khi AdGuard lỗi (chọn trước, không tự đoán lúc lỗi)</label>
+    <select id="dns-du-phong"><option>AdGuard thứ hai (nếu có)</option><option>DNS của router chuyển tiếp tới nhà cung cấp DNS mã hoá</option></select>
+    <p><button class="nut nut-phu" type="button">Cho phép chuyển quyền tự động (đang tắt)</button></p>
+    <p><button class="nut nut-phu" type="button">Cho phép ghi lên router — tài khoản w2a-chan (đang tắt)</button></p>
+    <p style="font-size:13px">Hai công tắc này mặc định tắt. Bật là một lần xác nhận; tắt là tắt hết đường ghi.</p>
+  </div>
+</main>
+</body>
+</html>
