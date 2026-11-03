@@ -196,7 +196,8 @@ chặn theo độ dài nội dung đã giải nén):
 
 ## Xác minh nộp
 
-- Nhánh Giao: `muse/nv304-c` (tạo từ main mới nhất lúc đẩy).
+- Nhánh Giao: `muse/nv304-c` = `bb2b9ec9e9cc3253506e303933f6a65783c5ab47`
+  (kiểm bằng ls-remote; Giao main lúc đẩy không đổi `3d5c37b0`).
 - Patch: `outbox/nv304-c.patch` trên nhánh (1198 dòng, 9 tệp).
 - Commit repo: `d4c4483` «NV304c: giai luong Zing/Facebook, nhap
   playlist Zing, seek_url ?t=», cha là commit (b) `b26c5a8`.
