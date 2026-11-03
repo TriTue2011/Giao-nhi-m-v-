@@ -1,0 +1,675 @@
+diff --git a/apk/nguon/AndroidManifest-kiemthu.xml b/apk/nguon/AndroidManifest-kiemthu.xml
+index 9e219cc..d1fce3c 100644
+--- a/apk/nguon/AndroidManifest-kiemthu.xml
++++ b/apk/nguon/AndroidManifest-kiemthu.xml
+@@ -3,8 +3,8 @@
+      CHI DUNG DE KIEM THU, khong phat hanh. -->
+ <manifest xmlns:android="http://schemas.android.com/apk/res/android"
+     package="vn.r1.bodam"
+-    android:versionCode="4"
+-    android:versionName="1.3">
++    android:versionCode="5"
++    android:versionName="1.4">
+ 
+     <uses-sdk android:minSdkVersion="22" android:targetSdkVersion="22" />
+ 
+diff --git a/apk/nguon/AndroidManifest-release.xml b/apk/nguon/AndroidManifest-release.xml
+index c4f6073..de868f1 100644
+--- a/apk/nguon/AndroidManifest-release.xml
++++ b/apk/nguon/AndroidManifest-release.xml
+@@ -2,8 +2,8 @@
+ <!-- NV247 — BIEN THE PHAT HANH: khong co receiver kiem thu. -->
+ <manifest xmlns:android="http://schemas.android.com/apk/res/android"
+     package="vn.r1.bodam"
+-    android:versionCode="4"
+-    android:versionName="1.3">
++    android:versionCode="5"
++    android:versionName="1.4">
+ 
+     <uses-sdk android:minSdkVersion="22" android:targetSdkVersion="22" />
+ 
+diff --git a/apk/nguon/README-BUILD.md b/apk/nguon/README-BUILD.md
+index efc9529..20434ca 100644
+--- a/apk/nguon/README-BUILD.md
++++ b/apk/nguon/README-BUILD.md
+@@ -68,7 +68,7 @@ build.sh
+ AJAR="$R1_SDK/platforms/android-22/android.jar"   # hoac duong dan tuong duong
+ javac -source 8 -target 8 -encoding UTF-8 -cp "$AJAR" \
+     -d /tmp/lop $(find src test -name '*.java')
+-java -cp "/tmp/lop:$AJAR" vn.r1.bodam.KiemTra   # ky vong: passed=47 failed=0, exit 0
++java -cp "/tmp/lop:$AJAR" vn.r1.bodam.KiemTra   # ky vong: passed=55 failed=0, exit 0 (47 goc + 8 cua NV306)
+ ```
+ 
+ ## Cấu hình loa không màn hình (qua adb)
+diff --git a/apk/nguon/src/vn/r1/bodam/BaoCao.java b/apk/nguon/src/vn/r1/bodam/BaoCao.java
+index db03050..d654b4d 100644
+--- a/apk/nguon/src/vn/r1/bodam/BaoCao.java
++++ b/apk/nguon/src/vn/r1/bodam/BaoCao.java
+@@ -10,8 +10,8 @@ public final class BaoCao {
+     private BaoCao() { }
+ 
+     /** Phai khop android:versionName trong AndroidManifest (co test canh). */
+-    public static final String PHIEN_BAN = "1.3";
+-    public static final String[] KHA_NANG = {"den", "am_luong", "bluetooth", "he_thong", "phim"};
++    public static final String PHIEN_BAN = "1.4";
++    public static final String[] KHA_NANG = {"den", "am_luong", "bluetooth", "he_thong", "phim", "khoi_dong_lai"};
+     public static final long CHU_KY_MS = 60000;
+ 
+     public interface Gui { void gui(byte[] khung) throws IOException; }
+diff --git a/apk/nguon/src/vn/r1/bodam/DieuKhienGhi.java b/apk/nguon/src/vn/r1/bodam/DieuKhienGhi.java
+index 19eee1a..40855a0 100644
+--- a/apk/nguon/src/vn/r1/bodam/DieuKhienGhi.java
++++ b/apk/nguon/src/vn/r1/bodam/DieuKhienGhi.java
+@@ -346,6 +346,10 @@ public final class DieuKhienGhi {
+                                     LenhPhu.xuLy(khungJson, dichPhu);
+                                     continue;
+                                 }
++                                if (KhoiDongLai.laLenh(khungJson)) {          // NV306: khoi dong lai qua APK (chuyen tiep toi shell cuc bo)
++                                    KhoiDongLai.batDau();
++                                    continue;
++                                }
+                                 if (!hangDen.dat(khungJson)) {
+                                     LenhDieuKhien.xuLy(khungJson, LenhDieuKhien.THAT);
+                                 }
+diff --git a/apk/nguon/src/vn/r1/bodam/KhoiDongLai.java b/apk/nguon/src/vn/r1/bodam/KhoiDongLai.java
+new file mode 100644
+index 0000000..77a0250
+--- /dev/null
++++ b/apk/nguon/src/vn/r1/bodam/KhoiDongLai.java
+@@ -0,0 +1,155 @@
++package vn.r1.bodam;
++
++import android.util.Log;
++
++import java.io.ByteArrayOutputStream;
++import java.io.IOException;
++import java.io.InputStream;
++import java.io.OutputStream;
++import java.net.InetSocketAddress;
++import java.net.Socket;
++import java.util.Random;
++
++/**
++ * Khoi dong lai loa qua APK (NV306): HA gui {"type":"khoi_dong_lai"} qua ket noi mic,
++ * APK chuyen tiep toi dich vu shell cuc bo cua loa qua websocket localhost:8080 — KHONG
++ * dung ADB mang, khong tu mo ADB.
++ *
++ * APK KHONG the tu reboot truc tiep: quyen REBOOT chi he thong co (xem docs/HOP-DONG-PHIA-LOA.md:
++ * "reboot" va "setprop sys.powerctl reboot" bi bo qua lang le ngay ca duoi uid system). Co che dung
++ * duoc duy nhat da chung minh: dich vu shell o cong 8080 (uid system) thuc hien lenh cua app AI box
++ * "stop adbd&&start adbd&&adb reboot" — cung khung "shell" ma HA gui truc tiep o client.py
++ * (reboot_shell, da kiem tren loa that 28/10/2026). APK o day chi la nguoi chuyen tiep tu ket noi
++ * mic sang localhost:8080; chan HA->APK la TCP mic, chan APK->8080 la loopback — khong chan nao
++ * la ADB mang (cong 5555).
++ *
++ * Phan thuan (tao khoa, handshake, khung, chuyenTiep) chi dung java.* de test duoc tren JVM;
++ * chi batDau() dung android.util.Log (chi chay tren loa that, test thuan khong goi no).
++ */
++public final class KhoiDongLai {
++    private KhoiDongLai() { }
++
++    /** Khung HA gui xuong (dinh dang CO DINH, json.dumps tach gon nhu cac lenh khac). */
++    public static final String LENH = "{\"type\":\"khoi_dong_lai\"}";
++
++    /** Cung lenh voi client.py REBOOT_SHELL: giu dong bo khi doi mot trong hai cho. */
++    public static final String SHELL = "stop adbd&&start adbd&&adb reboot";
++
++    /** Cong dich vu shell cua loa (cung cong HA dung o client.py). */
++    public static final int CONG = 8080;
++
++    /** Timeout ket noi/doc phan hoi handshake (ms). */
++    public static final int TIMEOUT_MS = 5000;
++
++    private static final String BANG_B64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
++
++    /** Dung khung lenh khoi dong lai (chi dung mot dang duy nhat, sai dang bi bo qua). */
++    public static boolean laLenh(String khung) {
++        return LENH.equals(khung);
++    }
++
++    /** Khung "shell" gui toi dich vu 8080 — giong het khung HA gui o client.py (phang, khong kem "data"). */
++    public static String taoKhungShell() {
++        return "{\"type\":\"shell\",\"type_id\":\"ha\",\"shell\":\"" + SHELL + "\"}";
++    }
++
++    /** Ma Base64 thu cong: android.jar API 22 khong co java.util.Base64. */
++    public static String maBase64(byte[] duLieu) {
++        StringBuilder b = new StringBuilder();
++        for (int i = 0; i < duLieu.length; i += 3) {
++            int a = duLieu[i] & 0xFF;
++            int c = i + 1 < duLieu.length ? duLieu[i + 1] & 0xFF : 0;
++            int d = i + 2 < duLieu.length ? duLieu[i + 2] & 0xFF : 0;
++            b.append(BANG_B64.charAt(a >> 2));
++            b.append(BANG_B64.charAt(((a & 0x03) << 4) | (c >> 4)));
++            b.append(i + 1 < duLieu.length ? BANG_B64.charAt(((c & 0x0F) << 2) | (d >> 6)) : '=');
++            b.append(i + 2 < duLieu.length ? BANG_B64.charAt(d & 0x3F) : '=');
++        }
++        return b.toString();
++    }
++
++    /** Yeu cau handshake WebSocket (RFC 6455) toi dich vu 8080. */
++    public static String taoYeuCau(String host, int cong, String khoa) {
++        return "GET / HTTP/1.1\r\n"
++                + "Host: " + host + ":" + cong + "\r\n"
++                + "Upgrade: websocket\r\n"
++                + "Connection: Upgrade\r\n"
++                + "Sec-WebSocket-Key: " + khoa + "\r\n"
++                + "Sec-WebSocket-Version: 13\r\n"
++                + "\r\n";
++    }
++
++    /** Khung van ban WebSocket tu client (BAT BUOC co mask): 0x81 + do dai + mask + payload da mask. */
++    public static byte[] taoKhung(String payload, byte[] mask) throws IOException {
++        byte[] p = payload.getBytes("UTF-8");
++        if (p.length >= 126) throw new IOException("payload qua dai cho khung don: " + p.length);
++        ByteArrayOutputStream b = new ByteArrayOutputStream();
++        b.write(0x81);
++        b.write(0x80 | p.length);
++        b.write(mask, 0, 4);
++        for (int i = 0; i < p.length; i++) b.write(p[i] ^ mask[i % 4]);
++        return b.toByteArray();
++    }
++
++    /**
++     * Chuyen tiep lenh khoi dong lai toi dich vu shell cuc bo. null = da gui xong;
++     * con lai = ly do (de luong goi ghi log, khong nem loi ra ngoai).
++     */
++    public static String chuyenTiep(String host, int cong) {
++        Socket s = new Socket();
++        try {
++            s.connect(new InetSocketAddress(host, cong), TIMEOUT_MS);
++            s.setSoTimeout(TIMEOUT_MS);
++            OutputStream ra = s.getOutputStream();
++            byte[] ngau = new byte[16];
++            new Random().nextBytes(ngau);
++            String yeuCau = taoYeuCau(host, cong, maBase64(ngau));
++            ra.write(yeuCau.getBytes("UTF-8"));
++            ra.flush();
++            String traLoi = docToiDauDoiDongHang(s.getInputStream());
++            if (traLoi == null || !traLoi.contains("101")) return "dich vu 8080 khong tra 101: " + traLoi;
++            byte[] mask = new byte[4];
++            new Random().nextBytes(mask);
++            ra.write(taoKhung(taoKhungShell(), mask));
++            ra.flush();
++            return null;
++        } catch (Throwable t) {
++            return t.toString();
++        } finally {
++            try { s.close(); } catch (IOException boQua) { }
++        }
++    }
++
++    /** Doc phan hoi handshake toi "\r\n\r\n" (toi da 4096 byte); null neu het du lieu truoc. */
++    static String docToiDauDoiDongHang(InputStream vao) throws IOException {
++        ByteArrayOutputStream b = new ByteArrayOutputStream();
++        int t1 = -1, t2 = -1, t3 = -1;
++        while (true) {
++            int x = vao.read();
++            if (x < 0) return null;
++            b.write(x);
++            if (t1 == '\r' && t2 == '\n' && t3 == '\r' && x == '\n') break;
++            t1 = t2;
++            t2 = t3;
++            t3 = x;
++            if (b.size() > 4096) return b.toString("UTF-8");
++        }
++        return b.toString("UTF-8");
++    }
++
++    /**
++     * Chay chuyen tiep tren luong nen (khong chan luong doc mic): loa khoi dong lai thi ket noi tu dut.
++     * Loi chi ghi logcat (HA khong nhan xac nhan rieng; HA ghi «ok» nghia la «da gui lenh toi APK»).
++     * Log chi chay tren loa that — test thuan khong goi batDau() nen khong cham stub android.jar.
++     */
++    public static void batDau() {
++        Thread t = new Thread(new Runnable() {
++            @Override public void run() {
++                String loi = chuyenTiep("127.0.0.1", CONG);
++                if (loi != null) Log.w("R1KhoiDongLai", "chuyen tiep toi shell cuc bo that bai: " + loi);
++            }
++        }, "r1-khoi-dong-lai");
++        t.setDaemon(true);
++        t.start();
++    }
++}
+diff --git a/apk/nguon/test/vn/r1/bodam/KiemTra.java b/apk/nguon/test/vn/r1/bodam/KiemTra.java
+index 2daa7cc..4a57bf9 100644
+--- a/apk/nguon/test/vn/r1/bodam/KiemTra.java
++++ b/apk/nguon/test/vn/r1/bodam/KiemTra.java
+@@ -1,7 +1,9 @@
+ package vn.r1.bodam;
+ 
++import java.io.ByteArrayOutputStream;
+ import java.io.IOException;
+ import java.io.InputStream;
++import java.io.OutputStream;
+ import java.net.InetAddress;
+ import java.net.ServerSocket;
+ import java.nio.charset.Charset;
+@@ -891,5 +893,88 @@ public class KiemTra {
+                     && !CauHinhTuLenh.hanhDongTuBat("android.intent.action.boot_completed"),
+                     "tu-bat: tin hieu la, rong, null, lenh tat/bat noi bo, sai chu hoa/thuong -> KHONG tu bat");
+         }
++
++        // (k) NV306 khoi dong lai qua APK: khung lenh, handshake/frame WebSocket, chuyen tiep loopback
++        {
++            ok(KhoiDongLai.laLenh("{\"type\":\"khoi_dong_lai\"}")
++                    && !KhoiDongLai.laLenh("{\"type\":\"khoi_dong_lai\"} ")
++                    && !KhoiDongLai.laLenh("{\"type\":\"khoi_dong_lai\",\"x\":1}")
++                    && !KhoiDongLai.laLenh(null) && !KhoiDongLai.laLenh(""),
++                    "kdl: chi dung mot dang khung khoi_dong_lai");
++            ok(KhoiDongLai.maBase64(new byte[]{'M', 'a', 'n'}).equals("TWFu"),
++                    "kdl: base64 'Man' -> 'TWFu'");
++            String b64khong = KhoiDongLai.maBase64(new byte[16]);
++            ok(b64khong.length() == 24 && b64khong.endsWith("==")
++                    && b64khong.replace("A", "").replace("=", "").isEmpty(),
++                    "kdl: base64 16 byte 0 -> 22 'A' + '=='");
++            String yc = KhoiDongLai.taoYeuCau("127.0.0.1", 8080, "dGhlIHNhbXBsZSBub25jZQ==");
++            ok(yc.startsWith("GET / HTTP/1.1\r\n") && yc.contains("Host: 127.0.0.1:8080\r\n")
++                    && yc.contains("Upgrade: websocket\r\n") && yc.contains("Connection: Upgrade\r\n")
++                    && yc.contains("Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n")
++                    && yc.contains("Sec-WebSocket-Version: 13\r\n") && yc.endsWith("\r\n\r\n"),
++                    "kdl: handshake websocket dung dang");
++            byte[] fr = KhoiDongLai.taoKhung("AB", new byte[]{1, 2, 3, 4});
++            ok(fr.length == 8 && (fr[0] & 0xFF) == 0x81 && (fr[1] & 0xFF) == 0x82
++                    && fr[2] == 1 && fr[3] == 2 && fr[4] == 3 && fr[5] == 4
++                    && fr[6] == ('A' ^ 1) && fr[7] == ('B' ^ 2),
++                    "kdl: khung websocket co mask, FIN+text, payload da mask");
++            ok(KhoiDongLai.taoKhungShell().equals(
++                    "{\"type\":\"shell\",\"type_id\":\"ha\",\"shell\":\"stop adbd&&start adbd&&adb reboot\"}"),
++                    "kdl: khung shell giong het client.py reboot_shell");
++            // May chu websocket gia tren loopback: tra 101 roi doc khung, giai mask, doi payload.
++            final ServerSocket mayChu = new ServerSocket(0, 1, InetAddress.getByName("127.0.0.1"));
++            mayChu.setSoTimeout(5000);   // client khong noi duoc thi accept tu het han, khong giu JVM
++            final int congGia = mayChu.getLocalPort();
++            final byte[][] nhan = new byte[1][];
++            final String[] loiMayChu = new String[1];
++            Thread luongMayChu = new Thread(new Runnable() {
++                @Override public void run() {
++                    try {
++                        java.net.Socket s = mayChu.accept();
++                        s.setSoTimeout(5000);
++                        InputStream vao = s.getInputStream();
++                        ByteArrayOutputStream dem = new ByteArrayOutputStream();
++                        int t1 = -1, t2 = -1, t3 = -1, x;
++                        while ((x = vao.read()) >= 0) {
++                            dem.write(x);
++                            if (t1 == '\r' && t2 == '\n' && t3 == '\r' && x == '\n') break;
++                            t1 = t2; t2 = t3; t3 = x;
++                        }
++                        String hs = dem.toString("UTF-8");
++                        if (!hs.contains("Upgrade: websocket")) { loiMayChu[0] = "thieu Upgrade"; return; }
++                        OutputStream ra = s.getOutputStream();
++                        ra.write(("HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\n"
++                                + "Connection: Upgrade\r\n\r\n").getBytes("UTF-8"));
++                        ra.flush();
++                        int h0 = vao.read(), h1 = vao.read();
++                        if (h0 != 0x81 || (h1 & 0x80) == 0) { loiMayChu[0] = "khung khong mask/FIN-text"; return; }
++                        int dai = h1 & 0x7F;
++                        byte[] mask = new byte[4];
++                        int da = 0;
++                        while (da < 4) { int r = vao.read(mask, da, 4 - da); if (r < 0) return; da += r; }
++                        byte[] p = new byte[dai];
++                        da = 0;
++                        while (da < dai) { int r = vao.read(p, da, dai - da); if (r < 0) return; da += r; }
++                        for (int i = 0; i < dai; i++) p[i] = (byte) (p[i] ^ mask[i % 4]);
++                        nhan[0] = p;
++                        s.close();
++                    } catch (IOException loi) {
++                        loiMayChu[0] = loi.toString();
++                    }
++                }
++            });
++            luongMayChu.start();
++            String loiRelay = KhoiDongLai.chuyenTiep("127.0.0.1", congGia);
++            luongMayChu.join(10000);
++            mayChu.close();
++            ok(loiRelay == null && loiMayChu[0] == null && nhan[0] != null
++                    && new String(nhan[0], "UTF-8").equals(KhoiDongLai.taoKhungShell()),
++                    "kdl: chuyen tiep loopback tra 101 + gui dung khung shell");
++            ServerSocket dong = new ServerSocket(0, 1, InetAddress.getByName("127.0.0.1"));
++            int congDong = dong.getLocalPort();
++            dong.close();
++            ok(KhoiDongLai.chuyenTiep("127.0.0.1", congDong) != null,
++                    "kdl: cong dong -> bao loi, khong treo");
++        }
+     }
+ }
+diff --git a/custom_components/r1_speaker/apk/bo-cai.json b/custom_components/r1_speaker/apk/bo-cai.json
+index bc2064f..a7779d6 100644
+--- a/custom_components/r1_speaker/apk/bo-cai.json
++++ b/custom_components/r1_speaker/apk/bo-cai.json
+@@ -39,11 +39,11 @@
+         "vn-r1-bodam.apk"
+       ],
+       "sha256": "5e1ef91fe1d5cdfa3c86cce29aaa62efdb407463a71b0b04d10da6fc295ea404",
+-      "phien_ban": "1.3",
++      "phien_ban": "1.4",
+       "thu_tu": 3,
+       "mac_dinh": true,
+       "sau_cai": "cau_hinh_bodam",
+-      "mo_ta": "APK của tích hợp: đẩy tiếng mic về HA, âm lượng, nút giữa (qua dịch vụ trợ năng), Bluetooth, thông tin hệ thống, đèn bằng hiệu ứng firmware. Cài xong HA tự chạy lệnh cấu hình một lần (kèm bật trợ năng nhận phím).",
++      "mo_ta": "APK của tích hợp: đẩy tiếng mic về HA, âm lượng, nút giữa (qua dịch vụ trợ năng), Bluetooth, thông tin hệ thống, đèn bằng hiệu ứng firmware, khởi động lại loa qua APK (NV306: chuyển tiếp tới shell cục bộ, không qua ADB mạng). Cài xong HA tự chạy lệnh cấu hình một lần (kèm bật trợ năng nhận phím).",
+       "tu_go_neu_khac_chu_ky": true
+     }
+   ]
+diff --git a/custom_components/r1_speaker/button.py b/custom_components/r1_speaker/button.py
+index 04aed04..61b4dd1 100644
+--- a/custom_components/r1_speaker/button.py
++++ b/custom_components/r1_speaker/button.py
+@@ -1,4 +1,6 @@
+-"""Nút «Khởi động lại loa»: gửi lệnh reboot qua ADB (dùng chung kết nối với đèn và bộ cài ứng dụng); ADB hỏng thì qua cổng 8080."""
++"""Nút «Khởi động lại loa»: gửi lệnh reboot qua đường đã chọn theo cấu hình (NV306: ``apk`` khi chế độ «đóng ADB» bật,
++``adb`` khi tắt — xem ``khoi_dong_lai.duong_khoi_dong_lai``); đường ADB hỏng thì qua cổng 8080, đường APK hỏng thì báo rõ
++chứ không tự mở ADB."""
+ 
+ from __future__ import annotations
+ 
+diff --git a/custom_components/r1_speaker/khoi_dong_lai.py b/custom_components/r1_speaker/khoi_dong_lai.py
+index d67eec3..1d236f2 100644
+--- a/custom_components/r1_speaker/khoi_dong_lai.py
++++ b/custom_components/r1_speaker/khoi_dong_lai.py
+@@ -1,5 +1,12 @@
+ """NV288 — khởi động lại loa theo lịch, và tự phục hồi khi loa treo (mặc định TẮT).
+ 
++NV306 — đường khởi động lại chọn theo cấu hình: ``apk`` (mặc định khi chế độ «đóng ADB» bật)
++hoặc ``adb`` (khi tắt). Đường APK đi qua kết nối mic tới APK, APK chuyển tiếp tới shell cục bộ
++qua websocket localhost:8080 — không dùng ADB mạng, và khi APK không nối được thì báo rõ,
++KHÔNG tự mở ADB, KHÔNG rớt về ADB. Đường ADB giữ nguyên hành vi NV288 (ADB trước, hỏng
++thì qua cổng 8080). Tự phục hồi khi treo giữ nguyên chỉ-ADB (loa treo thì kết nối APK cũng
++chết nên đường APK không cứu được; chế độ đóng ADB bật thì đã báo «cần rút điện»).
++
+ Chủ máy yêu cầu rõ (02/11/2026) làm lịch kể cả khi chưa có bằng chứng treo: coi là phòng ngừa (firmware AIBox cũ có lịch khởi động lại
+ mỗi ngày nên ít treo; bản hiện tại không có). MỌI lần khởi động lại đều đi qua ``KhoiDongLai.thuc_hien`` và để lại một dòng nhật ký nêu
+ lý do: ``lich`` (tới giờ), ``treo`` (tự phục hồi), ``bam`` (người dùng bấm nút).
+@@ -44,6 +51,12 @@ _LOGGER = logging.getLogger(__name__)
+ #: Câu mô tả lý do để ghi nhật ký và hiện trên thẻ.
+ MO_TA_LY_DO = {KDL_LY_DO_LICH: "lịch", KDL_LY_DO_TREO: "loa treo (tự phục hồi)", KDL_LY_DO_BAM: "người dùng bấm"}
+ 
++
++def duong_khoi_dong_lai(entry) -> str:
++    """Đường khởi động lại theo cấu hình (NV306): ``apk`` khi chế độ «đóng ADB» bật
++    (mặc định lúc đó), ``adb`` khi tắt. Cùng quy tắc chọn đường như đèn (``LightsRouter``)."""
++    return "apk" if adb_tu_dong_dong(entry) else "adb"
++
+ #: Trạng thái vệ tinh Assist coi là «đang có phiên» (không phải rảnh).
+ _VE_TINH_BAN = frozenset({AssistSatelliteState.LISTENING, AssistSatelliteState.PROCESSING, AssistSatelliteState.RESPONDING})
+ 
+@@ -121,6 +134,9 @@ class KhoiDongLai:
+ 
+     async def _gui_lenh(self, chi_adb: bool) -> None:
+         c = self._coordinator
++        if not chi_adb and duong_khoi_dong_lai(self.entry) == "apk":
++            await self._gui_lenh_apk()                              # NV306: không rớt về ADB từ đây
++            return
+         try:
+             await c.apps.dev.reboot()
+             return
+@@ -133,6 +149,27 @@ class KhoiDongLai:
+         except R1Error as exc:
+             raise HomeAssistantError(f"Không khởi động lại được loa (ADB: {loi_adb}; cổng 8080: {exc})") from exc
+ 
++    async def _gui_lenh_apk(self) -> None:
++        """Đường APK (NV306): lệnh qua kết nối mic tới APK, APK chuyển tiếp tới shell cục bộ
++        qua websocket localhost:8080. APK không nối được, hoặc APK chưa báo khả năng
++        ``khoi_dong_lai`` (APK cũ), thì báo rõ và DỪNG — không tự mở ADB, không rớt về ADB."""
++        may_chu = getattr(self._coordinator, "mic_server", None)
++        if may_chu is None or not may_chu.receiving:
++            raise HomeAssistantError("Không khởi động lại được loa qua APK: loa chưa nối về HA qua APK mic "
++                                     "(kiểm tra APK đã cài và đang chạy)")
++        kha_nang = may_chu.apk_kha_nang
++        if not kha_nang:
++            raise HomeAssistantError("Không khởi động lại được loa qua APK: APK chưa báo khả năng "
++                                     "(chưa rõ có hỗ trợ không — kiểm tra APK đã nối và là bản mới)")
++        if "khoi_dong_lai" not in kha_nang:
++            raise HomeAssistantError("Không khởi động lại được loa qua APK: APK trên loa chưa hỗ trợ khởi động lại "
++                                     "(cần APK 1.4 trở lên — cài bản mới qua ADB một lần sau khi rút điện)")
++        try:
++            await may_chu.gui_khoi_dong_lai()
++        except (ConnectionError, OSError, TimeoutError) as exc:
++            raise HomeAssistantError(f"Không khởi động lại được loa qua APK: {exc or type(exc).__name__} "
++                                     "(không tự mở ADB)") from exc
++
+     def _ghi(self, ly_do: str, chi_tiet: str, ket_qua: str) -> None:
+         self.lan_cuoi = {"luc": dt_util.utcnow().isoformat(), "ly_do": ly_do, "chi_tiet": chi_tiet, "ket_qua": ket_qua}
+         self._store.async_delay_save(self._du_lieu, 1.0)
+diff --git a/custom_components/r1_speaker/mic_server.py b/custom_components/r1_speaker/mic_server.py
+index dddd90b..0868f96 100644
+--- a/custom_components/r1_speaker/mic_server.py
++++ b/custom_components/r1_speaker/mic_server.py
+@@ -261,6 +261,13 @@ class R1MicServer:
+             raise ValueError(f"bat phải là bool: {bat!r}")
+         await self._gui_khung(json.dumps({"type": "bluetooth", "bat": bat}, separators=(",", ":")).encode())
+ 
++    async def gui_khoi_dong_lai(self) -> None:
++        """Gửi lệnh khởi động lại loa qua APK (NV306, khung ``khoi_dong_lai``). APK chuyển tiếp tới
++        shell cục bộ qua websocket localhost:8080 (cùng lệnh app AI box) — không qua ADB mạng.
++        Chỉ «đã gửi»: loa khởi động lại thì kết nối tự đứt, không có xác nhận riêng (cùng ngữ nghĩa
++        với đường ADB). Chưa nối → ``ConnectionError`` từ ``_gui_khung``."""
++        await self._gui_khung(b'{"type":"khoi_dong_lai"}')
++
+     async def gui_phim_cau_hinh(self, ma: list[int], do_tat_ca: bool = False) -> None:
+         """Báo APK các mã phím do HA xử lý (APK không xử lý tại chỗ mà báo ``phim``) và bật/tắt chế độ dò (báo mọi phím, không nuốt)."""
+         if (not isinstance(ma, (list, tuple)) or len(ma) > 16 or not isinstance(do_tat_ca, bool)
+diff --git a/docs/CAI-DAT-CHI-TIET.md b/docs/CAI-DAT-CHI-TIET.md
+index c329478..42a60c7 100644
+--- a/docs/CAI-DAT-CHI-TIET.md
++++ b/docs/CAI-DAT-CHI-TIET.md
+@@ -50,7 +50,7 @@ Hai chế độ, **bạn chọn một** (ô «Chế độ đóng ADB» ở tuỳ
+ | An ninh | Không máy nào trong mạng nối được cổng 5555 (loa có `ro.debuggable=1`, ADB mở có thể là quyền root; botnet kiểu Kimwolf lây qua đường này) | Cổng 5555 mở không xác thực cho cả mạng LAN; phải tự khoá ở router (xem README mục 12) |
+ | Chạy được | Mic, đàm thoại, Assist, âm lượng, phát nhạc DLNA/AirPlay, Dừng, Tắt tiếng | Tất cả |
+ | Đèn | Chỉ hiệu ứng có sẵn của firmware (màu cố định, thở, hướng đánh thức) qua APK | Đèn tự do 13 hiệu ứng, thông số riêng, màu RGB tuỳ ý |
+-| Cần ADB nên **không dùng được** khi đóng | — | Cài/cập nhật APK và ứng dụng, «Chuẩn bị loa», khởi động lại từ HA, thông tin hệ thống (CPU/RAM/WiFi), công tắc Bluetooth (các mục này sẽ chuyển dần sang APK) |
++| Cần ADB nên **không dùng được** khi đóng | — | Cài/cập nhật APK và ứng dụng, «Chuẩn bị loa», thông tin hệ thống (CPU/RAM/WiFi), công tắc Bluetooth (các mục này sẽ chuyển dần sang APK). Khởi động lại từ HA KHÔNG còn trong nhóm này từ NV306: chế độ đóng ADB bật thì nút/lịch đi đường APK (cần APK 1.4 trở lên) |
+ | Mở lại | Rút điện loa rồi cắm lại (cổng 5555 tự mở lúc khởi động; chế độ 1 đóng lại sau 2 phút kể từ khi APK nối lại) | — |
+ | Rủi ro | Cần APK đã cài và nối về HA TRƯỚC khi đóng (tích hợp tự bảo đảm điều này); cập nhật APK phải mở ADB lại | ADB bị chiếm thì loa mất kiểm soát |
+ 
+@@ -91,7 +91,7 @@ Hai chế độ, **bạn chọn một** (ô «Chế độ đóng ADB» ở tuỳ
+ | Từ đánh thức | binary_sensor | Bật thoáng chốc khi có trigger từ đánh thức | |
+ | Dịch vụ đèn | binary_sensor | Đường ADB tới loa (chạy hiệu ứng đèn, cài ứng dụng, đọc thông tin) có dùng được không; thuộc tính `duong_adb` = `server` hoặc `direct` (mục 5) | tắt = lỗi ADB gần nhất, xem thuộc tính `loi` |
+ | Chuẩn bị loa (ẩn ứng dụng gốc) | button | Ẩn (`pm hide`, đảo được) bảy ứng dụng gốc của hãng gây nhiễu, hiện lại `ijetty` và `netctl`, khởi chạy `EchoService`; dịch vụ tương ứng `prepare_speaker` (`reboot: true` để khởi động lại luôn). Làm sau khi cài ứng dụng, trước khi khởi động lại loa | cần ADB (mục 5) |
+-| Khởi động lại loa | button | Gửi lệnh `reboot` cho loa qua ADB (loa lên lại sau khoảng nửa phút, APK tự nối về HA, HA áp lại đèn); ADB mạng hỏng hoặc đóng thì nút tự chuyển sang cổng 8080 (tin `shell` với lệnh `stop adbd&&start adbd&&adb reboot` của app AI box). Đã thử trên loa thật 28/10/2026 khi ADB mạng còn mở (loa tắt sau ~10 giây, lên lại sau ~30 giây); **chưa thử khi ADB mạng đã đóng**. `reboot` và `setprop sys.powerctl reboot` qua cổng 8080 KHÔNG có hiệu lực (lệnh chạy dưới uid `system`, không phải root) | ADB (mục 5) hoặc cổng 8080 |
++| Khởi động lại loa | button | Đường đi chọn theo cấu hình (NV306): chế độ «đóng ADB» bật thì qua APK — lệnh `khoi_dong_lai` qua kết nối mic, APK chuyển tiếp tới shell cục bộ qua websocket localhost:8080 (cùng lệnh `stop adbd&&start adbd&&adb reboot` của app AI box), không qua ADB mạng; APK không nối được hoặc APK cũ chưa báo khả năng `khoi_dong_lai` thì báo rõ, không tự mở ADB. Chế độ đóng ADB tắt thì qua ADB (loa lên lại sau khoảng nửa phút, APK tự nối về HA, HA áp lại đèn); ADB mạng hỏng thì nút tự chuyển sang cổng 8080 (tin `shell` với lệnh trên). Đã thử trên loa thật 28/10/2026 khi ADB mạng còn mở (loa tắt sau ~10 giây, lên lại sau ~30 giây); **đường APK chưa thử trên loa thật**. `reboot` và `setprop sys.powerctl reboot` qua cổng 8080 KHÔNG có hiệu lực (lệnh chạy dưới uid `system`, không phải root) | APK (khi đóng ADB) hoặc ADB (mục 5) / cổng 8080 |
+ | Loa phản hồi | binary_sensor | Bật = ứng dụng trên loa còn sống (`get_info` đọc được hoặc APK còn gửi nhịp tim trong 150 giây). Tắt thì thuộc tính `ly_do` nói rõ: `treo` (máy loa còn trả lời TCP nhưng ứng dụng im), `mat_mang` (loa không trả lời ở tầng TCP), `dang_khoi_dong` (HA vừa gửi lệnh khởi động lại, chờ tối đa 5 phút). `lan_cuoi` = lần cuối từng tín hiệu còn sống (`get_info`, `apk_nhip_tim`, `tcp_8080`, `adb_5555`) để lần treo thật sau này có số liệu căn ngưỡng. **Ngưỡng là đề xuất, chưa đo trên một lần treo thật.** Kernel loa đơ hẳn trông giống rút điện (`mat_mang`) | chẩn đoán |
+ | Lần khởi động lại cuối | sensor | Lúc HA gửi lệnh khởi động lại gần nhất (nhớ qua khởi động lại HA); thuộc tính `ly_do`, `ket_qua`, `ke_tiep` (lượt lịch kế tiếp), `dang_hoan` | chẩn đoán |
+ | Đường phát | select | Đường phát nhạc và tin ra loa: chỉ DLNA (mặc định) / DLNA trước, hỏng thì AirPlay / AirPlay trước, hỏng thì DLNA / chỉ AirPlay. Cùng tuỳ chọn `duong_phat` của hộp tuỳ chọn | cấu hình |
+diff --git a/docs/HOP-DONG-PHIA-LOA.md b/docs/HOP-DONG-PHIA-LOA.md
+index 3a3059f..580e6eb 100644
+--- a/docs/HOP-DONG-PHIA-LOA.md
++++ b/docs/HOP-DONG-PHIA-LOA.md
+@@ -163,13 +163,13 @@ Lệnh `lights_test set <mặt nạ> <rgb>` chỉ chạy được trên loa; HA
+ vụ đèn (chưa được duyệt) thoả giao diện đó.
+ 
+ 
+-## Khung APK 1.3 (0.8.0)
++## Khung APK 1.4 (NV306)
+ 
+ Mọi khung đều là «4 byte độ dài + JSON gọn» trên kết nối mic đã xác thực (mục 2). **APK → HA:**
+ 
+ | Khung | Trường | Ý nghĩa |
+ |---|---|---|
+-| `apk` | `ver`, `kha_nang` (danh sách chuỗi: `den`, `am_luong`, `bluetooth`, `he_thong`, `phim`) | Phiên bản và khả năng, gửi ngay khi nối. APK cũ không gửi: HA coi là «cũ» và rơi về đường ADB |
++| `apk` | `ver`, `kha_nang` (danh sách chuỗi: `den`, `am_luong`, `bluetooth`, `he_thong`, `phim`, `khoi_dong_lai`) | Phiên bản và khả năng, gửi ngay khi nối. APK cũ không gửi: HA coi là «cũ» và rơi về đường ADB (ngoại lệ: khởi động lại, xem dưới) |
+ | `he_thong` | `txt` | Thông tin hệ thống dạng văn bản chia khối `---tên` (CPU, RAM, `/data`, WiFi, Bluetooth, uptime), mỗi 60 giây và khi HA hỏi. Cùng định dạng mà `he_thong.phan_tich` đọc cho đường ADB. Không có BSSID/MAC/số sê-ri |
+ | `bluetooth_trang_thai` | `bat` | Trạng thái Bluetooth THẬT (báo lại ~2 giây sau lệnh) |
+ | `phim` | `ma`, `xuong` | Phím thô qua dịch vụ trợ năng của APK (nhấn/nhả); chỉ báo phím HA đã nhận (`phim_cau_hinh`) hoặc mọi phím trong chế độ dò. HA tự nhận diện đơn/đúp/ba/giữ |
+@@ -182,7 +182,10 @@ Mọi khung đều là «4 byte độ dài + JSON gọn» trên kết nối mic
+ | `phim_cau_hinh` | `ma` (≤ 16 mã, 1–999), `do` | Mã phím do HA xử lý (APK không xử lý tại chỗ và nuốt phím); `do` bật chế độ dò (báo mọi phím, không nuốt). Gửi mỗi khi APK nối vào |
+ | `he_thong_hoi` | — | Bảo APK báo `he_thong` ngay |
+ | `den_hieu_ung`, `den_hoi` | `id` | Đèn bằng hiệu ứng firmware (mục 5 của `DEN-LED.md`) |
++| `khoi_dong_lai` | — | NV306: bảo APK khởi động lại loa (nút/lịch NV288 khi chế độ «đóng ADB» bật). APK chuyển tiếp tới shell cục bộ qua websocket localhost:8080, xem dưới |
+ 
+ APK bỏ qua mọi khung sai dạng (mẫu chặt, không bao giờ làm đứt kết nối).
+ 
+ **Đã thử và KHÔNG dùng** (đo trên loa thật 28/10/2026): bộ nhận diện cử chỉ phím của firmware (`userdefkeyservice.registerEventListener`, `msgcenter` nhóm 256) đăng ký được nhưng không gửi gì khi ứng dụng gốc bị ẩn; `FXSystemPrivate.writeProp` chỉ là kho khoá-giá trị riêng của hãng (không đổi thuộc tính hệ thống) nên **không thể khởi động lại loa qua APK** (cần quyền `REBOOT` chỉ hệ thống có): nút khởi động lại vẫn dùng ADB.
++
++**NV306 — khởi động lại qua APK (không trực tiếp, mà chuyển tiếp):** kết luận trên vẫn đúng — APK (uid ứng dụng) không tự reboot được. Cơ chế mới: HA gửi `khoi_dong_lai` qua kết nối mic; APK mở websocket tới `127.0.0.1:8080` và gửi đúng khung `shell` mà HA vẫn gửi trực tiếp (`{"type":"shell","type_id":"ha","shell":"stop adbd&&start adbd&&adb reboot"}`), dịch vụ 8080 (uid `system`) thực hiện. Cả hai chặng (HA→APK qua TCP mic, APK→8080 qua loopback) đều không phải ADB mạng (cổng 5555). Vì vậy nút/lịch NV288 chọn đường theo cấu hình: chế độ «đóng ADB» bật → đường APK (mặc định lúc đó); tắt → đường ADB (ADB trước, hỏng thì qua cổng 8080 như cũ). **Ngoại lệ với mẫu «APK cũ → đường ADB»:** đường khởi động lại KHÔNG rớt về ADB khi APK không nối được hoặc APK chưa báo khả năng `khoi_dong_lai` — HA báo rõ lỗi và dừng (rớt về ADB lúc ADB đang bị đóng vì bảo mật sẽ phá đúng mục đích của chế độ đóng). HA ghi «ok» nghĩa là «đã gửi lệnh tới APK», cùng ngữ nghĩa với đường ADB (không có xác nhận riêng; loa khởi động lại thì kết nối tự đứt). **Chưa thử đường APK trên loa thật:** chặng APK→localhost:8080 là chặng mới (HA→8080 từ LAN đã thử 28/10/2026, nhưng APK→loopback thì chưa). **Cài APK mới cần ADB một lần:** APK 1.4 phải được cài lên loa qua ADB (chủ máy mở ADB bằng cách rút điện rồi cắm lại, cổng 5555 tự mở lúc khởi động); sau đó chế độ đóng ADB tự đóng lại sau 2 phút kể từ khi APK nối lại. **Chú ý khi dựng (NV306 nộp mã nguồn, chưa có binary 1.4):** chạy `./build.sh release` trong `apk/nguon` rồi thay cả hai bản sao APK (`apk/vn-r1-bodam.apk` và `custom_components/r1_speaker/apk/vn-r1-bodam.apk`) + file `.sha256` + trường `sha256` trong bo-cai.json bằng sha256 của binary mới. Số phiên bản 1.4 và các expectation test 1.4 đã nằm sẵn trong patch này (manifest ×2, `BaoCao.PHIEN_BAN`, bo-cai, 2 test `cai_ung_dung`); chỉ sha256 là còn của binary 1.3 cũ — tới khi dựng xong thì nhãn 1.4 mới thành thật (trước đó thực thể «Cập nhật» có thể hiện 1.4 cho binary 1.3, nhưng không mời cập nhật sai vì logic so từng byte với bản đi kèm).
+diff --git a/tests/test_cai_ung_dung.py b/tests/test_cai_ung_dung.py
+index e5c0dde..b26c3fd 100644
+--- a/tests/test_cai_ung_dung.py
++++ b/tests/test_cai_ung_dung.py
+@@ -77,7 +77,7 @@ def test_danh_sach_dung_ba_ung_dung_va_tep_that_khop_sha256():
+     ds = doc_bo_cai()
+     assert [(u.id, u.goi, u.phien_ban) for u in ds] == [
+         ("player", "com.phicomm.speaker.player", "0.2.5"), ("unisound", "com.phicomm.speaker.device", "V3.2.5.2-"),
+-        ("bodam", "vn.r1.bodam", "1.3")]
++        ("bodam", "vn.r1.bodam", "1.4")]
+     for u in ds:
+         assert hashlib.sha256(ghep_va_kiem(u)).hexdigest() == u.sha256       # tệp thật, kể cả ghép 2 phần của unisound
+     assert doc_bo_cai()[1].tep == ("unisound.apk.00", "unisound.apk.01")
+@@ -308,10 +308,12 @@ async def test_moi_ung_dung_co_mot_thuc_the_cap_nhat_va_cai_bang_nut(hass, ha_ca
+     from homeassistant.helpers.entity_component import async_update_entity
+     await async_update_entity(hass, pl)
+     st = hass.states.get(pl)
+-    assert st.attributes["installed_version"] == "chưa cài" and st.attributes["latest_version"] == "1.3"
++    assert st.attributes["installed_version"] == "chưa cài" and st.attributes["latest_version"] == "1.4"
+     assert st.state == "on" and st.attributes["title"].startswith("APK mic")
+     await hass.services.async_call("update", "install", {"entity_id": pl}, blocking=True)
+     assert any(c.startswith("pm install -r") and "r1-bodam" in c for c in dev.cmds)
++    # NV306: file binary đi kèm vẫn là bản 1.3 thật (chưa dựng lại) nên loa báo versionName 1.3;
++    # «off» ở dưới vẫn đúng nhờ so từng byte với bản đi kèm, không nhờ chuỗi phiên bản.
+     dev.cai_san["vn.r1.bodam"] = ("/data/app/p-1/base.apk",
+                                                  hashlib.md5(ghep_va_kiem(bo.tim("bodam"))).hexdigest(), "1.3")
+     bo._nho.clear()                                                          # bỏ bộ nhớ 30 giây của lần đọc trước
+diff --git a/tests/test_nv306_khoi_dong_lai_apk.py b/tests/test_nv306_khoi_dong_lai_apk.py
+new file mode 100644
+index 0000000..6e14c9d
+--- /dev/null
++++ b/tests/test_nv306_khoi_dong_lai_apk.py
+@@ -0,0 +1,136 @@
++"""NV306 — khởi động lại loa qua APK, không qua ADB.
++
++Đường ``apk`` (mặc định khi chế độ «đóng ADB» bật): lệnh đi qua kết nối mic đã xác thực
++tới APK, APK chuyển tiếp tới shell cục bộ qua websocket localhost:8080 — không dùng ADB
++mạng, không tự mở ADB khi APK không nối được. Đường ``adb`` (khi chế độ đóng ADB tắt)
++giữ nguyên hành vi NV288: ADB trước, hỏng thì qua cổng 8080.
++
++Dùng đúng đường dựng NV288 (``dung`` + ``DevGia`` + loa WebSocket giả ``r1``); chỗ giả
++duy nhất thêm vào là đầu nhận mic (writer giả) vì loa giả không có APK thật.
++"""
++
++import pytest
++from homeassistant.exceptions import HomeAssistantError
++
++from custom_components.r1_speaker.const import KDL_LY_DO_BAM
++
++
++@pytest.fixture(autouse=True)
++async def _mui_gio(hass):
++    # Giong file NV288: lich chay theo gio dia phuong cua HA; de UTC thi gio VN 04:00 khong bao gio toi.
++    await hass.config.async_set_time_zone("Asia/Ho_Chi_Minh")
++from custom_components.r1_speaker.mic_server import R1MicServer
++
++from .test_nv288_khoi_dong_lai import DevGia, dung, gio, tien
++
++
++class WriterGia:
++    """Thay ``asyncio.StreamWriter`` của đầu nhận mic: ghi lại khung đã gửi."""
++
++    def __init__(self):
++        self.khung: list[bytes] = []
++
++    def write(self, data: bytes) -> None:
++        self.khung.append(bytes(data))
++
++    async def drain(self) -> None:
++        return None
++
++    def close(self) -> None:
++        self.da_dong = True
++
++    async def wait_closed(self) -> None:
++        return None
++
++    def payloads(self) -> list[bytes]:
++        """Payload từng khung (bỏ 4 byte độ dài big-endian)."""
++        ra = []
++        for k in self.khung:
++            n = int.from_bytes(k[:4], "big")
++            assert n == len(k) - 4
++            ra.append(k[4:])
++        return ra
++
++
++def _gan_apk(entry, *, noi: bool, kha_nang=frozenset({"khoi_dong_lai"})):
++    """Gắn đầu nhận mic giả vào tích hợp: ``noi=False`` = APK chưa nối về HA."""
++    may_chu = entry.runtime_data.mic_server
++    if noi:
++        w = WriterGia()
++        may_chu._writer = w
++        may_chu.apk_kha_nang = frozenset(kha_nang)
++        return w
++    may_chu._writer = None
++    may_chu.apk_kha_nang = frozenset()
++    return None
++
++
++async def test_gui_khoi_dong_lai_gui_dung_khung():
++    may_chu = R1MicServer(object(), 0, "khoa-gia", "127.0.0.1")
++    w = WriterGia()
++    may_chu._writer = w
++    await may_chu.gui_khoi_dong_lai()
++    assert w.payloads() == [b'{"type":"khoi_dong_lai"}']
++
++
++async def test_duong_apk_khi_dong_adb_bat(hass, r1, freezer):
++    e, dev = await dung(hass, r1, freezer, gio("2026-11-04", 10, 0), adb_tu_dong_dong=True)
++    w = _gan_apk(e, noi=True)
++    await e.runtime_data.khoi_dong_lai.thuc_hien(KDL_LY_DO_BAM)
++    assert w.payloads() == [b'{"type":"khoi_dong_lai"}']
++    assert dev.reboot_goi == 0                                   # không đụng ADB
++    assert e.runtime_data.khoi_dong_lai.lan_cuoi["ket_qua"] == "ok"
++
++
++async def test_duong_apk_bao_loi_khi_apk_chua_noi(hass, r1, freezer):
++    e, dev = await dung(hass, r1, freezer, gio("2026-11-04", 10, 0), adb_tu_dong_dong=True)
++    _gan_apk(e, noi=False)
++    with pytest.raises(HomeAssistantError, match="APK"):
++        await e.runtime_data.khoi_dong_lai.thuc_hien(KDL_LY_DO_BAM)
++    assert dev.reboot_goi == 0                                   # không rớt về ADB
++    assert e.runtime_data.khoi_dong_lai.lan_cuoi["ket_qua"].startswith("loi:")
++
++
++async def test_duong_apk_bao_loi_khi_apk_cu_khong_co_kha_nang(hass, r1, freezer):
++    e, dev = await dung(hass, r1, freezer, gio("2026-11-04", 10, 0), adb_tu_dong_dong=True)
++    w = _gan_apk(e, noi=True, kha_nang={"den", "am_luong"})
++    with pytest.raises(HomeAssistantError, match="APK"):
++        await e.runtime_data.khoi_dong_lai.thuc_hien(KDL_LY_DO_BAM)
++    assert w.payloads() == []                                    # không gửi vào hư không
++    assert dev.reboot_goi == 0
++
++
++async def test_duong_apk_bao_loi_khi_chua_ro_kha_nang(hass, r1, freezer):
++    e, dev = await dung(hass, r1, freezer, gio("2026-11-04", 10, 0), adb_tu_dong_dong=True)
++    w = _gan_apk(e, noi=True, kha_nang=frozenset())
++    with pytest.raises(HomeAssistantError, match="APK"):
++        await e.runtime_data.khoi_dong_lai.thuc_hien(KDL_LY_DO_BAM)
++    assert w.payloads() == []
++    assert dev.reboot_goi == 0
++
++
++async def test_duong_adb_giu_nguyen_khi_dong_adb_tat(hass, r1, freezer):
++    e, dev = await dung(hass, r1, freezer, gio("2026-11-04", 10, 0), adb_tu_dong_dong=False)
++    await e.runtime_data.khoi_dong_lai.thuc_hien(KDL_LY_DO_BAM)
++    assert dev.reboot_goi == 1
++    assert e.runtime_data.khoi_dong_lai.lan_cuoi["ket_qua"] == "ok"
++
++
++async def test_duong_adb_hong_thi_ve_cong_8080(hass, r1, freezer):
++    e, dev = await dung(hass, r1, freezer, gio("2026-11-04", 10, 0), adb_tu_dong_dong=False)
++    dev.loi = "ADB đóng"
++    await e.runtime_data.khoi_dong_lai.thuc_hien(KDL_LY_DO_BAM)
++    assert dev.reboot_goi == 1
++    shell = [m for m in r1.received if m.get("type") == "shell"]
++    assert len(shell) == 1
++    assert shell[0]["shell"] == "stop adbd&&start adbd&&adb reboot"
++    assert e.runtime_data.khoi_dong_lai.lan_cuoi["ket_qua"] == "ok"
++
++
++async def test_lich_dung_duong_apk_khi_dong_adb_bat(hass, r1, freezer):
++    e, dev = await dung(hass, r1, freezer, gio("2026-11-04", 3, 50), adb_tu_dong_dong=True,
++                        khoi_dong_lai_bat=True, khoi_dong_lai_gio="04:00")
++    w = _gan_apk(e, noi=True)
++    await tien(hass, freezer, gio("2026-11-04", 3, 50), gio("2026-11-04", 4, 10))
++    assert w.payloads() == [b'{"type":"khoi_dong_lai"}']
++    assert dev.reboot_goi == 0
