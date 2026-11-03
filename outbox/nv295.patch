@@ -1,0 +1,1794 @@
+diff --git a/app/chung_chi_tls.py b/app/chung_chi_tls.py
+new file mode 100644
+index 0000000..e4e6ae7
+--- /dev/null
++++ b/app/chung_chi_tls.py
+@@ -0,0 +1,171 @@
++"""Đo vân tay TLS + vé «Tin chứng chỉ này» (NV295).
++
++Mô hình «tin ở lần đầu» cho module nối thiết bị LAN dùng chứng chỉ tự ký:
++- Lõi TỰ ĐO vân tay (bắt tay TLS với CERT_NONE, chỉ lấy chứng chỉ rồi đóng —
++  không gửi mật khẩu, không đăng nhập), rồi giao diện chỉ hiện MẶT NẠ
++  (8 ký tự đầu…cuối) cùng nút «Tin chứng chỉ này».
++- Bấm tin: lõi đo LẠI và so khớp với bản đã hiển thị (so mặt nạ), khác thì
++  từ chối; khớp thì lưu vân tay đầy đủ vào cấu hình rồi kiểm lại ngay
++  (qua đường cài cấu hình chung của lõi — module tự kiểm lại khi cài).
++
++Vé tin KHÔNG chứa vân tay (chỉ module + host + cổng + hạn + HMAC bằng khoá
++ngẫu nhiên của tiến trình — khởi động lại là vé cũ hết hiệu lực, người dùng
++lưu lại là có vé mới). Vé không dùng một lần có chủ đích: vé cũ dùng lại
++vẫn phải qua bước đo lại + so mặt nạ, chứng chỉ đổi là bị từ chối.
++"""
++from __future__ import annotations
++
++import asyncio
++import base64
++import hashlib
++import hmac
++import json
++import os
++import socket
++import ssl
++import time
++
++__all__ = [
++    "ma_hien_thi",
++    "do_van_tay",
++    "tao_ve",
++    "doc_ve",
++    "ghep_de_nghi_tin",
++    "tin_chung_chi",
++]
++
++_KHOA_VE = os.urandom(32)  # khoá tiến trình: vé chết khi khởi động lại
++_HAN_VE_MAC_DINH_GIAY = 600
++_VAN_TAY_HEX = set("0123456789abcdef")
++
++
++def ma_hien_thi(van_tay: str) -> str:
++    """Mặt nạ hiển thị: 8 ký tự đầu…cuối. Phần giữa không bao giờ ra giao diện."""
++    v = (van_tay or "").strip().lower()
++    if len(v) != 64 or any(c not in _VAN_TAY_HEX for c in v):
++        raise ValueError("van_tay phải là 64 ký tự hex (SHA-256)")
++    return f"{v[:8]}…{v[-8:]}"
++
++
++def do_van_tay(host: str, port: int, het_gio: float = 8.0) -> str:
++    """Đo vân tay SHA-256 của chứng chỉ đích — CHỈ bắt tay rồi đóng.
++
++    Không gửi gì sau bắt tay, không đăng nhập. Dùng khi đề nghị tin (lần đầu
++    hoặc chứng chỉ đổi); đích PHẢI là địa chỉ đã qua kiểm LAN của lõi
++    (module kiểm trước khi gọi — hàm này không tự kiểm lại).
++    """
++    ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
++    ctx.check_hostname = False
++    ctx.verify_mode = ssl.CERT_NONE
++    with socket.create_connection((host, port), timeout=het_gio) as sock:
++        with ctx.wrap_socket(sock, server_hostname=host) as tls:
++            der = tls.getpeercert(binary_form=True) or b""
++    return hashlib.sha256(der).hexdigest()
++
++
++def _ky(payload: bytes) -> str:
++    return hmac.new(_KHOA_VE, payload, hashlib.sha256).hexdigest()
++
++
++def tao_ve(module_id: str, host: str, port: int, ttl_giay: int = _HAN_VE_MAC_DINH_GIAY) -> str:
++    """Vé tin: base64url(payload).hmac — payload chỉ có module/host/cổng/hạn."""
++    payload = json.dumps(
++        {"m": module_id, "h": host, "p": int(port),
++         "e": int(time.time()) + int(ttl_giay)},
++        separators=(",", ":")).encode()
++    b64 = base64.urlsafe_b64encode(payload).decode().rstrip("=")
++    return f"{b64}.{_ky(payload)}"
++
++
++def doc_ve(ve: str, module_id: str) -> tuple[str, int] | None:
++    """Kiểm vé: đúng module, còn hạn, HMAC khớp → (host, cổng). Sai → None."""
++    try:
++        b64, mac = str(ve).split(".", 1)
++        payload = base64.urlsafe_b64decode(b64 + "=" * (-len(b64) % 4))
++        data = json.loads(payload.decode())
++        if data.get("m") != module_id:
++            return None
++        if int(data.get("e", 0)) < int(time.time()):
++            return None
++        if not hmac.compare_digest(mac, _ky(payload)):
++            return None
++        host, port = str(data["h"]), int(data["p"])
++        if not host or not 1 <= port <= 65535:
++            return None
++        return host, port
++    except (ValueError, KeyError, TypeError, UnicodeDecodeError):
++        return None
++
++
++def ghep_de_nghi_tin(kq: dict, module_id: str) -> dict | None:
++    """Chuyển đề nghị tin của module thành khối công khai cho giao diện.
++
++    Module trả ``tin_chung_chi`` = {ly_do, ma_hien_thi, thong_bao, host, cong};
++    lõi chỉ chuyển tiếp {ly_do, ma_hien_thi, thong_bao} + vé đã ký — host/cổng
++    KHÔNG ra giao diện (vé mang chúng, có HMAC).
++
++    Từ hướng 19:30, lý do duy nhất còn được đề nghị là ``doi`` (chứng chỉ
++    đổi); lần đầu tự ký đã tự ghim, không còn đề nghị ``tu_ky``.
++    """
++    if not isinstance(kq, dict):
++        return None
++    de_nghi = kq.get("tin_chung_chi")
++    if not isinstance(de_nghi, dict):
++        return None
++    ly_do = de_nghi.get("ly_do")
++    ma = de_nghi.get("ma_hien_thi")
++    thong_bao = de_nghi.get("thong_bao")
++    host = de_nghi.get("host")
++    cong = de_nghi.get("cong")
++    if ly_do not in ("doi",):
++        return None
++    if not isinstance(ma, str) or "…" not in ma:
++        return None
++    if not isinstance(thong_bao, str) or not thong_bao.strip():
++        return None
++    if not isinstance(host, str) or not host:
++        return None
++    try:
++        cong = int(cong)
++    except (TypeError, ValueError):
++        return None
++    if not 1 <= cong <= 65535:
++        return None
++    return {"ly_do": ly_do, "ma_hien_thi": ma, "thong_bao": thong_bao,
++            "ve": tao_ve(module_id, host, cong)}
++
++
++async def tin_chung_chi(so, module_id: str, cau_hinh: dict, ve: str,
++                        ma_hien_thi_da_hien: str) -> dict:
++    """Hành động «Tin chứng chỉ này»: kiểm vé → đo lại → so mặt nạ → lưu + kiểm.
++
++    - Vé sai/hết hạn/sai module → từ chối, không chạm cấu hình.
++    - Đo lại thất bại hoặc mặt nạ khác bản đã hiển thị → từ chối
++      (chứng chỉ đã đổi sau khi hiển thị — không tin mù).
++    - Khớp → gọi đường cài chung của lõi với vân tay đầy đủ vừa đo;
++      module tự kiểm lại kết nối khi cài (nối + đăng nhập thật).
++    """
++    if not isinstance(cau_hinh, dict):
++        return {"ok": False, "ket_qua_tung_khoa": [], "loi": "Thân cần dạng {\"cau_hinh\": {...}}."}
++    da_kiem = doc_ve(ve, module_id)
++    if da_kiem is None:
++        return {"ok": False, "ket_qua_tung_khoa": [],
++                "loi": "Vé tin đã hết hạn hoặc không hợp lệ — lưu lại để nhận đề nghị mới."}
++    host, cong = da_kiem
++    try:
++        van_tay = await asyncio.to_thread(do_van_tay, host, cong)
++    except (OSError, ssl.SSLError) as e:
++        return {"ok": False, "ket_qua_tung_khoa": [],
++                "loi": f"Không đo lại được chứng chỉ ({type(e).__name__}) — thử lưu lại."}
++    try:
++        ma_moi = ma_hien_thi(van_tay)
++    except ValueError:
++        return {"ok": False, "ket_qua_tung_khoa": [],
++                "loi": "Chứng chỉ đo được không hợp lệ — thử lưu lại."}
++    if not hmac.compare_digest(ma_moi.encode("utf-8"),
++                               str(ma_hien_thi_da_hien or "").encode("utf-8")):
++        return {"ok": False, "ket_qua_tung_khoa": [],
++                "loi": "Chứng chỉ đã đổi so với bản vừa hiển thị — không tin. Lưu lại để xem mã mới."}
++    cau_hinh_tin = dict(cau_hinh)
++    cau_hinh_tin["van_tay_tls"] = van_tay
++    return await so.cai(module_id, cau_hinh_tin)
+diff --git a/app/so_module.py b/app/so_module.py
+index 7461582..81a2720 100644
+--- a/app/so_module.py
++++ b/app/so_module.py
+@@ -823,6 +823,15 @@ class SoModule:
+             await self._dung_an_toan(km.id, moi)  # thể hiện dùng để kiểm; bản phục vụ dựng lại bằng nap
+         cong_khai = {"ok": bool(kq.get("ok")), "ket_qua_tung_khoa": kq.get("ket_qua_tung_khoa") or [],
+                      "loi": kq.get("loi")}
++        # NV295: module đề nghị «Tin chứng chỉ này» → lõi ký vé và chuyển tiếp
++        # khối công khai (chỉ ly_do/ma_hien_thi/thong_bao/vé — không lộ host/cổng).
++        try:
++            from app import chung_chi_tls
++            de_nghi = chung_chi_tls.ghep_de_nghi_tin(kq, km.id)
++        except Exception:
++            de_nghi = None
++        if de_nghi is not None:
++            cong_khai["tin_chung_chi"] = de_nghi
+         if not cong_khai["ok"]:
+             return cong_khai
+         sach = kq.get("cau_hinh_luu") or {}
+diff --git a/app/tu_xa.py b/app/tu_xa.py
+index 25dee58..edcb313 100644
+--- a/app/tu_xa.py
++++ b/app/tu_xa.py
+@@ -41,6 +41,85 @@ def cho_phep_loopback_cho_test() -> bool:
+     return os.environ.get("WEB2API_TEST_CHO_PHEP_LOOPBACK") == "1"
+ 
+ 
++# ── NV295 (hướng 19:30): chỉ IP LAN, tuyệt đối không tên miền / IP WAN ─────────
++# Dải LAN được phép: RFC 1918 (IPv4) + ULA fc00::/7 (IPv6). Mọi thứ khác đều
++# bị từ chối, kể cả khi Python coi nó là «private» (vd CGNAT 100.64/10 nằm
++# trong is_private của ipaddress nhưng là dải dùng chung của nhà mạng, KHÔNG
++# phải LAN — nên ở đây kiểm bằng danh sách tường minh, không dùng is_private).
++
++_MANG_LAN_V4 = [ipaddress.IPv4Network("10.0.0.0/8"),
++                ipaddress.IPv4Network("172.16.0.0/12"),
++                ipaddress.IPv4Network("192.168.0.0/16")]
++_MANG_LAN_V6 = [ipaddress.IPv6Network("fc00::/7")]
++_MANG_CGNAT_V4 = ipaddress.IPv4Network("100.64.0.0/10")
++
++
++def _kiem_ipv4_lan(ip: ipaddress.IPv4Address) -> None:
++    """Ném ValueError nêu lý do nếu IPv4 không phải IP LAN."""
++    if ip.is_loopback:
++        if cho_phep_loopback_cho_test():
++            return
++        raise ValueError("bị chặn: loopback (không phải IP LAN; chỉ test mới được phép)")
++    if ip.is_link_local:
++        raise ValueError("bị chặn: link-local (không phải IP LAN)")
++    if ip in _MANG_CGNAT_V4:
++        raise ValueError("bị chặn: CGNAT 100.64/10 (dải dùng chung của nhà mạng, không phải LAN)")
++    if any(ip in mang for mang in _MANG_LAN_V4):
++        return
++    raise ValueError("bị chặn: không phải địa chỉ IP trong mạng nhà "
++                     "(địa chỉ công cộng/WAN hoặc dải đặc biệt)")
++
++
++def kiem_ip_lan(host: object) -> ipaddress.IPv4Address | ipaddress.IPv6Address:
++    """Cưỡng chế «chỉ IP LAN» cho luồng tin chứng chỉ lần đầu (NV295, 19:30).
++
++    - Tên miền/tên máy → ValueError NGAY, KHÔNG phân giải DNS (không có
++      chuyện «phân giải rồi nối theo IP phân giải được» — chống DNS rebinding
++      ngay từ đầu).
++    - IP WAN/công cộng, CGNAT, loopback, link-local, unspecified, multicast,
++      dải đặc biệt/tài liệu → ValueError.
++    - Trả về đối tượng ipaddress đã chuẩn hoá (IPv4-mapped trong IPv6 được
++      bóc ra; IPv6 nhúng 6to4/Teredo cũng phải mang IPv4 LAN mới qua).
++    - Loopback chỉ được phép khi biến test WEB2API_TEST_CHO_PHEP_LOOPBACK=1
++      (máy chủ giả trong test chạy trên 127.0.0.1) — production không đặt.
++    """
++    s = str(host or "").strip()
++    if s.startswith("[") and s.endswith("]"):
++        s = s[1:-1]
++    try:
++        ip = ipaddress.ip_address(s)
++    except ValueError:
++        raise ValueError(
++            f"{s!r} không phải địa chỉ IP — bị chặn: chỉ nhận địa chỉ IP trong mạng nhà, "
++            "không nhận tên miền (không phân giải tên miền)") from None
++    if isinstance(ip, ipaddress.IPv6Address):
++        if ip.ipv4_mapped:
++            ip = ip.ipv4_mapped
++        else:
++            # IPv4 nhúng trong 6to4/Teredo phải là LAN thì mới qua.
++            nhung = [ip.sixtofour] if ip.sixtofour else []
++            if ip.teredo:
++                nhung += list(ip.teredo)
++            for v4 in nhung:
++                try:
++                    _kiem_ipv4_lan(v4)
++                except ValueError as e:
++                    raise ValueError(f"IPv4 nhúng {v4}: {e}") from None
++            if ip.is_loopback:
++                if cho_phep_loopback_cho_test():
++                    return ip
++                raise ValueError("bị chặn: loopback (không phải IP LAN; chỉ test mới được phép)")
++            if ip.is_link_local:
++                raise ValueError("bị chặn: link-local (không phải IP LAN)")
++            if any(ip in mang for mang in _MANG_LAN_V6):
++                return ip
++            raise ValueError(
++                "bị chặn: không phải địa chỉ IP trong mạng nhà "
++                "(địa chỉ công cộng/WAN hoặc dải đặc biệt)")
++    _kiem_ipv4_lan(ip)
++    return ip
++
++
+ def _dia_chi_bi_chan(ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> str | None:
+     if isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped:
+         ip = ip.ipv4_mapped
+diff --git a/app/tuyen.py b/app/tuyen.py
+index 740dd91..4ff6796 100644
+--- a/app/tuyen.py
++++ b/app/tuyen.py
+@@ -1323,6 +1323,30 @@ async def cai(id_: str, request: Request):
+     return JSONResponse(kq, status_code=200 if kq["ok"] else 400)
+ 
+ 
++@modules.post("/{id_}/tin-chung-chi", dependencies=QT)
++async def tin_chung_chi(id_: str, request: Request):
++    """Nút «Tin chứng chỉ này» (NV295): kiểm vé → đo lại → so mặt nạ → lưu + kiểm.
++
++    Thân: {"cau_hinh": {...}, "ve": "...", "ma_hien_thi": "abcd1234…ef567890"}.
++    cau_hinh là giá trị người dùng vừa nhập lại trên form (bí mật đã xoá khỏi
++    trang sau lần lưu hỏng trước — cùng quy tắc an toàn như đường cai).
++    """
++    from app import chung_chi_tls
++    than = await _than_json(request)
++    cau_hinh = than.get("cau_hinh")
++    ve = than.get("ve")
++    ma = than.get("ma_hien_thi")
++    if not isinstance(cau_hinh, dict) or not isinstance(ve, str) or not isinstance(ma, str):
++        raise LoiOpenAI(400, 'Thân cần dạng {"cau_hinh": {...}, "ve": "...", "ma_hien_thi": "..."}')
++    try:
++        kq = await chung_chi_tls.tin_chung_chi(_so(request), id_, cau_hinh, ve, ma)
++    except LoiSo as e:
++        raise _loi_so(e) from None
++    if kq.get("ok"):
++        kq = lam_moi_model_mod.sau_khi_cai(request.app, id_, kq)
++    return JSONResponse(kq, status_code=200 if kq["ok"] else 400)
++
++
+ @modules.delete("/{id_}", dependencies=QT)
+ async def go(id_: str, request: Request):
+     """Gỡ module. NV73: module đang được module khác cần (`can_module`) → 409 `module_dang_duoc_can`
+diff --git a/modules/mikrotik-routeros/README.md b/modules/mikrotik-routeros/README.md
+index f2a812c..92a4118 100644
+--- a/modules/mikrotik-routeros/README.md
++++ b/modules/mikrotik-routeros/README.md
+@@ -46,7 +46,7 @@ Nguồn thiết bị và cảm biến mạng cho web2api qua RouterOS API (giao
+ | `tai_khoan` | Có | — | Tài khoản RouterOS (nhóm `read`). |
+ | `mat_khau` | Có | — | Mật khẩu tài khoản (kiểu `bi_mat`, lưu riêng 0600). |
+ | `kiem_chung_chi_tls` | Không | `"true"` | Kiểm tra chứng chỉ TLS theo hệ thống khi không ghim vân tay. |
+-| `van_tay_tls` | Không | `""` | Vân tay SHA-256 của chứng chỉ router (ghim chứng chỉ tự ký). |
++| `van_tay_tls` | Không | `""` | Mã nhận dạng chứng chỉ của router (lưu dạng bí mật, chỉ hiện dạng che). Thường không cần điền: lần đầu nối tới IP LAN, hệ thống tự ghi lại mã này; chứng chỉ đổi thì giao diện hiện nút «Tin chứng chỉ này» để xác nhận mã mới. Ô giữ làm nâng cao thu gọn. |
+ | `cho_phep_khong_ma_hoa` | Không | `"false"` | Cho phép nối trần cổng 8728 (không khuyến nghị). |
+ | `chu_ky_nhanh_giay` | Không | `"15"` | Chu kỳ đọc nhanh (giây, kẹp 10–3600). |
+ | `chu_ky_cham_giay` | Không | `"120"` | Chu kỳ đọc chậm (giây, kẹp 30–3600, >= chu kỳ nhanh). |
+diff --git a/modules/mikrotik-routeros/manifest.json b/modules/mikrotik-routeros/manifest.json
+index db9d5e4..c175046 100644
+--- a/modules/mikrotik-routeros/manifest.json
++++ b/modules/mikrotik-routeros/manifest.json
+@@ -1 +1 @@
+-{"cung_cap":["thiet_bi"],"giao_dien":{"chip":[{"id":"thiet_bi","nhan":"Thiết bị","nhom":["may","router","cong"],"thu_tu":10},{"id":"cho_duyet","nhan":"Chờ duyệt","nhom":[],"thu_tu":20},{"id":"vpn","nhan":"VPN","nhom":["vpn"],"thu_tu":30}],"khu":"nha","muc":"mang","nhan":"Mạng"},"giao_thuc":"routeros-api","hang":"A","id":"mikrotik-routeros","loai":"thiet_bi","loai_ten":"Thiết bị","loai_thu_tu":40,"mo_ta":"Nguồn kiểm soát mạng LAN cho sổ thiết bị: đọc DHCP lease, bảng host, tải và trạng thái cổng mạng, tài nguyên router (CPU, RAM, nhiệt độ), WireGuard và Kid Control qua RouterOS API (TLS, cổng 8729). Tự động dọn thiết bị đã mất. CHỈ ĐỌC — không thực hiện hành động nào.","phien_ban": "0.2.1","tai_nguyen":{"dia_mb":null,"ghi_chu":"Chỉ thư viện chuẩn (socket + ssl). Giao thức câu-từ nhị phân của RouterOS tự viết, không thêm gói. Mọi lệnh gửi đi đều bị lọc theo cấu trúc ở lớp client: danh sách lệnh đọc cố định và một lần monitor-traffic.","gpu":false,"mang_ra":["địa chỉ RouterOS API của router trong LAN (mặc định cổng 8729 TLS)"],"ram_them_mb":null},"ten":"MikroTik RouterOS (máy mạng LAN, chỉ đọc)","tien_to":"mikrotikrouteros","truong_cau_hinh":[{"bat_buoc":true,"khoa":"dia_chi","kieu":"chuoi","mac_dinh":null,"mo_ta":"Địa chỉ LAN của router, dạng host[:cổng] (cổng mặc định 8729 — api-ssl). Kiểm đúng luật app/tu_xa.py: chặn loopback, link-local/metadata, địa chỉ không định tuyến; tên miền được phân giải và ghim IP đã kiểm (chống DNS rebinding).","nhan":"Địa chỉ router"},{"bat_buoc":true,"khoa":"tai_khoan","kieu":"chuoi","mac_dinh":null,"mo_ta":"Khuyến nghị tạo tài khoản RouterOS chỉ có quyền đọc (nhóm «read») trong /user, vì module chỉ gọi các lệnh .../print.","nhan":"Tài khoản RouterOS"},{"bat_buoc":true,"khoa":"mat_khau","kieu":"bi_mat","mac_dinh":null,"mo_ta":"Mật khẩu của tài khoản RouterOS. Lưu riêng trong kho bí mật, không trả lại qua API, không vào log/phản hồi/ngoại lệ.","nhan":"Mật khẩu"},{"bat_buoc":false,"khoa":"kiem_chung_chi_tls","kieu":"chuoi","mac_dinh":"true","mo_ta":"«true» (mặc định): kiểm chứng chỉ theo hệ thống khi không ghim vân tay. Nếu router dùng chứng chỉ tự ký, ghim vân tay ở trường van_tay_tls thay vì tắt kiểm.","nhan":"Kiểm chứng chỉ TLS"},{"bat_buoc":false,"khoa":"van_tay_tls","kieu":"chuoi","mac_dinh":"","mo_ta":"Vân tay SHA-256 (hex) của chứng chỉ cổng api-ssl — ghim để chống giả mạo ngay cả khi chứng chỉ tự ký. Được kiểm TRƯỚC khi gửi mật khẩu.","nhan":"Vân tay TLS (SHA-256)"},{"bat_buoc":false,"khoa":"cho_phep_khong_ma_hoa","kieu":"chuoi","mac_dinh":"false","mo_ta":"CẢNH BÁO: «true» cho phép nối trần (cổng 8728) — mật khẩu đi dạng thô trên mạng. Mặc định «false» (chỉ TLS).","nhan":"Cho phép nối không mã hoá"},{"bat_buoc":false,"khoa":"chu_ky_nhanh_giay","kieu":"chuoi","mac_dinh":"15","mo_ta":"Chu kỳ đọc nhanh cho trạng thái/tốc độ cổng và Kid Control (giây, kẹp 10–3600, mặc định 15).","nhan":"Chu kỳ đọc nhanh (giây)"},{"bat_buoc":false,"khoa":"chu_ky_cham_giay","kieu":"chuoi","mac_dinh":"120","mo_ta":"Chu kỳ đọc chậm cho tài nguyên router, WireGuard và bảng máy (giây, kẹp 30–3600, mặc định 120, không nhỏ hơn chu kỳ nhanh).","nhan":"Chu kỳ đọc chậm (giây)"},{"bat_buoc":false,"khoa":"ngay_giu_may_vang","kieu":"chuoi","mac_dinh":"14","mo_ta":"Số ngày giữ máy vắng mặt khỏi mạng (kẹp 1–365, mặc định 14). Máy vắng quá số ngày này sẽ ngừng báo trong sổ thiết bị.","nhan":"Số ngày giữ máy vắng"},{"bat_buoc":false,"khoa":"bat_kid_control","kieu":"chuoi","mac_dinh":"true","mo_ta":"«true» (mặc định): đọc tốc độ từng máy qua /ip/kid-control/device/print nếu router hỗ trợ.","nhan":"Bật Kid Control"}],"yeu_cau_goi":[]}
++{"cung_cap":["thiet_bi"],"giao_dien":{"chip":[{"id":"thiet_bi","nhan":"Thiết bị","nhom":["may","router","cong"],"thu_tu":10},{"id":"cho_duyet","nhan":"Chờ duyệt","nhom":[],"thu_tu":20},{"id":"vpn","nhan":"VPN","nhom":["vpn"],"thu_tu":30}],"khu":"nha","muc":"mang","nhan":"Mạng"},"giao_thuc":"routeros-api","hang":"A","id":"mikrotik-routeros","loai":"thiet_bi","loai_ten":"Thiết bị","loai_thu_tu":40,"mo_ta":"Nguồn kiểm soát mạng LAN cho sổ thiết bị: đọc DHCP lease, bảng host, tải và trạng thái cổng mạng, tài nguyên router (CPU, RAM, nhiệt độ), WireGuard và Kid Control qua RouterOS API (TLS, cổng 8729). Tự động dọn thiết bị đã mất. CHỈ ĐỌC — không thực hiện hành động nào.","phien_ban":"0.2.1","tai_nguyen":{"dia_mb":null,"ghi_chu":"Chỉ thư viện chuẩn (socket + ssl). Giao thức câu-từ nhị phân của RouterOS tự viết, không thêm gói. Mọi lệnh gửi đi đều bị lọc theo cấu trúc ở lớp client: danh sách lệnh đọc cố định và một lần monitor-traffic.","gpu":false,"mang_ra":["địa chỉ RouterOS API của router trong LAN (mặc định cổng 8729 TLS)"],"ram_them_mb":null},"ten":"MikroTik RouterOS (máy mạng LAN, chỉ đọc)","tien_to":"mikrotikrouteros","truong_cau_hinh":[{"bat_buoc":true,"khoa":"dia_chi","kieu":"chuoi","mac_dinh":null,"mo_ta":"Địa chỉ IP của router trong mạng nhà, kèm cổng, ví dụ 192.168.1.1:8729. Lấy ở trang quản trị của router, mục dịch vụ cổng bảo mật. Chỉ nhận địa chỉ IP trong mạng nhà — không nhận tên miền, không nhận địa chỉ internet.","nhan":"Địa chỉ router"},{"bat_buoc":true,"khoa":"tai_khoan","kieu":"chuoi","mac_dinh":null,"mo_ta":"Tên tài khoản đăng nhập router. Nên tạo riêng một tài khoản chỉ có quyền xem trong mục người dùng của router, vì module này chỉ đọc, không sửa gì trên router.","nhan":"Tài khoản RouterOS"},{"bat_buoc":true,"khoa":"mat_khau","kieu":"bi_mat","mac_dinh":null,"mo_ta":"Mật khẩu của tài khoản router vừa nhập. Chỉ lưu trong kho bí mật của web2api, không hiện lại, không ghi vào nhật ký.","nhan":"Mật khẩu"},{"bat_buoc":false,"khoa":"kiem_chung_chi_tls","kieu":"chuoi","mac_dinh":"true","mo_ta":"Để «true» (mặc định): web2api kiểm chứng chỉ của router trước khi nối. Lần đầu nối tới địa chỉ IP trong mạng nhà, chứng chỉ tự cấp của router được tự tin mà không cần bạn làm gì; về sau nếu chứng chỉ đổi thì dừng nối và hiện nút «Tin chứng chỉ này» để bạn xác nhận lại.","nhan":"Kiểm tra chứng chỉ"},{"bat_buoc":false,"khoa":"van_tay_tls","kieu":"bi_mat","mac_dinh":"","mo_ta":"Mã nhận dạng chứng chỉ của router. Thường không cần điền: lần đầu nối, hệ thống tự ghi lại mã này; khi chứng chỉ đổi, bấm «Tin chứng chỉ này» để xác nhận mã mới.","nhan":"Mã nhận dạng chứng chỉ"},{"bat_buoc":false,"khoa":"cho_phep_khong_ma_hoa","kieu":"chuoi","mac_dinh":"false","mo_ta":"CẢNH BÁO: để «true» thì nối không mã hoá (cổng 8728) — mật khẩu đi dạng chữ thường trên mạng, ai nghe lén cũng đọc được. Mặc định «false» (chỉ nối có mã hoá).","nhan":"Cho phép nối không mã hoá"},{"bat_buoc":false,"khoa":"chu_ky_nhanh_giay","kieu":"chuoi","mac_dinh":"15","mo_ta":"Mỗi bao nhiêu giây đọc một lần trạng thái cổng và tốc độ (từ 10 đến 3600 giây, mặc định 15).","nhan":"Chu kỳ đọc nhanh (giây)"},{"bat_buoc":false,"khoa":"chu_ky_cham_giay","kieu":"chuoi","mac_dinh":"120","mo_ta":"Mỗi bao nhiêu giây đọc một lần tài nguyên router, mạng riêng ảo và bảng máy (từ 30 đến 3600 giây, mặc định 120, không nhỏ hơn chu kỳ đọc nhanh).","nhan":"Chu kỳ đọc chậm (giây)"},{"bat_buoc":false,"khoa":"ngay_giu_may_vang","kieu":"chuoi","mac_dinh":"14","mo_ta":"Số ngày giữ máy đã vắng mặt khỏi mạng trong sổ thiết bị (từ 1 đến 365 ngày, mặc định 14). Quá số ngày này thì máy không còn hiện trong sổ.","nhan":"Số ngày giữ máy vắng"},{"bat_buoc":false,"khoa":"bat_kid_control","kieu":"chuoi","mac_dinh":"true","mo_ta":"Để «true» (mặc định): đọc tốc độ từng máy qua tính năng giới hạn tốc độ của router (Kid Control) nếu router hỗ trợ.","nhan":"Bật Kid Control"}],"yeu_cau_goi":[]}
+\ No newline at end of file
+diff --git a/modules/mikrotik-routeros/module.py b/modules/mikrotik-routeros/module.py
+index c658423..111e387 100644
+--- a/modules/mikrotik-routeros/module.py
++++ b/modules/mikrotik-routeros/module.py
+@@ -17,19 +17,19 @@ from __future__ import annotations
+ import asyncio
+ from datetime import datetime, timezone
+ import hashlib
+-import ipaddress
+ import json
+ import logging
+ import os
+ from pathlib import Path
+ import re
+-import socket
++import ssl
+ import threading
+ import time
+ from typing import Any
+ import unicodedata
+ 
+-from app.tu_xa import _dia_chi_bi_chan
++from app.tu_xa import kiem_ip_lan
++from app import chung_chi_tls
+ from . import routeros
+ from .toc_do import tinh_toc_do_mbit, doc_thoi_luong_giay
+ 
+@@ -97,6 +97,21 @@ def _mo_phien_da_dang_nhap(host: str, cong: int, tai_khoan: str, mat_khau: str,
+     return p
+ 
+ 
++def _la_loi_xac_minh_chung_chi(e: BaseException) -> bool:
++    """Lỗi bắt tay có phải do chứng chỉ không kiểm được? Chỉ lỗi này mới
++    được tự ghim lần đầu — lỗi mạng/giao thức khác thì không (dù bắt tay
++    CERT_NONE có tình cờ thành công). Đi dọc chuỗi nguyên nhân tìm
++    ``SSLCertVerificationError`` (tự ký, hết hạn, nhà cấp không tin cậy)."""
++    thay: BaseException | None = e
++    da_gap: set[int] = set()
++    while thay is not None and id(thay) not in da_gap:
++        da_gap.add(id(thay))
++        if isinstance(thay, ssl.SSLCertVerificationError):
++            return True
++        thay = thay.__cause__ or thay.__context__
++    return False
++
++
+ class Module:
+     def __init__(self, manifest: dict, _thu_muc_du_lieu: str | Path | None = None,
+                  _dong_ho: Any = None):
+@@ -210,6 +225,24 @@ class Module:
+ 
+     # ── Kiểm tra địa chỉ ──
+ 
++    async def _de_nghi_tin(self, host: str, cong: int) -> dict | None:
++        """Đo lại chứng chỉ hiện tại rồi dựng đề nghị «Tin chứng chỉ này»
++        cho trường hợp CHỨNG CHỈ ĐỔI (duy nhất còn dùng nút, 19:30).
++
++        Chỉ gọi với host/cổng ĐÃ QUA kiểm LAN (kiem_dia_chi) — đo không gửi
++        mật khẩu, không đăng nhập. Đo thất bại → None (không đề nghị mù).
++        """
++        try:
++            van_tay = await asyncio.to_thread(chung_chi_tls.do_van_tay, host, cong)
++            ma = chung_chi_tls.ma_hien_thi(van_tay)
++        except Exception:
++            return None
++        thong_bao = ("Chứng chỉ router đã đổi — có thể do bạn vừa cấp lại, "
++                     "cũng có thể có thiết bị giả mạo router. Mã nhận dạng mới: "
++                     f"{ma}. Kiểm tra kỹ rồi bấm «Tin chứng chỉ này» để xác nhận lại.")
++        return {"ly_do": "doi", "ma_hien_thi": ma, "thong_bao": thong_bao,
++                "host": host, "cong": cong}
++
+     def kiem_dia_chi(self, xau: Any) -> tuple[str, int]:
+         s = str(xau or "").strip()
+         if not s or len(s) > TRAN_DO_DAI_CAU_HINH:
+@@ -238,24 +271,16 @@ class Module:
+             raise ValueError(f"cổng {cong_s!r} không phải số") from None
+         if not 1 <= cong <= 65535:
+             raise ValueError(f"cổng {cong} ngoài khoảng 1–65535")
++        # NV295 (hướng 19:30): BẮT BUỘC IP LAN — tên miền bị từ chối NGAY mà
++        # không phân giải DNS; IP WAN/CGNAT/loopback/link-local cũng bị từ
++        # chối. Đây là lớp chống hack của luồng tự ghim lần đầu: chỉ thiết bị
++        # trong mạng nhà mới được tự tin, nên kẻ ngoài mạng không thể chèn
++        # chứng chỉ giả vào lần nối đầu.
+         try:
+-            ip = ipaddress.ip_address(host)
+-        except ValueError:
+-            ip = None
+-        if ip is not None:
+-            ly_do = _dia_chi_bi_chan(ip)
+-            if ly_do:
+-                raise ValueError(f"dia_chi trỏ vào {ip} — bị chặn: {ly_do}")
+-            return str(ip), cong
+-        try:
+-            thong_tin = socket.getaddrinfo(host, None, type=socket.SOCK_STREAM)
+-        except OSError as e:
+-            raise ValueError(f"không phân giải được tên máy {host!r}") from e
+-        for thong in thong_tin:
+-            ip = ipaddress.ip_address(thong[4][0])
+-            if _dia_chi_bi_chan(ip) is None:
+-                return str(ip), cong
+-        raise ValueError(f"tên máy {host!r} chỉ phân giải ra địa chỉ bị chặn")
++            ip = kiem_ip_lan(host)
++        except ValueError as e:
++            raise ValueError(f"dia_chi {host!r}: {e}") from None
++        return str(ip), cong
+ 
+     @staticmethod
+     def _kep_so(val: Any, mac_dinh: int, duoi: int, tren: int) -> int:
+@@ -328,13 +353,55 @@ class Module:
+             return {"ok": False, "ket_qua_tung_khoa": [], "loi": str(e)}
+ 
+         khong_ma_hoa = _la_dung(cau_hinh.get("cho_phep_khong_ma_hoa", False))
++        kiem_chung_chi = _la_dung(cau_hinh.get("kiem_chung_chi_tls", True))
++        van_tay = str(cau_hinh.get("van_tay_tls") or "").strip()
++        van_tay_luu = van_tay
+         try:
+             p = await asyncio.to_thread(
+                 _mo_phien_da_dang_nhap, host, cong, tai_khoan, mat_khau,
+                 tls=not khong_ma_hoa,
+-                kiem_chung_chi=_la_dung(cau_hinh.get("kiem_chung_chi_tls", True)),
+-                van_tay=str(cau_hinh.get("van_tay_tls") or "").strip(),
++                kiem_chung_chi=kiem_chung_chi,
++                van_tay=van_tay,
+             )
++        except routeros.LoiChungChi:
++            # Vân tay đã ghim không khớp: chứng chỉ ĐÃ ĐỔI. Đo lại chứng chỉ
++            # hiện tại (chưa gửi mật khẩu) để đề nghị tin lại — nút tin chỉ
++            # còn cho trường hợp đổi chứng chỉ này (19:30), không còn ở lần
++            # đầu (lần đầu đã tự ghim, xem nhánh LoiBatTayTls dưới).
++            de_nghi = await self._de_nghi_tin(host, cong)
++            if de_nghi is None:
++                return {"ok": False, "ket_qua_tung_khoa": [],
++                        "loi": "Chứng chỉ router đã đổi nhưng không đo lại được — kiểm tra địa chỉ rồi thử lại."}
++            return {"ok": False, "ket_qua_tung_khoa": [],
++                    "loi": "Chứng chỉ router đã đổi so với bản đã tin.",
++                    "tin_chung_chi": de_nghi}
++        except routeros.LoiBatTayTls as e:
++            # Lần đầu, chưa ghim, còn bật kiểm, và lỗi ĐÚNG là chứng chỉ
++            # không kiểm được: TỰ GHIM (19:30) — không hỏi người dùng, không
++            # nút ở lần đầu. Đích đã qua kiem_dia_chi nên chắc chắn là IP
++            # LAN (tên miền/WAN đã bị từ chối ở trên); đo chứng chỉ thiết bị
++            # trình ra rồi nối LẠI bằng đường ghim sẵn có (kiểm vân tay
++            # TRƯỚC khi gửi mật khẩu — chứng chỉ đổi giữa hai lần bắt tay
++            # thì lần nối lại hỏng, không lưu ghim sai).
++            if khong_ma_hoa or not kiem_chung_chi or van_tay \
++                    or not _la_loi_xac_minh_chung_chi(e):
++                return {"ok": False, "ket_qua_tung_khoa": [],
++                        "loi": "Không bắt tay TLS được với router — kiểm tra địa chỉ và cổng."}
++            try:
++                van_tay_moi = await asyncio.to_thread(chung_chi_tls.do_van_tay, host, cong)
++            except Exception:
++                return {"ok": False, "ket_qua_tung_khoa": [],
++                        "loi": "Không bắt tay TLS được với router — kiểm tra địa chỉ và cổng."}
++            try:
++                p = await asyncio.to_thread(
++                    _mo_phien_da_dang_nhap, host, cong, tai_khoan, mat_khau,
++                    tls=not khong_ma_hoa,
++                    kiem_chung_chi=kiem_chung_chi,
++                    van_tay=van_tay_moi,
++                )
++            except routeros.RouterOSError as e2:
++                return {"ok": False, "ket_qua_tung_khoa": [], "loi": str(e2)}
++            van_tay_luu = van_tay_moi
+         except routeros.RouterOSError as e:
+             return {"ok": False, "ket_qua_tung_khoa": [], "loi": str(e)}
+         await asyncio.to_thread(p.dong)
+@@ -355,7 +422,7 @@ class Module:
+                 "tai_khoan": tai_khoan,
+                 "mat_khau": mat_khau,
+                 "kiem_chung_chi_tls": str(cau_hinh.get("kiem_chung_chi_tls", "true")),
+-                "van_tay_tls": str(cau_hinh.get("van_tay_tls") or ""),
++                "van_tay_tls": van_tay_luu,
+                 "cho_phep_khong_ma_hoa": str(cau_hinh.get("cho_phep_khong_ma_hoa", "false")),
+                 "chu_ky_nhanh_giay": str(ck_nhanh),
+                 "chu_ky_cham_giay": str(ck_cham),
+@@ -443,6 +510,19 @@ class Module:
+                 kiem_chung_chi=cfg["kiem_chung_chi_tls"],
+                 van_tay=cfg["van_tay_tls"],
+             )
++        except routeros.LoiChungChi:
++            # Chứng chỉ đổi: kiểm vân tay đã chặn trước khi gửi mật khẩu.
++            # Mã riêng (không phải ket_noi) để trạng thái phân biệt được — NV295.
++            if can_nhanh:
++                self._ghi_loi_nguon("interface", "chung_chi_doi")
++                if cfg.get("bat_kid_control"):
++                    self._ghi_loi_nguon("kid_control", "chung_chi_doi")
++            if can_cham:
++                self._ghi_loi_nguon("resource", "chung_chi_doi")
++                self._ghi_loi_nguon("wireguard", "chung_chi_doi")
++                self._ghi_loi_nguon("lease", "chung_chi_doi")
++                self._ghi_loi_nguon("host", "chung_chi_doi")
++            return
+         except Exception:
+             # Lỗi kết nối / login: đánh dấu lỗi ket_noi cho mọi nguồn cần đọc lượt này
+             if can_nhanh:
+diff --git a/modules/mikrotik-routeros/routeros.py b/modules/mikrotik-routeros/routeros.py
+index daa3931..2bf1fea 100644
+--- a/modules/mikrotik-routeros/routeros.py
++++ b/modules/mikrotik-routeros/routeros.py
+@@ -26,6 +26,7 @@ import ssl
+ __all__ = [
+     "RouterOSError",
+     "LoiKetNoi",
++    "LoiBatTayTls",
+     "LoiChungChi",
+     "LoiDangNhap",
+     "LoiRouterTuChoi",
+@@ -87,6 +88,12 @@ class LoiKetNoi(RouterOSError):
+     """Không tới được cổng API (mạng, cổng đóng, hết giờ kết nối)."""
+ 
+ 
++class LoiBatTayTls(LoiKetNoi):
++    """Bắt tay TLS thất bại (riêng khỏi LoiKetNoi để module phân biệt
++    «chứng chỉ không kiểm được» với «không tới được» — NV295: chỉ trường hợp
++    này mới được đề nghị «Tin chứng chỉ này», sau khi đo lại)."""
++
++
+ class LoiChungChi(RouterOSError):
+     """Chứng chỉ của router không khớp vân tay đã ghim hoặc không kiểm được."""
+ 
+@@ -330,7 +337,7 @@ def ket_noi(host: str, port: int, ten: str, mat_khau: str, *,
+                 s.close()
+             except OSError:
+                 pass
+-            raise LoiKetNoi(f"không bắt tay TLS được với {host}:{port} ({type(e).__name__})") from e
++            raise LoiBatTayTls(f"không bắt tay TLS được với {host}:{port} ({type(e).__name__})") from e
+         if van_tay:
+             hien_tai = van_tay_cua(t.getpeercert(binary_form=True) or b"")
+             if not _van_tay_khop(van_tay, hien_tai):
+diff --git a/modules/zte-e2633/README.md b/modules/zte-e2633/README.md
+index e78725f..c544fbb 100644
+--- a/modules/zte-e2633/README.md
++++ b/modules/zte-e2633/README.md
+@@ -63,7 +63,7 @@ Bộ phát dùng HTTPS với chứng chỉ tự ký.
+   trúc: loại ngoại lệ, mã HTTP, có/không JSON đúng khoá — không dò chữ).
+ - Đọc hỏng (JSON sai khuôn) là **lỗi**: giữ dữ liệu cũ, không trả «0 máy».
+ - `dia_chi` qua đúng `app.tu_xa.kiem_url_lan` (chống SSRF của lõi).
+-- TLS mặc định kiểm chứng chỉ; đặt `kiem_chung_chi_tls=false` hoặc ghim `van_tay_tls`.
++- TLS mặc định kiểm chứng chỉ; lần đầu nối tới IP LAN thì chứng chỉ tự cấp được tự tin (không cần dán mã, không cần đặt `kiem_chung_chi_tls=false`); chứng chỉ đổi thì dừng nối và hiện nút «Tin chứng chỉ này» để xác nhận lại. Chỉ nhận địa chỉ IP trong mạng nhà, không nhận tên miền hay địa chỉ internet.
+ - Không dùng proxy môi trường (`trust_env=False`); trần phản hồi 1 MB; hết giờ 10 s.
+ 
+ ## Giới hạn
+diff --git a/modules/zte-e2633/manifest.json b/modules/zte-e2633/manifest.json
+index 0ebd315..730444f 100644
+--- a/modules/zte-e2633/manifest.json
++++ b/modules/zte-e2633/manifest.json
+@@ -27,7 +27,7 @@
+       "khoa": "dia_chi",
+       "kieu": "chuoi",
+       "mac_dinh": null,
+-      "mo_ta": "Địa chỉ trang quản trị của bộ phát, dạng https://host[:port] (ví dụ https://192.168.1.1). Qua đúng bộ kiểm SSRF của lõi (app/tu_xa.py): chặn loopback, link-local/metadata đám mây, địa chỉ không định tuyến; cho phép LAN riêng tư 10/8, 172.16/12, 192.168/16. Không được chứa tài khoản/mật khẩu.",
++      "mo_ta": "Địa chỉ trang quản trị của bộ phát trong mạng nhà, dạng https://địa-chỉ-IP (ví dụ https://192.168.1.1). Chỉ nhận địa chỉ IP trong mạng nhà — không nhận tên miền, không nhận địa chỉ internet, không được chứa tài khoản hay mật khẩu.",
+       "nhan": "Địa chỉ bộ phát"
+     },
+     {
+@@ -43,7 +43,7 @@
+       "khoa": "mat_khau",
+       "kieu": "bi_mat",
+       "mac_dinh": null,
+-      "mo_ta": "Mật khẩu đăng nhập. Lưu riêng quyền 0600; không vào log, URL ghi log hay phản hồi lỗi.",
++      "mo_ta": "Mật khẩu đăng nhập trang quản trị. Chỉ lưu trong kho bí mật của web2api, không hiện lại, không ghi vào nhật ký.",
+       "nhan": "Mật khẩu"
+     },
+     {
+@@ -51,16 +51,16 @@
+       "khoa": "kiem_chung_chi_tls",
+       "kieu": "chuoi",
+       "mac_dinh": "true",
+-      "mo_ta": "«true» (mặc định, an toàn) hoặc «false». Bộ phát dùng chứng chỉ tự ký nên muốn nối được phải đặt «false» HOẶC ghim van_tay_tls. Mọi giá trị khác «false» đều được coi là «true» (mặc định an toàn).",
+-      "nhan": "Kiểm chứng chỉ TLS"
++      "mo_ta": "Để «true» (mặc định, an toàn): web2api kiểm chứng chỉ của bộ phát trước khi nối. Lần đầu nối tới địa chỉ IP trong mạng nhà, chứng chỉ tự cấp của bộ phát được tự tin mà không cần bạn làm gì; về sau nếu chứng chỉ đổi thì dừng nối và hiện nút «Tin chứng chỉ này» để bạn xác nhận lại; đặt «false» thì bỏ kiểm (không an toàn).",
++      "nhan": "Kiểm tra chứng chỉ"
+     },
+     {
+       "bat_buoc": false,
+       "khoa": "van_tay_tls",
+-      "kieu": "chuoi",
++      "kieu": "bi_mat",
+       "mac_dinh": null,
+-      "mo_ta": "Tuỳ chọn: 64 ký tự hex là vân tay SHA-256 của chứng chỉ bộ phát. Khi ghim, module bỏ qua kiểm chuỗi chứng chỉ nhưng vẫn đối chiếu vân tay trước mỗi lần đăng nhập.",
+-      "nhan": "Vân tay TLS (SHA-256)"
++      "mo_ta": "Mã nhận dạng chứng chỉ của bộ phát. Thường không cần điền: lần đầu nối, hệ thống tự ghi lại mã này; khi chứng chỉ đổi, bấm «Tin chứng chỉ này» để xác nhận mã mới.",
++      "nhan": "Mã nhận dạng chứng chỉ"
+     },
+     {
+       "khoa": "khoang_cach_dang_nhap_phut",
+@@ -68,7 +68,7 @@
+       "bat_buoc": false,
+       "mac_dinh": "10",
+       "nhan": "Khoảng cách đăng nhập lại",
+-      "mo_ta": "Số phút 1–1440. suc_khoe() đăng nhập lại tối đa 1 lần mỗi khoảng này (mặc định 10) để không làm phiên mồ côi hay đá phiên của tích hợp khác; trong khoảng thì dùng kết quả lần đọc gần nhất hoặc báo «chưa kết nối được»."
++      "mo_ta": "Số phút chờ giữa hai lần đăng nhập lại (từ 1 đến 1440 phút, mặc định 10). Đặt dài ra để không làm kẹt phiên cũ hay đá phiên của tích hợp khác; trong khoảng thì dùng kết quả lần đọc gần nhất hoặc báo «chưa kết nối được»."
+     }
+   ],
+   "yeu_cau_goi": [
+diff --git a/modules/zte-e2633/module.py b/modules/zte-e2633/module.py
+index bae6fac..c0ef3c9 100644
+--- a/modules/zte-e2633/module.py
++++ b/modules/zte-e2633/module.py
+@@ -52,7 +52,8 @@ import httpx
+ 
+ from app.chuyen_tiep import PhanHoiQuaLon, doc_phan_hoi_co_tran
+ from app.so_thiet_bi import chuan_hoa_mac
+-from app.tu_xa import kiem_url_lan
++from app.tu_xa import kiem_ip_lan, kiem_url_lan
++from app import chung_chi_tls
+ 
+ log = logging.getLogger("web2api.zte_e2633")
+ 
+@@ -408,13 +409,14 @@ def _canh_bao_tu_loi(loi: ZteLoi, kiem_chung_chi: bool) -> tuple[str | None, str
+     if isinstance(loi, ZteLoiKetNoi):
+         if loi.tls_tu_ky and kiem_chung_chi:
+             return ("TLS_TU_KY",
+-                    "Chứng chỉ TLS của bộ phát là tự ký nên không kiểm chứng được. "
+-                    "Đã lưu cấu hình. Để nối được: đặt kiem_chung_chi_tls=false "
+-                    "hoặc ghim van_tay_tls (vân tay SHA-256 của chứng chỉ bộ phát).")
++                    "Chứng chỉ của bộ phát là tự ký nên không kiểm chứng được "
++                    "và chưa tự ghi lại được (không đo lại được chứng chỉ hoặc "
++                    "đăng nhập lại vẫn hỏng). Đã lưu cấu hình; kiểm tra địa chỉ "
++                    "rồi lưu lại để thử tự tin lại.")
+         if isinstance(loi, ZteLoiVanTay):
+             return ("VAN_TAY_KHONG_KHOP",
+-                    "Vân tay TLS của thiết bị không khớp van_tay_tls đã ghim. Đã lưu "
+-                    "cấu hình; lấy lại vân tay SHA-256 đúng của chứng chỉ bộ phát.")
++                    "Vân tay của thiết bị không khớp bản đã tin. Đã lưu cấu hình. "
++                    "Bấm «Tin chứng chỉ này» để xem mã mới và xác nhận lại.")
+         return ("KHONG_TOI_DUOC",
+                 f"Không tới được bộ phát ({loi}). Đã lưu cấu hình; "
+                 "kiểm tra địa chỉ/mạng rồi thử lại.")
+@@ -532,6 +534,16 @@ class Module:
+         dia_chi = str(cau_hinh.get("dia_chi") or "").strip().rstrip("/")
+         if not dia_chi:
+             return that_bai("Chưa nhập địa chỉ bộ phát (dia_chi).")
++        # NV295 (hướng 19:30): BẮT BUỘC IP LAN — tên miền bị từ chối NGAY mà
++        # không phân giải (chỉ kiểm khi URL đã có scheme + hostname để giữ
++        # nguyên thông báo lỗi khuôn dạng cho URL thiếu scheme; kiem_url_lan
++        # phía dưới vẫn kiểm scheme/tài khoản như cũ).
++        phan0 = urlsplit(dia_chi)
++        if phan0.scheme in ("http", "https") and phan0.hostname:
++            try:
++                kiem_ip_lan(phan0.hostname)
++            except ValueError as e:
++                return that_bai(f"dia_chi: {e}")
+         try:
+             dia_chi = await kiem_url_lan(dia_chi)
+         except ValueError as e:
+@@ -576,6 +588,7 @@ class Module:
+         async with self._khoa:
+             khach = MayKhachZte(dia_chi, tai_khoan, mat_khau,
+                                 kiem_chung_chi_tls=kiem_chung_chi, van_tay_tls=van_tay)
++            khach2 = None
+             try:
+                 try:
+                     ds = await khach.doc_may()
+@@ -583,6 +596,33 @@ class Module:
+                     ma_loi, canh_bao = _canh_bao_tu_loi(e, kiem_chung_chi)
+                     log.warning("zte-e2633: đăng nhập thử cảnh báo [%s]", ma_loi)
+                     _PHIEN_CAI_DUNG_LAI.pop(khach.khoa_phien, None)
++                    # Tự ghim lần đầu (19:30): chứng chỉ tự ký, chưa ghim,
++                    # còn bật kiểm → đo rồi đăng nhập LẠI với vân tay vừa đo
++                    # (đường ghim sẵn có kiểm trước khi gửi mật khẩu lần hai).
++                    # Đích đã qua kiểm IP LAN ở trên. Thử lại thành công thì
++                    # hết cảnh báo và cấu hình lưu kèm vân tay vừa đo.
++                    if ma_loi == "TLS_TU_KY" and not van_tay and kiem_chung_chi:
++                        van_tay_moi = ""
++                        try:
++                            phan = urlsplit(dia_chi)
++                            van_tay_moi = await asyncio.to_thread(
++                                chung_chi_tls.do_van_tay, phan.hostname or "",
++                                phan.port or 443)
++                        except Exception:
++                            van_tay_moi = ""
++                        if van_tay_moi:
++                            khach2 = MayKhachZte(
++                                dia_chi, tai_khoan, mat_khau,
++                                kiem_chung_chi_tls=True, van_tay_tls=van_tay_moi)
++                            try:
++                                ds = await khach2.doc_may()
++                            except Exception:
++                                _PHIEN_CAI_DUNG_LAI.pop(khach2.khoa_phien, None)
++                            else:
++                                ma_loi, canh_bao = None, None
++                                cau_hinh_luu["van_tay_tls"] = van_tay_moi
++                                so_may = sum(1 for m in ds if _thuc_the_tu_may(self.tien_to, m))
++                                _luu_phien_cai(dia_chi, tai_khoan, khach2)
+                 except Exception as e:
+                     # L5: ranh giới cai() — lỗi không lường trước cũng chỉ là
+                     # cảnh báo (lưu rồi cảnh báo), ghi log KIỂU ngoại lệ.
+@@ -601,7 +641,19 @@ class Module:
+                     _luu_phien_cai(dia_chi, tai_khoan, khach)
+             finally:
+                 await khach.dong()
+-        return {
++                if khach2 is not None:
++                    await khach2.dong()
++        # NV295 (19:30): nút tin chỉ còn cho trường hợp CHỨNG CHỈ ĐỔI.
++        # Lần đầu tự ký đã tự ghim ở trên, không còn đề nghị tu_ky.
++        de_nghi = None
++        if ma_loi == "VAN_TAY_KHONG_KHOP":
++            try:
++                phan = urlsplit(dia_chi)
++                de_nghi = await self._de_nghi_tin_zte(
++                    phan.hostname or "", phan.port or 443)
++            except Exception:
++                de_nghi = None
++        tra = {
+             "ok": True,
+             "ket_qua_tung_khoa": [{"khoa": tai_khoan, "ok": True, "loi": None,
+                                    "so_may": so_may, "canh_bao": canh_bao,
+@@ -609,6 +661,26 @@ class Module:
+             "loi": None,
+             "cau_hinh_luu": cau_hinh_luu,
+         }
++        if de_nghi is not None:
++            tra["tin_chung_chi"] = de_nghi
++        return tra
++
++    async def _de_nghi_tin_zte(self, host: str, cong: int) -> dict | None:
++        """Đo lại chứng chỉ bộ phát rồi dựng đề nghị tin cho trường hợp
++        CHỨNG CHỈ ĐỔI (duy nhất còn dùng nút, 19:30).
++
++        Chỉ gọi với host/cổng ĐÃ QUA kiểm LAN (kiem_ip_lan trong cai).
++        """
++        try:
++            van_tay = await asyncio.to_thread(chung_chi_tls.do_van_tay, host, cong)
++            ma = chung_chi_tls.ma_hien_thi(van_tay)
++        except Exception:
++            return None
++        thong_bao = (f"Chứng chỉ bộ phát đã đổi — có thể do bạn vừa cấp lại, "
++                     f"cũng có thể có thiết bị giả mạo. Mã nhận dạng mới: {ma}. "
++                     f"Kiểm tra kỹ rồi bấm «Tin chứng chỉ này» để xác nhận lại.")
++        return {"ly_do": "doi", "ma_hien_thi": ma, "thong_bao": thong_bao,
++                "host": host, "cong": cong}
+ 
+     # ── đọc một vòng (một phiên) ─────────────────────────────────────────────
+     def _con_tam_ngung(self) -> bool:
+diff --git a/test/test_nv295_ip_lan_tu_ghim.py b/test/test_nv295_ip_lan_tu_ghim.py
+new file mode 100644
+index 0000000..425b947
+--- /dev/null
++++ b/test/test_nv295_ip_lan_tu_ghim.py
+@@ -0,0 +1,477 @@
++"""Test NV295 (hướng 19:30) — cổng IP LAN + tự ghim chứng chỉ lần đầu + cách ly.
++
++- Cổng IP LAN (app/tu_xa.kiem_ip_lan): chỉ RFC 1918 + ULA fc00::/7 được
++  nối; tên miền bị từ chối NGAY mà không phân giải DNS; IP WAN, CGNAT,
++  loopback, link-local, dải đặc biệt đều bị từ chối.
++- Tự ghim lần đầu: nối lần đầu tới IP LAN gặp chứng chỉ không kiểm được
++  thì hệ thống TỰ đo + ghim vân tay rồi đăng nhập lại bằng đường ghim
++  (kiểm trước khi gửi mật khẩu) — không hỏi người dùng, không có nút ở
++  lần đầu. Nút «Tin chứng chỉ này» chỉ còn cho trường hợp chứng chỉ đổi.
++- Cách ly (19:19): vé tin gắn module + đích; kho tin không chung; vân tay
++  đầy đủ không bao giờ ra giao diện (kieu bi_mat, GET chỉ trả dạng che).
++
++Mọi chứng chỉ/mật khẩu/địa chỉ trong file này đều GIẢ, tạo lúc chạy test
++(openssl tự ký, loopback); không có vân tay thật của thiết bị nào.
++"""
++from __future__ import annotations
++
++import asyncio
++import hashlib
++import importlib.util
++import json
++import socket
++import socketserver
++import ssl
++import subprocess
++import sys
++import threading
++import types
++from pathlib import Path
++
++import pytest
++
++GOC = Path(__file__).resolve().parents[1]
++sys.path.insert(0, str(GOC))
++
++from app.kham_pha import doc_manifest, nap_ma  # noqa: E402
++from app.tu_xa import kiem_ip_lan  # noqa: E402
++
++THU_MUC_MIKROTIK = GOC / "modules" / "mikrotik-routeros"
++THU_MUC_ZTE = GOC / "modules" / "zte-e2633"
++
++MAT_KHAU_GIA = "mat-khau-gia-nv295b"
++NGUOI_DUNG_GIA = "nguoi-doc-gia"
++VAN_TAY_GIA = "cd" * 32  # 64 ký tự hex giả
++
++
++@pytest.fixture(autouse=True)
++def _cho_phep_loopback(monkeypatch):
++    # Máy chủ giả chạy trên loopback — chỉ test mới được phép.
++    monkeypatch.setenv("WEB2API_TEST_CHO_PHEP_LOOPBACK", "1")
++
++
++# ───────── Cổng IP LAN ─────────
++
++@pytest.mark.parametrize("ip", [
++    "10.0.0.1", "10.255.255.255", "172.16.0.1", "172.31.255.255",
++    "192.168.0.1", "192.168.255.255", "fd00::1", "fd12:3456::1",
++    "::ffff:192.168.1.1",  # IPv4-mapped → bóc ra 192.168.1.1
++])
++def test_ip_lan_cho_phep(ip):
++    assert str(kiem_ip_lan(ip)) in (ip, "192.168.1.1")
++
++
++@pytest.mark.parametrize("ip", [
++    "8.8.8.8", "1.1.1.1", "100.64.0.1", "100.127.255.255",  # WAN + CGNAT
++    "127.0.0.1", "::1", "169.254.1.1", "169.254.169.254", "fe80::1",
++    "0.0.0.0", "::", "224.0.0.1", "ff02::1",
++    "192.0.2.1", "198.51.100.1", "203.0.113.1", "2001:db8::1", "240.0.0.1",
++    "2002:7f00:1::",  # 6to4 nhúng 127.0.0.1
++    "::ffff:127.0.0.1",  # IPv4-mapped loopback
++])
++def test_ip_lan_tu_choi(ip, monkeypatch):
++    # Loopback trong danh sách này bị từ chối vì test này KHÔNG bật cờ test.
++    monkeypatch.delenv("WEB2API_TEST_CHO_PHEP_LOOPBACK", raising=False)
++    with pytest.raises(ValueError):
++        kiem_ip_lan(ip)
++
++
++def test_ip_lan_tu_choi_ten_mien_khong_phan_giai(monkeypatch):
++    # Tên miền bị từ chối NGAY — getaddrinfo mà được gọi là test hỏng.
++    def _cam(*a, **k):
++        raise AssertionError("kiem_ip_lan không được phân giải DNS")
++    monkeypatch.setattr(socket, "getaddrinfo", _cam)
++    with pytest.raises(ValueError, match="tên miền"):
++        kiem_ip_lan("router.lan")
++    with pytest.raises(ValueError, match="tên miền"):
++        kiem_ip_lan("example.com")
++
++
++def test_ip_lan_loopback_chi_duoc_phep_khi_co_co_test():
++    assert str(kiem_ip_lan("127.0.0.1")) == "127.0.0.1"
++    assert str(kiem_ip_lan("::1")) == "::1"
++
++
++# ───────── Nạp module mikrotik ─────────
++
++_lop_mikrotik_cls = None
++_ten_goi_mikrotik = None
++
++
++def _lop_mikrotik():
++    global _lop_mikrotik_cls, _ten_goi_mikrotik
++    if _lop_mikrotik_cls is None:
++        manifest, loi = doc_manifest(THU_MUC_MIKROTIK)
++        assert loi is None, loi
++        lop, _ten_goi_mikrotik = nap_ma(THU_MUC_MIKROTIK, manifest, "test")
++        _lop_mikrotik_cls = lop
++    return _lop_mikrotik_cls
++
++
++def _module_mikrotik():
++    manifest, loi = doc_manifest(THU_MUC_MIKROTIK)
++    assert loi is None, loi
++    return _lop_mikrotik()(manifest)
++
++
++def test_mikrotik_kiem_dia_chi_tu_choi_ten_mien_khong_phan_giai(monkeypatch):
++    def _cam(*a, **k):
++        raise AssertionError("kiem_dia_chi không được phân giải DNS")
++    monkeypatch.setattr(socket, "getaddrinfo", _cam)
++    mod = _module_mikrotik()
++    with pytest.raises(ValueError, match="tên miền"):
++        mod.kiem_dia_chi("router.lan:8729")
++    assert mod.kiem_dia_chi("192.168.1.1") == ("192.168.1.1", 8729)
++
++
++def test_mikrotik_cai_tu_choi_wan_truoc_khi_noi(monkeypatch):
++    # WAN bị từ chối ở bước kiểm địa chỉ — create_connection mà được gọi
++    # là test hỏng (chưa hề nối ra ngoài).
++    def _cam(*a, **k):
++        raise AssertionError("địa chỉ WAN không được nối")
++    monkeypatch.setattr(socket, "create_connection", _cam)
++    kq = asyncio.run(_module_mikrotik().cai(
++        {"dia_chi": "8.8.8.8:8729", "tai_khoan": NGUOI_DUNG_GIA,
++         "mat_khau": MAT_KHAU_GIA, "kiem_chung_chi_tls": "true",
++         "van_tay_tls": "", "cho_phep_khong_ma_hoa": "false"}))
++    assert kq["ok"] is False
++    assert "mạng nhà" in (kq["loi"] or "")
++
++
++# ───────── Máy chủ RouterOS giả (TLS + /login) ─────────
++
++def _ma_do_dai(n: int) -> bytes:
++    if n < 0x80:
++        return bytes([n])
++    if n < 0x4000:
++        return (n | 0x8000).to_bytes(2, "big")
++    if n < 0x200000:
++        return (n | 0xC00000).to_bytes(3, "big")
++    if n < 0x10000000:
++        return (n | 0xE0000000).to_bytes(4, "big")
++    return b"\xf0" + n.to_bytes(4, "big")
++
++
++def _cau(*tu: str) -> bytes:
++    ra = b""
++    for t in tu:
++        b = t.encode("utf-8")
++        ra += _ma_do_dai(len(b)) + b
++    return ra + b"\x00"
++
++
++def _doc_chinh_xac(s, n: int) -> bytes | None:
++    b = b""
++    while len(b) < n:
++        try:
++            c = s.recv(n - len(b))
++        except (OSError, ssl.SSLError):
++            return None
++        if not c:
++            return None
++        b += c
++    return b
++
++
++def _doc_do_dai(s) -> int | None:
++    b = _doc_chinh_xac(s, 1)
++    if b is None:
++        return None
++    c = b[0]
++    if c < 0x80:
++        return c
++    if c < 0xC0:
++        d = _doc_chinh_xac(s, 1)
++        return None if d is None else ((c & 0x3F) << 8) | d[0]
++    if c < 0xE0:
++        d = _doc_chinh_xac(s, 2)
++        return None if d is None else ((c & 0x1F) << 16) | int.from_bytes(d, "big")
++    if c < 0xF0:
++        d = _doc_chinh_xac(s, 3)
++        return None if d is None else ((c & 0x0F) << 24) | int.from_bytes(d, "big")
++    d = _doc_chinh_xac(s, 4)
++    return None if d is None else int.from_bytes(d, "big")
++
++
++def _doc_cau(s) -> list[str] | None:
++    tu = []
++    while True:
++        n = _doc_do_dai(s)
++        if n is None:
++            return None
++        if n == 0:
++            return tu
++        b = _doc_chinh_xac(s, n)
++        if b is None:
++            return None
++        tu.append(b.decode("utf-8", errors="replace"))
++
++
++def _lay_tu(cau, khoa):
++    for t in cau:
++        if t == f"={khoa}" or t.startswith(f"={khoa}="):
++            _, _, v = t[1:].partition("=")
++            return v
++    return ""
++
++
++@pytest.fixture(scope="session")
++def chung_chi_ros(tmp_path_factory):
++    d = tmp_path_factory.mktemp("nv295-ros")
++    key, crt = d / "key.pem", d / "crt.pem"
++    subprocess.run(
++        ["openssl", "req", "-x509", "-newkey", "rsa:2048", "-keyout", str(key),
++         "-out", str(crt), "-days", "1", "-nodes", "-subj", "/CN=127.0.0.1"],
++        check=True, capture_output=True, timeout=60)
++    der = ssl.PEM_cert_to_DER_cert(crt.read_text())
++    return {"crt": crt, "key": key, "van_tay": hashlib.sha256(der).hexdigest()}
++
++
++class _XuLyRos(socketserver.BaseRequestHandler):
++    def handle(self):
++        cfg = self.server.cfg
++        s = self.request
++        ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
++        ctx.load_cert_chain(str(cfg["crt"]), str(cfg["key"]))
++        try:
++            s = ctx.wrap_socket(s, server_side=True)
++        except (OSError, ssl.SSLError):
++            return
++        try:
++            while True:
++                cau = _doc_cau(s)
++                if cau is None:
++                    return
++                if not cau:
++                    continue
++                if cau[0] == "/login":
++                    ten, mk = _lay_tu(cau, "name"), _lay_tu(cau, "password")
++                    cfg["da_thu_dang_nhap"].append((ten, mk))
++                    if ten == cfg["nguoi_dung"] and mk == cfg["mat_khau"]:
++                        s.sendall(_cau("!done"))
++                    else:
++                        s.sendall(_cau("!trap", "=message=cannot log in") + _cau("!done"))
++                else:
++                    s.sendall(_cau("!done"))
++        except (OSError, ssl.SSLError):
++            pass
++        finally:
++            try:
++                s.close()
++            except OSError:
++                pass
++
++
++class MayChuRos(socketserver.ThreadingTCPServer):
++    daemon_threads = True
++    allow_reuse_address = True
++
++
++@pytest.fixture
++def may_chu_ros(chung_chi_ros):
++    created = []
++
++    def _tao():
++        cfg = {"crt": chung_chi_ros["crt"], "key": chung_chi_ros["key"],
++               "nguoi_dung": NGUOI_DUNG_GIA, "mat_khau": MAT_KHAU_GIA,
++               "da_thu_dang_nhap": []}
++        srv = MayChuRos(("127.0.0.1", 0), _XuLyRos)
++        srv.cfg = cfg
++        t = threading.Thread(target=srv.serve_forever, kwargs={"poll_interval": 0.05},
++                             daemon=True)
++        t.start()
++        created.append(srv)
++        return srv, cfg
++
++    yield _tao
++    for srv in created:
++        srv.shutdown()
++        srv.server_close()
++
++
++def test_mikrotik_tu_ghim_lan_dau_khong_hoi_nguoi_dung(may_chu_ros, chung_chi_ros):
++    srv, cfg = may_chu_ros()
++    kq = asyncio.run(_module_mikrotik().cai(
++        {"dia_chi": f"127.0.0.1:{srv.server_address[1]}",
++         "tai_khoan": NGUOI_DUNG_GIA, "mat_khau": MAT_KHAU_GIA,
++         "kiem_chung_chi_tls": "true", "van_tay_tls": "",
++         "cho_phep_khong_ma_hoa": "false"}))
++    assert kq["ok"] is True
++    assert "tin_chung_chi" not in kq  # lần đầu: tự ghim, không nút, không hỏi
++    assert kq["cau_hinh_luu"]["van_tay_tls"] == chung_chi_ros["van_tay"]
++    # Mật khẩu chỉ gửi ĐÚNG MỘT lần, ở lượt nối lại sau khi đã ghim
++    # (lượt đầu chết ở bắt tay kiểm chứng chỉ, chưa gửi gì).
++    assert cfg["da_thu_dang_nhap"] == [(NGUOI_DUNG_GIA, MAT_KHAU_GIA)]
++
++
++def test_la_loi_xac_minh_chung_chi_chi_nhan_dung_loai_loi():
++    _lop_mikrotik()
++    goi = sys.modules[_ten_goi_mikrotik]
++    fn = goi._la_loi_xac_minh_chung_chi
++    assert fn(RuntimeError("x")) is False
++
++    try:
++        raise ssl.SSLCertVerificationError(1, "self-signed")
++    except ssl.SSLCertVerificationError as e:
++        assert fn(e) is True
++    # Lỗi mạng trong bắt tay (không phải lỗi chứng chỉ) → không tự ghim.
++    try:
++        raise ConnectionResetError("reset")
++    except OSError as e:
++        assert fn(e) is False
++
++
++# ───────── ZTE: tự ghim (mock khách) + từ chối tên miền/WAN ─────────
++
++def _tai_zte():
++    ten_goi = "nv295b_zte_test"
++    for ten in [t for t in list(sys.modules) if t == ten_goi or t.startswith(ten_goi + ".")]:
++        del sys.modules[ten]
++    goi = types.ModuleType(ten_goi)
++    goi.__path__ = [str(THU_MUC_ZTE)]
++    sys.modules[ten_goi] = goi
++    spec = importlib.util.spec_from_file_location(f"{ten_goi}.module",
++                                                  THU_MUC_ZTE / "module.py")
++    mod = importlib.util.module_from_spec(spec)
++    sys.modules[f"{ten_goi}.module"] = mod
++    spec.loader.exec_module(mod)
++    return mod
++
++
++def test_zte_tu_ghim_lan_dau_luu_van_tay_do_duoc(monkeypatch):
++    from app import chung_chi_tls
++    mod = _tai_zte()
++
++    class _KhachGia:
++        def __init__(self, dia_chi, tai_khoan, mat_khau, *, kiem_chung_chi_tls=True,
++                     van_tay_tls=""):
++            self._van_tay = van_tay_tls
++            self._client = None
++
++        @property
++        def khoa_phien(self):
++            return ("127.0.0.1", NGUOI_DUNG_GIA)
++
++        async def doc_may(self):
++            if not self._van_tay:
++                raise mod.ZteLoiKetNoi("khong toi duoc", tls_tu_ky=True)
++            assert self._van_tay == VAN_TAY_GIA  # lượt thử lại phải mang vân tay vừa đo
++            return []
++
++        async def dong(self):
++            pass
++
++    monkeypatch.setattr(mod, "MayKhachZte", _KhachGia)
++    monkeypatch.setattr(chung_chi_tls, "do_van_tay",
++                        lambda h, p, het_gio=8.0: VAN_TAY_GIA)
++    cai_mod = mod.Module(json.loads((THU_MUC_ZTE / "manifest.json").read_text()))
++    kq = asyncio.run(cai_mod.cai({
++        "dia_chi": "https://127.0.0.1:8443", "tai_khoan": NGUOI_DUNG_GIA,
++        "mat_khau": MAT_KHAU_GIA, "kiem_chung_chi_tls": "true", "van_tay_tls": ""}))
++    assert kq["ok"] is True
++    assert kq["cau_hinh_luu"]["van_tay_tls"] == VAN_TAY_GIA
++    muc = kq["ket_qua_tung_khoa"][0]
++    assert muc["ma_loi"] is None and muc["canh_bao"] is None  # thử lại thành công: hết cảnh báo
++    assert "tin_chung_chi" not in kq  # lần đầu: tự ghim, không nút
++
++
++def test_zte_cai_tu_choi_ten_mien_khong_phan_giai(monkeypatch):
++    def _cam(*a, **k):
++        raise AssertionError("ZTE không được phân giải DNS cho tên miền")
++    monkeypatch.setattr(socket, "getaddrinfo", _cam)
++    monkeypatch.setattr(socket, "create_connection", _cam)
++    mod = _tai_zte()
++    cai_mod = mod.Module(json.loads((THU_MUC_ZTE / "manifest.json").read_text()))
++    kq = asyncio.run(cai_mod.cai({
++        "dia_chi": "https://router.lan:8443", "tai_khoan": NGUOI_DUNG_GIA,
++        "mat_khau": MAT_KHAU_GIA}))
++    assert kq["ok"] is False
++    assert "tên miền" in (kq["loi"] or "")
++
++
++def test_zte_cai_tu_choi_wan(monkeypatch):
++    def _cam(*a, **k):
++        raise AssertionError("ZTE không được nối ra WAN")
++    monkeypatch.setattr(socket, "create_connection", _cam)
++    mod = _tai_zte()
++    cai_mod = mod.Module(json.loads((THU_MUC_ZTE / "manifest.json").read_text()))
++    kq = asyncio.run(cai_mod.cai({
++        "dia_chi": "https://8.8.8.8:8443", "tai_khoan": NGUOI_DUNG_GIA,
++        "mat_khau": MAT_KHAU_GIA}))
++    assert kq["ok"] is False
++    assert "mạng nhà" in (kq["loi"] or "")
++
++
++# ───────── Cách ly (19:19) + hiển thị (19:26) ─────────
++
++def test_ve_tin_sai_module_bi_tu_choi():
++    from app import chung_chi_tls
++
++    class _SoGia:
++        def __init__(self):
++            self.da_goi = []
++
++        async def cai(self, module_id, cau_hinh):
++            self.da_goi.append((module_id, dict(cau_hinh)))
++            return {"ok": True, "ket_qua_tung_khoa": [], "loi": None}
++
++    so = _SoGia()
++    ve = chung_chi_tls.tao_ve("mikrotik-routeros", "192.0.2.1", 8729)
++    kq = asyncio.run(chung_chi_tls.tin_chung_chi(
++        so, "zte-e2633", {}, ve, "abcd1234…ef567890"))
++    assert kq["ok"] is False
++    assert so.da_goi == []  # vé module A không bao giờ ghi vào module B
++
++
++def test_tin_chung_chi_chi_ghim_dung_dich_trong_ve(may_chu_ros, chung_chi_ros):
++    # Vé mang đích A: hành động tin đo đúng A và chỉ lưu vân tay của A —
++    # dù cau_hinh form có trỏ sang nơi khác, vân tay lưu vẫn là của A
++    # (module nối sang nơi khác sau đó sẽ hỏng kiểm ghim, không được tin ké).
++    from app import chung_chi_tls
++
++    class _SoGia:
++        def __init__(self):
++            self.da_goi = []
++
++        async def cai(self, module_id, cau_hinh):
++            self.da_goi.append((module_id, dict(cau_hinh)))
++            return {"ok": True, "ket_qua_tung_khoa": [], "loi": None}
++
++    srv, _ = may_chu_ros()
++    cong = srv.server_address[1]
++    ve = chung_chi_tls.tao_ve("mikrotik-routeros", "127.0.0.1", cong)
++    so = _SoGia()
++    kq = asyncio.run(chung_chi_tls.tin_chung_chi(
++        so, "mikrotik-routeros",
++        {"dia_chi": "192.0.2.99:8729"},  # form trỏ nơi khác — vé vẫn thắng
++        ve, chung_chi_tls.ma_hien_thi(chung_chi_ros["van_tay"])))
++    assert kq["ok"] is True
++    assert so.da_goi[0][1]["van_tay_tls"] == chung_chi_ros["van_tay"]
++
++
++def test_de_nghi_doi_khong_chua_chuoi_thiet_bi_cung_cap(monkeypatch):
++    # Khối tin chỉ có câu cố định + mặt nạ hex — không chuỗi nào do thiết bị
++    # cung cấp (tên máy, subject chứng chỉ, chuỗi lỗi) lọt vào giao diện tin.
++    from app import chung_chi_tls
++    mod = _module_mikrotik()
++    monkeypatch.setattr(chung_chi_tls, "do_van_tay",
++                        lambda h, p, het_gio=8.0: VAN_TAY_GIA)
++    de_nghi = asyncio.run(mod._de_nghi_tin("192.0.2.1", 8729))
++    assert de_nghi is not None and de_nghi["ly_do"] == "doi"
++    assert de_nghi["ma_hien_thi"] == chung_chi_tls.ma_hien_thi(VAN_TAY_GIA)
++    for ch in "<>&":
++        assert ch not in de_nghi["thong_bao"]
++
++
++def test_van_tay_tls_la_bi_mat_khong_tra_day_du():
++    # 19:26: vân tay đầy đủ không hiện — manifest đánh bi_mat nên kho chỉ
++    # trả dạng che, giá trị đầy đủ nằm kho bí mật.
++    from app import kho
++    for module_id in ("mikrotik-routeros", "zte-e2633"):
++        m = json.loads((GOC / "modules" / module_id / "manifest.json").read_text())
++        truong = next(t for t in m["truong_cau_hinh"] if t["khoa"] == "van_tay_tls")
++        assert truong["kieu"] == "bi_mat"
++    cong_khai, bi_mat = kho.tach_cau_hinh(
++        [{"khoa": "van_tay_tls", "kieu": "bi_mat"}], {"van_tay_tls": VAN_TAY_GIA})
++    assert cong_khai == {"van_tay_tls": "…" + VAN_TAY_GIA[-4:]}
++    assert bi_mat == {"van_tay_tls": VAN_TAY_GIA}
+diff --git a/test/test_nv295_tin_chung_chi.py b/test/test_nv295_tin_chung_chi.py
+new file mode 100644
+index 0000000..da6c90e
+--- /dev/null
++++ b/test/test_nv295_tin_chung_chi.py
+@@ -0,0 +1,330 @@
++"""Test NV295 — tự ghim chứng chỉ lần đầu qua IP LAN + nút tin khi đổi chứng chỉ.
++
++Hướng 19:30 ngày 03/11 thay phương án nút ở lần đầu: lần đầu nối tới IP LAN
++thì hệ thống TỰ GHIM chứng chỉ thiết bị trình ra (không hỏi người dùng);
++nút «Tin chứng chỉ này» chỉ còn cho trường hợp chứng chỉ ĐỔI.
++
++Phạm vi file này: lõi đo vân tay + vé tin (app/chung_chi_tls), đề nghị tin
++khi đổi chứng chỉ ở mikrotik-routeros và zte-e2633, và quy tắc mô tả trường
++cấu hình. File test/test_nv295_ip_lan_tu_ghim.py khóa riêng: cổng IP LAN
++(tên miền/WAN bị từ chối) + tự ghim lần đầu ở cả hai module.
++
++Mọi chứng chỉ/mật khẩu/địa chỉ trong file này đều GIẢ, tạo lúc chạy test
++(openssl tự ký, loopback, TEST_NET 192.0.2.x không dùng ở đây); không có
++vân tay thật của thiết bị nào.
++"""
++from __future__ import annotations
++
++import asyncio
++import hashlib
++import importlib.util
++import json
++import socket
++import socketserver
++import ssl
++import subprocess
++import sys
++import threading
++import types
++from pathlib import Path
++
++import pytest
++
++GOC = Path(__file__).resolve().parents[1]
++sys.path.insert(0, str(GOC))
++
++from app.kham_pha import doc_manifest, nap_ma  # noqa: E402
++
++THU_MUC_MIKROTIK = GOC / "modules" / "mikrotik-routeros"
++
++MAT_KHAU_GIA = "mat-khau-gia-nv295"
++NGUOI_DUNG_GIA = "nguoi-doc-gia"
++VAN_TAY_GIA = "ab" * 32  # 64 ký tự hex giả, chỉ để kiểm định dạng/khớp mặt nạ
++
++
++@pytest.fixture(autouse=True)
++def _cho_phep_loopback(monkeypatch):
++    # Máy chủ giả chạy trên loopback — chỉ test mới được phép.
++    monkeypatch.setenv("WEB2API_TEST_CHO_PHEP_LOOPBACK", "1")
++
++
++# ───────── Chứng chỉ tự ký + máy chủ TLS trần (chỉ bắt tay, không giao thức) ─────────
++
++@pytest.fixture(scope="session")
++def chung_chi_a(tmp_path_factory):
++    d = tmp_path_factory.mktemp("nv295-a")
++    key, crt = d / "key.pem", d / "crt.pem"
++    subprocess.run(
++        ["openssl", "req", "-x509", "-newkey", "rsa:2048", "-keyout", str(key),
++         "-out", str(crt), "-days", "1", "-nodes", "-subj", "/CN=127.0.0.1"],
++        check=True, capture_output=True, timeout=60)
++    der = ssl.PEM_cert_to_DER_cert(crt.read_text())
++    return {"crt": crt, "key": key, "der": der,
++            "van_tay": hashlib.sha256(der).hexdigest()}
++
++
++@pytest.fixture(scope="session")
++def chung_chi_b(tmp_path_factory):
++    d = tmp_path_factory.mktemp("nv295-b")
++    key, crt = d / "key.pem", d / "crt.pem"
++    subprocess.run(
++        ["openssl", "req", "-x509", "-newkey", "rsa:2048", "-keyout", str(key),
++         "-out", str(crt), "-days", "1", "-nodes", "-subj", "/CN=127.0.0.1"],
++        check=True, capture_output=True, timeout=60)
++    der = ssl.PEM_cert_to_DER_cert(crt.read_text())
++    return {"crt": crt, "key": key, "der": der,
++            "van_tay": hashlib.sha256(der).hexdigest()}
++
++
++class _XuLyTlsTran(socketserver.BaseRequestHandler):
++    def handle(self):
++        cfg = self.server.cfg
++        s = self.request
++        ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
++        ctx.load_cert_chain(str(cfg["crt"]), str(cfg["key"]))
++        try:
++            s = ctx.wrap_socket(s, server_side=True)
++        except (OSError, ssl.SSLError):
++            return
++        s.settimeout(2.0)
++        try:
++            while True:
++                b = s.recv(65536)
++                if not b:
++                    break
++                cfg["da_nhan"].append(b)
++        except (OSError, ssl.SSLError):
++            pass
++        finally:
++            try:
++                s.close()
++            except OSError:
++                pass
++
++
++class MayChuTlsTran(socketserver.ThreadingTCPServer):
++    daemon_threads = True
++    allow_reuse_address = True
++
++
++@pytest.fixture
++def may_chu_tls():
++    created = []
++
++    def _tao(chung_chi):
++        cfg = {"crt": chung_chi["crt"], "key": chung_chi["key"], "da_nhan": []}
++        srv = MayChuTlsTran(("127.0.0.1", 0), _XuLyTlsTran)
++        srv.cfg = cfg
++        t = threading.Thread(target=srv.serve_forever, kwargs={"poll_interval": 0.05},
++                             daemon=True)
++        t.start()
++        created.append(srv)
++        return srv, cfg
++
++    yield _tao
++    for srv in created:
++        srv.shutdown()
++        srv.server_close()
++
++
++# ───────── Nạp module ─────────
++
++_lop_mikrotik_cls = None
++
++
++def _lop_mikrotik():
++    global _lop_mikrotik_cls
++    if _lop_mikrotik_cls is None:
++        manifest, loi = doc_manifest(THU_MUC_MIKROTIK)
++        assert loi is None, loi
++        lop, _ = nap_ma(THU_MUC_MIKROTIK, manifest, "test")
++        _lop_mikrotik_cls = lop
++    return _lop_mikrotik_cls
++
++
++def _module_mikrotik():
++    manifest, loi = doc_manifest(THU_MUC_MIKROTIK)
++    assert loi is None, loi
++    return _lop_mikrotik()(manifest)
++
++
++# ───────── Lõi: mặt nạ, vé, đo ─────────
++
++def test_ma_hien_thi_chi_dau_cuoi():
++    from app import chung_chi_tls
++    ma = chung_chi_tls.ma_hien_thi(VAN_TAY_GIA)
++    assert ma.startswith(VAN_TAY_GIA[:8]) and ma.endswith(VAN_TAY_GIA[-8:])
++    assert VAN_TAY_GIA[8:-8] not in ma  # phần giữa không lộ
++
++
++def test_ve_hop_le_het_han_gia_mao_sai_module():
++    from app import chung_chi_tls
++    ve = chung_chi_tls.tao_ve("mikrotik-routeros", "192.0.2.1", 8729)
++    assert chung_chi_tls.doc_ve(ve, "mikrotik-routeros") == ("192.0.2.1", 8729)
++    assert chung_chi_tls.doc_ve(ve, "zte-e2633") is None
++    assert chung_chi_tls.doc_ve(ve[:-2] + "xx", "mikrotik-routeros") is None
++    ve_het = chung_chi_tls.tao_ve("mikrotik-routeros", "192.0.2.1", 8729, ttl_giay=-1)
++    assert chung_chi_tls.doc_ve(ve_het, "mikrotik-routeros") is None
++
++
++def test_do_van_tay_bang_chung_chi_may_chu(may_chu_tls, chung_chi_a):
++    from app import chung_chi_tls
++    srv, _ = may_chu_tls(chung_chi_a)
++    port = srv.server_address[1]
++    assert chung_chi_tls.do_van_tay("127.0.0.1", port) == chung_chi_a["van_tay"]
++
++
++# ───────── Mikrotik: đề nghị tin ─────────
++
++def _cau_hinh_mikrotik(port, *, kiem_chung_chi="true", van_tay=""):
++    return {"dia_chi": f"127.0.0.1:{port}", "tai_khoan": NGUOI_DUNG_GIA,
++            "mat_khau": MAT_KHAU_GIA, "kiem_chung_chi_tls": kiem_chung_chi,
++            "van_tay_tls": van_tay, "cho_phep_khong_ma_hoa": "false"}
++
++
++def test_mikrotik_van_tay_sai_de_nghi_tin_lai(may_chu_tls, chung_chi_a):
++    srv, cfg = may_chu_tls(chung_chi_a)
++    kq = asyncio.run(_module_mikrotik().cai(
++        _cau_hinh_mikrotik(srv.server_address[1], van_tay="00" * 32)))
++    assert kq["ok"] is False
++    de_nghi = kq.get("tin_chung_chi")
++    assert de_nghi is not None
++    assert de_nghi["ly_do"] == "doi"
++    assert "đã đổi" in de_nghi["thong_bao"]
++    assert cfg["da_nhan"] == []  # sai vân tay → đóng trước khi đăng nhập
++
++
++def test_mikrotik_tat_kiem_thi_khong_de_nghi(may_chu_tls, chung_chi_a):
++    srv, _ = may_chu_tls(chung_chi_a)
++    kq = asyncio.run(_module_mikrotik().cai(
++        _cau_hinh_mikrotik(srv.server_address[1], kiem_chung_chi="false")))
++    assert kq["ok"] is False
++    assert "tin_chung_chi" not in kq  # người dùng đã chọn tắt kiểm → không đề nghị
++
++
++# ───────── Lõi: hành động tin ─────────
++
++class _SoGia:
++    def __init__(self):
++        self.da_goi = []
++
++    async def cai(self, module_id, cau_hinh):
++        self.da_goi.append((module_id, dict(cau_hinh)))
++        return {"ok": True, "ket_qua_tung_khoa": [], "loi": None}
++
++
++def test_tin_chung_chi_thanh_cong_luu_van_tay_do_duoc(may_chu_tls, chung_chi_a):
++    from app import chung_chi_tls
++    srv, _ = may_chu_tls(chung_chi_a)
++    port = srv.server_address[1]
++    ve = chung_chi_tls.tao_ve("mikrotik-routeros", "127.0.0.1", port)
++    so = _SoGia()
++    kq = asyncio.run(chung_chi_tls.tin_chung_chi(
++        so, "mikrotik-routeros",
++        {"dia_chi": f"127.0.0.1:{port}", "tai_khoan": NGUOI_DUNG_GIA,
++         "mat_khau": MAT_KHAU_GIA},
++        ve, chung_chi_tls.ma_hien_thi(chung_chi_a["van_tay"])))
++    assert kq["ok"] is True
++    assert len(so.da_goi) == 1
++    assert so.da_goi[0][1]["van_tay_tls"] == chung_chi_a["van_tay"]
++
++
++def test_tin_chung_chi_tu_choi_khi_chung_chi_doi(may_chu_tls, chung_chi_a, chung_chi_b):
++    from app import chung_chi_tls
++    srv, _ = may_chu_tls(chung_chi_a)
++    port = srv.server_address[1]
++    ve = chung_chi_tls.tao_ve("mikrotik-routeros", "127.0.0.1", port)
++    ma_cu = chung_chi_tls.ma_hien_thi(chung_chi_a["van_tay"])
++    srv.shutdown()
++    srv.server_close()
++    srv2, _ = may_chu_tls(chung_chi_b)  # cùng cổng? khác cổng → vé trỏ cổng cũ: đo thất bại
++    # Đổi chứng chỉ trên ĐÚNG cổng của vé: dựng lại máy chủ khác trên cổng cũ.
++    srv2.shutdown()
++    srv2.server_close()
++    srv3 = MayChuTlsTran(("127.0.0.1", port), _XuLyTlsTran)
++    srv3.cfg = {"crt": chung_chi_b["crt"], "key": chung_chi_b["key"], "da_nhan": []}
++    t = threading.Thread(target=srv3.serve_forever, kwargs={"poll_interval": 0.05},
++                         daemon=True)
++    t.start()
++    try:
++        so = _SoGia()
++        kq = asyncio.run(chung_chi_tls.tin_chung_chi(
++            so, "mikrotik-routeros",
++            {"dia_chi": f"127.0.0.1:{port}"}, ve, ma_cu))
++        assert kq["ok"] is False
++        assert so.da_goi == []  # chứng chỉ đổi → không lưu gì
++    finally:
++        srv3.shutdown()
++        srv3.server_close()
++
++
++def test_tin_chung_chi_tu_choi_ve_het_han(may_chu_tls, chung_chi_a):
++    from app import chung_chi_tls
++    srv, _ = may_chu_tls(chung_chi_a)
++    port = srv.server_address[1]
++    ve = chung_chi_tls.tao_ve("mikrotik-routeros", "127.0.0.1", port, ttl_giay=-1)
++    so = _SoGia()
++    kq = asyncio.run(chung_chi_tls.tin_chung_chi(
++        so, "mikrotik-routeros", {"dia_chi": f"127.0.0.1:{port}"},
++        ve, chung_chi_tls.ma_hien_thi(chung_chi_a["van_tay"])))
++    assert kq["ok"] is False
++    assert so.da_goi == []
++
++
++# ───────── Ghép đề nghị vào kết quả công khai (lõi chỉ chuyển tiếp đúng trường) ─────────
++
++def test_ghep_de_nghi_tin_khong_lo_host_cong_day_du():
++    from app import chung_chi_tls
++    kq = {"ok": False, "ket_qua_tung_khoa": [], "loi": "x",
++          "tin_chung_chi": {"ly_do": "doi", "ma_hien_thi": "abcd1234…ef567890",
++                           "thong_bao": "Chứng chỉ đã đổi.", "host": "192.0.2.1", "cong": 8729}}
++    cong_khai = chung_chi_tls.ghep_de_nghi_tin(kq, "mikrotik-routeros")
++    assert cong_khai is not None
++    assert cong_khai["ly_do"] == "doi"
++    assert cong_khai["ma_hien_thi"] == "abcd1234…ef567890"
++    assert "ve" in cong_khai and cong_khai["ve"]
++    assert "host" not in cong_khai and "cong" not in cong_khai
++    assert chung_chi_tls.doc_ve(cong_khai["ve"], "mikrotik-routeros") == ("192.0.2.1", 8729)
++
++
++def test_ghep_de_nghi_tin_tu_ky_khong_con_duoc_de_nghi():
++    # Hướng 19:30: lần đầu tự ký đã tự ghim, không còn đề nghị tu_ky.
++    from app import chung_chi_tls
++    kq = {"ok": False, "ket_qua_tung_khoa": [], "loi": "x",
++          "tin_chung_chi": {"ly_do": "tu_ky", "ma_hien_thi": "abcd1234…ef567890",
++                           "thong_bao": "Router tự ký.", "host": "192.0.2.1", "cong": 8729}}
++    assert chung_chi_tls.ghep_de_nghi_tin(kq, "mikrotik-routeros") is None
++
++
++def test_ghep_de_nghi_tin_thieu_truong_thi_khong_ghep():
++    from app import chung_chi_tls
++    assert chung_chi_tls.ghep_de_nghi_tin({"ok": False}, "mikrotik-routeros") is None
++    assert chung_chi_tls.ghep_de_nghi_tin(
++        {"tin_chung_chi": {"ly_do": "tu_ky"}}, "mikrotik-routeros") is None
++
++
++# ───────── ZTE: cùng cơ chế ─────────
++
++# ───────── Mô tả trường cấu hình ─────────
++
++def test_mo_ta_moi_truong_khong_mac_dinh_deu_co():
++    for f in sorted((GOC / "modules").glob("*/manifest.json")):
++        m = json.loads(f.read_text(encoding="utf-8"))
++        for t in m.get("truong_cau_hinh") or []:
++            if t.get("mac_dinh") is None or t.get("mac_dinh") == "":
++                assert (t.get("mo_ta") or "").strip(), \
++                    f"{m['id']}.{t['khoa']} không có mo_ta"
++
++
++_THUAT_NGU_TRAN = ["SHA-256", "hex", "TLS", "API", "api-ssl", "/ip/", "http://"]
++
++
++def test_mo_ta_mikrotik_zte_khong_thuat_ngu_tran():
++    for module_id in ("mikrotik-routeros", "zte-e2633"):
++        m = json.loads((GOC / "modules" / module_id / "manifest.json").read_text())
++        for t in m.get("truong_cau_hinh") or []:
++            mo_ta = t.get("mo_ta") or ""
++            for tu in _THUAT_NGU_TRAN:
++                assert tu not in mo_ta, f"{module_id}.{t['khoa']} còn thuật ngữ trần {tu!r}"
++        van_tay = next(t for t in m["truong_cau_hinh"] if t["khoa"] == "van_tay_tls")
++        assert "Tin chứng chỉ này" in van_tay["mo_ta"]
+diff --git a/test/test_web2api_nv111_zte_e2633.py b/test/test_web2api_nv111_zte_e2633.py
+index 89d2237..8564a38 100644
+--- a/test/test_web2api_nv111_zte_e2633.py
++++ b/test/test_web2api_nv111_zte_e2633.py
+@@ -481,7 +481,9 @@ def test_cai_sai_mat_khau_bao_loi_khong_ro_mat_khau(mod, manifest, may_chu_gia,
+ 
+ def test_cai_van_tay_sai_dinh_dang_bao_loi(mod, manifest):
+     m = mod.Module(manifest)
+-    ch = {"dia_chi": "https://192.0.2.1/", "tai_khoan": TAI_KHOAN_GIA,
++    # Địa chỉ LAN để qua cổng IP LAN rồi mới tới bước kiểm định dạng vân tay
++    # (TEST-NET 192.0.2.1 cũ đã bị cổng mới từ chối vì không phải IP LAN).
++    ch = {"dia_chi": "https://192.168.1.1/", "tai_khoan": TAI_KHOAN_GIA,
+           "mat_khau": MAT_KHAU_GIA, "van_tay_tls": "khong-phai-hex"}
+     kq = chay(m.cai(ch))
+     assert kq["ok"] is False and "van_tay_tls" in (kq["loi"] or "")
+diff --git a/test/test_web2api_nv150_zte_e2633.py b/test/test_web2api_nv150_zte_e2633.py
+index c998bcb..2a4f939 100644
+--- a/test/test_web2api_nv150_zte_e2633.py
++++ b/test/test_web2api_nv150_zte_e2633.py
+@@ -284,16 +284,18 @@ def test_cai_tu_choi_van_luu_va_canh_bao_co_ma_loi(mod, manifest, may_chu_gia,
+     assert "SaiMatKhau-Gia-150" not in caplog.text
+ 
+ 
+-def test_cai_tls_tu_ky_van_luu_va_huong_dan_ngay_trong_thong_bao(
++def test_cai_tls_tu_ky_tu_ghim_khong_can_xac_nhan(
+         mod, manifest, may_chu_gia, cho_phep_loopback):
++    # Hướng 19:30: lần đầu gặp chứng chỉ tự ký qua IP LAN thì TỰ GHIM
++    # (không còn cảnh báo TLS_TU_KY + đề nghị tu_ky như trước).
+     m = mod.Module(manifest)
+     ch = _cau_hinh(may_chu_gia["dia_chi"], kiem_chung_chi="true")  # chứng chỉ tự ký
+     kq = chay(m.cai(ch))
+     assert kq["ok"] is True
+-    assert kq["cau_hinh_luu"]["dia_chi"] == may_chu_gia["dia_chi"]
++    assert kq["cau_hinh_luu"]["van_tay_tls"] == may_chu_gia["van_tay"]
+     muc = kq["ket_qua_tung_khoa"][0]
+-    assert muc["ma_loi"] == "TLS_TU_KY"
+-    assert "kiem_chung_chi_tls=false" in muc["canh_bao"]
++    assert muc["ma_loi"] is None and muc["canh_bao"] is None
++    assert "tin_chung_chi" not in kq  # lần đầu: tự ghim, không nút
+ 
+ 
+ def test_cai_mat_mang_van_luu_va_ma_loi_ket_noi(mod, manifest, cho_phep_loopback):
+diff --git a/test/test_web2api_nv45_a_nuot_loi.py b/test/test_web2api_nv45_a_nuot_loi.py
+index 90126de..f32710d 100644
+--- a/test/test_web2api_nv45_a_nuot_loi.py
++++ b/test/test_web2api_nv45_a_nuot_loi.py
+@@ -172,6 +172,12 @@ DA_KIEM_TOAN = {
+     # rơi về email CỦA CHÍNH tài khoản vừa đăng nhập (dữ liệu chắc chắn), không đoán email lạ; không có quyết định
+     # bảo mật nào dựa trên kết quả rỗng.
+     ("modules/may-dang-nhap/module.py", "_email_tu_jwt"),
++    # Đã duyệt NV295 (đọc hàm): đo chứng chỉ để dựng đề nghị tin khi đổi —
++    # đo thất bại → None (không đề nghị mù). Phía gọi fail-closed: mikrotik
++    # trả lỗi nối thường, ZTE giữ cảnh báo và không kèm đề nghị; không mở
++    # quyền, không giả thành công, không nuốt lỗi đăng nhập (chỉ lỗi đo).
++    ("modules/mikrotik-routeros/module.py", "_de_nghi_tin"),
++    ("modules/zte-e2633/module.py", "_de_nghi_tin_zte"),
+     # Đã duyệt NV256 (đọc hàm, 23/10/2026): giải mã payload JWT KHÔNG xác thực chữ ký, chỉ để đọc claim exp;
+     # token hỏng → None → phía gọi coi như hết hạn/không đọc được (đóng khi lỗi). Không có quyết định bảo mật
+     # nào coi token hỏng là còn hạn.
+diff --git a/web/Doi-song.dc.html b/web/Doi-song.dc.html
+index f16cf31..bfe17bb 100644
+--- a/web/Doi-song.dc.html
++++ b/web/Doi-song.dc.html
+@@ -127,7 +127,7 @@
+ <sc-if value="{{x.f.coKq}}">
+ <div class="ket-qua-cai" style="display:flex;flex-direction:column;gap:8px">
+ <sc-if value="{{x.f.kqLoi}}"><p role="alert" class="bao bao-loi">Chưa lưu được: {{x.f.kqLoi}}</p></sc-if>
+-<sc-if value="{{x.f.kqGoLai}}"><p class="phu">Mật khẩu đã gửi được xoá khỏi trang vì an toàn — nhập lại nếu muốn thử lần nữa.</p></sc-if>
++<sc-if value="{{x.f.kqGoLai}}"><p class="phu">Mật khẩu đã gửi được xoá khỏi trang vì an toàn — nhập lại nếu muốn thử lần nữa.</p></sc-if><sc-if value="{{x.f.coTinChungChi}}"><div role="note" class="bao bao-vang" style="display:flex;flex-direction:column;gap:8px"><p style="margin:0">{{x.f.tinThongBao}}</p><div class="dong-nut"><button type="button" class="nut-chu" style="background:#181816;border-color:#181816;color:#fff" onClick="{{x.f.bamTinChungChi}}" disabled="{{x.f.dang}}">Tin chứng chỉ này</button></div><p class="phu" style="margin:0">Bấm là lưu mã nhận dạng trên và kiểm lại kết nối ngay.</p></div></sc-if>
+ </div>
+ </sc-if>
+ </section>
+diff --git a/web/He-thong.dc.html b/web/He-thong.dc.html
+index 15bb5b2..03bcd0e 100644
+--- a/web/He-thong.dc.html
++++ b/web/He-thong.dc.html
+@@ -579,7 +579,7 @@ main.pg{padding:12px 16px 24px}
+ <div class="ket-qua-cai" style="display:flex;flex-direction:column;gap:8px">
+ <sc-if value="{{f.kqOk}}"><p role="status" class="bao bao-tot" id="kq-ok">Đã liên kết {{ct.ten}}. Chỉ khoá dùng được mới được lưu.{{ct.tabMoi}}</p></sc-if>
+ <sc-if value="{{f.kqLoi}}"><p role="alert" class="bao bao-loi" id="kq-loi">Chưa lưu được: {{f.kqLoi}}</p></sc-if>
+-<sc-if value="{{f.kqGoLai}}"><p class="phu">Khoá đã gửi được xoá khỏi trang vì an toàn — dán lại nếu muốn thử lần nữa.</p></sc-if>
++<sc-if value="{{f.kqGoLai}}"><p class="phu">Khoá đã gửi được xoá khỏi trang vì an toàn — dán lại nếu muốn thử lần nữa.</p></sc-if><sc-if value="{{f.coTinChungChi}}"><div role="note" class="bao bao-vang" style="display:flex;flex-direction:column;gap:8px"><p style="margin:0">{{f.tinThongBao}}</p><div class="dong-nut"><button type="button" class="nut-chu" style="background:#181816;border-color:#181816;color:#fff" onClick="{{f.bamTinChungChi}}" disabled="{{f.dang}}">Tin chứng chỉ này</button></div><p class="phu" style="margin:0">Bấm là lưu mã nhận dạng trên và kiểm lại kết nối ngay.</p></div></sc-if>
+ <ul class="ds-kq"><sc-for list="{{f.kqDs}}" as="k"><li class="{{k.lop}}"><span class="{{k.lopDau}}" aria-hidden="true"><sc-if value="{{k.ok}}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7"></path></svg></sc-if><sc-if value="{{k.hong}}"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round"><path d="M6 6l12 12 M18 6L6 18"></path></svg></sc-if></span><span class="kq-than"><span><span class="ma">{{k.khoa}}</span> · {{k.trangThai}}</span><span class="phu">{{k.chiTiet}}</span></span></li></sc-for></ul>
+ </div>
+ </sc-if>
+diff --git a/web/Nha.dc.html b/web/Nha.dc.html
+index 945d2c4..72159cc 100644
+--- a/web/Nha.dc.html
++++ b/web/Nha.dc.html
+@@ -127,7 +127,7 @@
+ <sc-if value="{{x.f.coKq}}">
+ <div class="ket-qua-cai" style="display:flex;flex-direction:column;gap:8px">
+ <sc-if value="{{x.f.kqLoi}}"><p role="alert" class="bao bao-loi">Chưa lưu được: {{x.f.kqLoi}}</p></sc-if>
+-<sc-if value="{{x.f.kqGoLai}}"><p class="phu">Mật khẩu đã gửi được xoá khỏi trang vì an toàn — nhập lại nếu muốn thử lần nữa.</p></sc-if>
++<sc-if value="{{x.f.kqGoLai}}"><p class="phu">Mật khẩu đã gửi được xoá khỏi trang vì an toàn — nhập lại nếu muốn thử lần nữa.</p></sc-if><sc-if value="{{x.f.coTinChungChi}}"><div role="note" class="bao bao-vang" style="display:flex;flex-direction:column;gap:8px"><p style="margin:0">{{x.f.tinThongBao}}</p><div class="dong-nut"><button type="button" class="nut-chu" style="background:#181816;border-color:#181816;color:#fff" onClick="{{x.f.bamTinChungChi}}" disabled="{{x.f.dang}}">Tin chứng chỉ này</button></div><p class="phu" style="margin:0">Bấm là lưu mã nhận dạng trên và kiểm lại kết nối ngay.</p></div></sc-if>
+ </div>
+ </sc-if>
+ </section>
+diff --git a/web/Tac-pham.dc.html b/web/Tac-pham.dc.html
+index 1bc4074..9787330 100644
+--- a/web/Tac-pham.dc.html
++++ b/web/Tac-pham.dc.html
+@@ -127,7 +127,7 @@
+ <sc-if value="{{x.f.coKq}}">
+ <div class="ket-qua-cai" style="display:flex;flex-direction:column;gap:8px">
+ <sc-if value="{{x.f.kqLoi}}"><p role="alert" class="bao bao-loi">Chưa lưu được: {{x.f.kqLoi}}</p></sc-if>
+-<sc-if value="{{x.f.kqGoLai}}"><p class="phu">Mật khẩu đã gửi được xoá khỏi trang vì an toàn — nhập lại nếu muốn thử lần nữa.</p></sc-if>
++<sc-if value="{{x.f.kqGoLai}}"><p class="phu">Mật khẩu đã gửi được xoá khỏi trang vì an toàn — nhập lại nếu muốn thử lần nữa.</p></sc-if><sc-if value="{{x.f.coTinChungChi}}"><div role="note" class="bao bao-vang" style="display:flex;flex-direction:column;gap:8px"><p style="margin:0">{{x.f.tinThongBao}}</p><div class="dong-nut"><button type="button" class="nut-chu" style="background:#181816;border-color:#181816;color:#fff" onClick="{{x.f.bamTinChungChi}}" disabled="{{x.f.dang}}">Tin chứng chỉ này</button></div><p class="phu" style="margin:0">Bấm là lưu mã nhận dạng trên và kiểm lại kết nối ngay.</p></div></sc-if>
+ </div>
+ </sc-if>
+ </section>
+diff --git a/web/khung.js b/web/khung.js
+index 9c2d1cf..e157480 100644
+--- a/web/khung.js
++++ b/web/khung.js
+@@ -628,17 +628,18 @@
+         coForm: !!ch, dangTai: !ch && !f.loiTai, loiTai: f.loiTai || '', truong, khongTruong: !!ch && truongTatCa.length === 0,
+         luu: (e) => cauHinh.luu(comp, id, e, daXong), dang: !!f.dang, nhanNut: f.dang ? 'Đang kiểm từng khoá…' : 'Kiểm tra và lưu',
+         loi: f.loi || '', coKq: !!kq, kqOk: !!(kq && kq.ok), kqLoi: kq && !kq.ok ? kq.loi || 'không rõ lý do' : '',
+-        kqDs: kq ? (kq.ds || []).map(dongKhoa) : [], kqGoLai: !!(kq && kq.goLai)
++        kqDs: kq ? (kq.ds || []).map(dongKhoa) : [], kqGoLai: !!(kq && kq.goLai),
++        coTinChungChi: !!(kq && kq.tin), tinThongBao: kq && kq.tin ? kq.tin.thong_bao || '' : '',
++        bamTinChungChi: (e) => cauHinh.tinChungChi(comp, id, e, daXong)
+       };
+     },
+-    async luu(comp, id, e, daXong) {
+-      if (e) e.preventDefault();
++    gom(comp, id) {
++      // Gom giá trị form hiện tại thành cau_hinh gửi lõi (dùng chung cho luu và tinChungChi).
+       const f = cauHinh.cf(comp, id);
+       const ch = f.ch;
+-      if (!ch) return;
+-      const gt = ch.gia_tri || {};
++      const gt = (ch && ch.gia_tri) || {};
+       const cau_hinh = {}; const thieuTr = []; let coBiMat = false;
+-      for (const t of ch.truong_cau_hinh || []) {
++      for (const t of (ch && ch.truong_cau_hinh) || []) {
+         const go = f.gt[t.khoa];
+         const daLuu = gt[t.khoa];
+         if (t.kieu === 'danh_sach_bi_mat') {
+@@ -659,6 +660,15 @@
+           if (t.bat_buoc && !s && (daLuu == null || daLuu === '')) thieuTr.push(t.nhan || t.khoa);
+         }
+       }
++      return { cau_hinh, coBiMat, thieuTr };
++    },
++    async luu(comp, id, e, daXong) {
++      if (e) e.preventDefault();
++      const f = cauHinh.cf(comp, id);
++      const ch = f.ch;
++      if (!ch) return;
++      const g = cauHinh.gom(comp, id);
++      const cau_hinh = g.cau_hinh; const thieuTr = g.thieuTr; const coBiMat = g.coBiMat;
+       if (thieuTr.length) { cauHinh.dat(comp, id, { loi: 'Còn thiếu: ' + thieuTr.join(', ') + '.', kq: null }); return; }
+       if (!Object.keys(cau_hinh).length && ch.da_cau_hinh) { cauHinh.dat(comp, id, { loi: 'Chưa có thay đổi nào để lưu.', kq: null }); return; }
+       // Xoá bí mật khỏi state TRƯỚC khi gửi; đổi `lan` để dc-lite dựng ô mới rỗng.
+@@ -667,12 +677,36 @@
+       try {
+         const { j } = await goi('api/modules/' + encodeURIComponent(id) + '/cai', { method: 'POST', json: { cau_hinh }, chapNhan: [400] });
+         kq = j && typeof j === 'object' && 'ok' in j
+-          ? { ok: !!j.ok, ds: j.ket_qua_tung_khoa || [], loi: j.loi || (j.ok ? '' : 'module từ chối cấu hình') }
+-          : { ok: false, ds: [], loi: thongDiep(j, 400) };
+-      } catch (err) { kq = { ok: false, ds: [], loi: err.message }; }
++          ? { ok: !!j.ok, ds: j.ket_qua_tung_khoa || [], loi: j.loi || (j.ok ? '' : 'module từ chối cấu hình'), tin: j.tin_chung_chi || null }
++          : { ok: false, ds: [], loi: thongDiep(j, 400), tin: null };
++      } catch (err) { kq = { ok: false, ds: [], loi: err.message, tin: null }; }
+       kq.goLai = !kq.ok && coBiMat;
+       cauHinh.dat(comp, id, { dang: false, kq });
+       if (kq.ok) { cauHinh.dat(comp, id, { sua: {}, nangCao: false }); await cauHinh.tai(comp, id); if (daXong) daXong(id); }
++    },
++    async tinChungChi(comp, id, e, daXong) {
++      // Nút «Tin chứng chỉ này» (NV295): gửi lại giá trị form hiện tại + vé tin.
++      // Vé chỉ có trong state (không hiện ra trang); lõi đo lại chứng chỉ và
++      // so mặt nạ trước khi lưu — chứng chỉ đổi sau khi hiển thị thì bị từ chối.
++      if (e) e.preventDefault();
++      const f = cauHinh.cf(comp, id);
++      const ch = f.ch;
++      const tin = f.kq && f.kq.tin;
++      if (!ch || !tin) return;
++      const g = cauHinh.gom(comp, id);
++      if (g.thieuTr.length) { cauHinh.dat(comp, id, { loi: 'Còn thiếu: ' + g.thieuTr.join(', ') + '.' }); return; }
++      // Xoá bí mật khỏi state TRƯỚC khi gửi (như luu); giá trị đã gom giữ trong biến cục bộ.
++      cauHinh.dat(comp, id, { gt: {}, bot: {}, lan: f.lan + 1, dang: true, loi: '' });
++      let kq;
++      try {
++        const { j } = await goi('api/modules/' + encodeURIComponent(id) + '/tin-chung-chi', { method: 'POST', json: { cau_hinh: g.cau_hinh, ve: tin.ve, ma_hien_thi: tin.ma_hien_thi }, chapNhan: [400] });
++        kq = j && typeof j === 'object' && 'ok' in j
++          ? { ok: !!j.ok, ds: j.ket_qua_tung_khoa || [], loi: j.loi || (j.ok ? '' : 'không tin được chứng chỉ'), tin: j.tin_chung_chi || null }
++          : { ok: false, ds: [], loi: thongDiep(j, 400), tin: null };
++      } catch (err) { kq = { ok: false, ds: [], loi: err.message, tin: null }; }
++      kq.goLai = !kq.ok && g.coBiMat;
++      cauHinh.dat(comp, id, { dang: false, kq });
++      if (kq.ok) { cauHinh.dat(comp, id, { sua: {}, nangCao: false }); await cauHinh.tai(comp, id); if (daXong) daXong(id); }
+     }
+   };
+ 
