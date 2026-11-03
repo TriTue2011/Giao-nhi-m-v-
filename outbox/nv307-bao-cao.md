@@ -207,7 +207,9 @@ code.
 
 ## XÁC MINH NỘP
 
-- Nhánh Giao: `muse/nv307` = **`a3dda45`** (đã kiểm `ls-remote` sau khi
-  đẩy; Giao main không đổi `82d9ff46` lúc đẩy). Chỉ nhánh này, không
-  main, không force-push.
+- Nhánh Giao: `muse/nv307` (chỉ nhánh này, không main, không force-push).
+  Tip chốt của nhánh được ghi trong tin báo kèm theo sau khi kiểm
+  `ls-remote` (file này không tự ghi tip của chính nó để tránh lệch như
+  NV303 trước đây).
 - File nộp: `outbox/nv307.patch` + `outbox/nv307-bao-cao.md` (báo cáo này).
+- Nền nộp: R1 main `b2c5096`, Giao main `82d9ff46` lúc đẩy.
