@@ -1,0 +1,1764 @@
+"""Account auto-recovery + Telegram notification.
+
+When an account fails during use (token expired / 401 on the web flow), try to
+recover it automatically by REUSING its refresh_token to mint a fresh OAuth
+token, and notify the admin Telegram chat of: the error, the action taken, and
+the result. Accounts without a refresh_token can't be auto-refreshed — we
+notify that a manual re-login (noVNC / onboard) is required.
+
+Debounced per account so a burst of failures doesn't spam Telegram.
+"""
+from __future__ import annotations
+
+import threading
+import time
+from collections.abc import Callable
+from typing import Any
+
+from utils.log import logger
+
+_last_attempt: dict[str, float] = {}
+_lock = threading.Lock()
+_COOLDOWN_S = 600.0  # one recovery attempt / notification per account per 10 min
+
+
+def _notify(text: str, detail: dict[str, Any] | None = None) -> None:
+    """Push recovery status to admin bots + account log file.
+
+    Bot fan-out dùng category="account_log" → mỗi kênh (Telegram / Zalo bot /
+    Zalo cá nhân) bật/tắt riêng bằng account_log_notify_* (fallback key cũ).
+    Also append LOG_TYPE_ACCOUNT so UI Logs shows them; detail mang
+    provider/email/profile/step để log đầy đủ tài khoản nào, provider nào,
+    đến bước khôi phục nào.
+    """
+    try:
+        from services.notifier import notify_admin
+        notify_admin(text, category="account_log")
+    except Exception as exc:
+        logger.warning({"event": "recovery_notify_failed", "error": str(exc)[:120]})
+    try:
+        from services.log_service import LOG_TYPE_ACCOUNT, log_service
+        # Skip bot fan-out from log_service to avoid double Telegram messages:
+        # notify_admin above already delivered to the enabled channels.
+        summary = (text or "").replace("\n", " · ")[:240]
+        det: dict[str, Any] = {"source": "account_recovery", "notify_bots": False}
+        if detail:
+            det.update({k: v for k, v in detail.items() if v not in (None, "")})
+        log_service.add(LOG_TYPE_ACCOUNT, summary, det)
+    except Exception:
+        pass
+
+
+def _acct_label(account: dict[str, Any]) -> str:
+    return str(account.get("email") or (account.get("access_token") or "")[:12] or "?")
+
+
+_GRELOGIN_COOLDOWN_S = 1800.0  # browser login đắt → 1 lần / account / 30 phút
+
+# Đăng nhập Google phải chạy LẦN LƯỢT trên toàn hệ thống. Nhiều tài khoản chết
+# gần nhau sẽ spawn nhiều thread recover cùng lúc; nếu để chúng cùng bấm
+# auto-login-saved thì Google thấy một chùm login tự động từ một IP máy chủ →
+# bung captcha hàng loạt. Bấm tay "Chỉ đăng nhập" không dính captcha chỉ vì nó
+# tự nhiên là từng-lần-một. Khoá này ép máy làm y hệt: mỗi thời điểm CHỈ một
+# phiên Google, cách nhau tối thiểu _GLOGIN_GAP_S.
+_glogin_serial = threading.Lock()
+_glogin_last_done = 0.0            # mốc kết thúc phiên Google gần nhất (giữ dưới _glogin_serial)
+_GLOGIN_GAP_S = 25.0              # cách nhau tối thiểu giữa 2 phiên đăng nhập Google
+# A CAPTCHA is an IP/browser challenge, not a per-account transient failure.
+# Retrying all profiles after the first challenge only creates more challenges.
+_glogin_captcha_until = 0.0
+_glogin_captcha_profile = ""
+_GLOGIN_CAPTCHA_HOLD_S = 6 * 3600.0
+# Trần thời gian 1 lượt khôi phục. Phải CHỨA ĐỦ cả thang, nếu không tầng cuối bị
+# cắt giữa đường (đo thật 30/07: trần 300s < riêng một lượt đăng nhập Google, nên
+# tầng 2-sau-đăng-nhập không bao giờ chạy):
+#   T2 mở đăng nhập Codex trong workspace    ≤ 180s
+#   T3 đăng nhập lại tài khoản Google        ≤ 700s  (xem _freshen_google)
+#   T2 lặp lại sau khi đăng nhập xong        ≤ 180s
+#   T3 hàng loạt (acc trong codex_auto_list) ≤ 420s
+_RECOVER_BUDGET_S = 1200.0
+# Thang Flow: mỗi tầng kiểm phiên bao nhiêu lượt, và nghỉ bao lâu giữa hai lượt.
+# Prime phiên labs.google chập chờn thật (đo 24/08/2026: trượt 16:02:53, đạt
+# 16:03:55) nên một lần trượt chưa đủ để kết luận là mất phiên.
+_FLOW_KIEM_LAI = 2
+_FLOW_NGHI_S = 45.0
+_CAPTCHA_PROFILES = "/app/data/captcha/profiles"
+
+
+def _solver_cfg() -> tuple[str, str]:
+    """(url, api_key) của captcha-solver — lấy từ config như flow/gemini_web."""
+    from services.config import config
+    prov = config.data.get("providers") or {}
+    for n in ("flow", "gemini_web_api", "gemini_web"):
+        c = prov.get(n) or {}
+        raw = str(c.get("captcha_solver_url") or "").strip()
+        if raw:
+            from services.captcha import captcha_base, khoa_solver
+            return captcha_base(raw), khoa_solver(c)
+    from services.captcha import INTERNAL, khoa_solver
+    return INTERNAL, khoa_solver()
+
+
+def _profile_for(email: str) -> str:
+    """Tên profile browser của tài khoản này trong captcha-solver.
+
+    Trên đĩa đang tồn tại VÀI quy ước đặt tên khác nhau, do các đường tạo profile
+    khác nhau:
+      · web UI            → hạ chữ + đổi ký tự lạ thành '-'  (google-ben-bap)
+      · api/accounts.py, jwt_refresh_scheduler → đổi ký tự lạ, GIỮ hoa/thường
+      · hàm này (bản cũ)  → nguyên localpart, kể cả dấu chấm (google-Ben.Bap)
+    Đoán một kiểu rồi trả về luôn thì với email có dấu chấm/chữ hoa sẽ trỏ vào
+    thư mục KHÔNG tồn tại → `has_profile` False → tầng 2 bị bỏ oan, và tầng 3 lại
+    đăng nhập vào một profile mới toanh thay vì profile đang có session.
+    Vì vậy: sinh các ứng viên rồi ưu tiên cái CÓ THẬT trên đĩa.
+    """
+    local = (email or "").split("@", 1)[0] or "default"
+    an_toan = "".join(c if c.isalnum() or c == "-" else "-" for c in local)
+    ung_vien = [f"google-{local}", f"google-{an_toan}", f"google-{an_toan.lower()}"]
+    try:
+        import os
+        co_that = {n.lower(): n for n in os.listdir(_CAPTCHA_PROFILES)}
+    except OSError:
+        co_that = {}
+    for ten in ung_vien:
+        thuc = co_that.get(ten.lower())
+        if thuc:
+            return thuc
+    # Chưa có profile nào → dùng cùng quy ước với api/accounts.py và
+    # jwt_refresh_scheduler để cả hệ thống nói về cùng một thư mục.
+    return ung_vien[1]
+
+
+def _dong_hang_loat(email: str) -> list[str] | None:
+    """Dòng của email trong `codex_auto_list` (nguồn của nút "Đăng nhập hàng
+    loạt"), None nếu không có dòng nào.
+
+    ĐÂY là dấu hiệu phân loại tài khoản, theo đúng cách hệ thống được dùng
+    (người vận hành chốt 30/07): **có dòng trong danh sách → tài khoản đăng nhập
+    hàng loạt; KHÔNG có dòng → tài khoản Google.**
+
+    Bản cũ phân loại bằng đuôi email (`@gmail.com` = Google) nên sai cả hai chiều:
+      · acc hàng loạt dùng Gmail bị đẩy sang nhánh Google;
+      · acc Google (Workspace, đuôi công ty) bị đẩy sang nhánh hàng loạt rồi chết
+        ngay vì không có dòng nào trong `codex_auto_list` để mà đăng nhập.
+    """
+    from services.config import config
+    cfg = config.data if isinstance(config.data, dict) else {}
+    raw = str(cfg.get("codex_auto_list") or "")
+    muc_tieu = (email or "").strip().lower()
+    if not muc_tieu:
+        return None
+    for ln in raw.splitlines():
+        ln = ln.strip()
+        if not ln:
+            continue
+        parts = ln.split("|") if "|" in ln else ln.split(":")
+        if parts and parts[0].strip().lower() == muc_tieu:
+            return [p.strip() for p in parts]
+    return None
+
+
+def _has_profile(profile: str) -> bool:
+    import os
+    return os.path.isdir(os.path.join(_CAPTCHA_PROFILES, profile))
+
+
+_ACCOUNTS_DB = "/app/data/captcha/accounts.db"
+
+_TIEN_TO_HO_SO = ("google-", "chatgpt-web-", "chatgpt-", "openai-",
+                  "gemini-web-", "gemini-", "claude-web-", "claude-",
+                  "codex-", "github-")
+
+
+def _localpart(ten: str) -> str:
+    """Tên hồ sơ hoặc email → CHỈ chữ-và-số. Giống `accounts_db.chuan_localpart`
+    của solver, và phải giống: hai bên đang so cùng một thứ.
+
+    Tên hồ sơ đổi MỌI ký tự lạ thành '-', nên bỏ '-' và '.' là chưa đủ — địa chỉ
+    có dấu '+' (mọi tài khoản OpenAI gốc đang lưu) không bao giờ khớp.
+    """
+    s = str(ten or "").strip().lower()
+    for pfx in _TIEN_TO_HO_SO:
+        if s.startswith(pfx):
+            s = s[len(pfx):]
+            break
+    return "".join(ch for ch in s.split("@")[0] if ch.isalnum())
+
+
+def _co_creds(loai: str, profile: str = "", email: str = "") -> bool:
+    """accounts_db của solver có mật khẩu trong KHO `loai` cho tài khoản này không.
+
+    KHO là bắt buộc. Cùng một địa chỉ có thể có bản ghi ở cả kho 'google' lẫn
+    'openai' với hai mật khẩu khác hẳn nhau (xem `captcha-solver/src/accounts_db`).
+    Bản cũ hỏi không kèm kho, nên tài khoản CHỈ có mật khẩu OpenAI vẫn bị tính
+    là "có mật khẩu Google": thang khôi phục đi nhánh Google, mở màn đăng nhập
+    Google, rồi chết ở solver với "no saved Google credentials for this profile".
+
+    Đo thật 20/08/2026 — `bios.disused99+6e84t67f@icloud.com` (ChatGPT free) có
+    ĐÚNG MỘT bản ghi, kho 'openai', đủ mật khẩu và hạt giống TOTP; tin báo cho
+    chủ máy vẫn nói "đã thử: T2-workspace → T3-đăng-nhập-Google".
+    """
+    try:
+        import os
+        import sqlite3
+
+        if not os.path.isfile(_ACCOUNTS_DB):
+            return False
+        con = sqlite3.connect(_ACCOUNTS_DB)
+        try:
+            # Kho cũ chưa có cột `loai` thì chỉ có tài khoản Google — giữ nguyên
+            # hành vi cũ thay vì trả rỗng cho mọi câu hỏi.
+            co_kho = any(r[1] == "loai" for r in con.execute("PRAGMA table_info(accounts)"))
+            if co_kho:
+                loc, tham_so = " AND loai = ?", (loai,)
+            else:
+                loc, tham_so = "", ()
+                if loai != "google":
+                    return False
+            if email:
+                row = con.execute(
+                    "SELECT password FROM accounts WHERE lower(email)=lower(?)"
+                    + loc + " LIMIT 1",
+                    (email, *tham_so),
+                ).fetchone()
+                if row and row[0]:
+                    return True
+            ten = _localpart(profile)
+            if ten:
+                cau = "SELECT email, password FROM accounts"
+                if co_kho:
+                    cau += " WHERE loai = ?"
+                for em, pw in con.execute(cau, tham_so).fetchall():
+                    if pw and _localpart(em) == ten:
+                        return True
+        finally:
+            con.close()
+        return False
+    except Exception:
+        return False
+
+
+def _has_google_creds(profile: str, email: str = "") -> bool:
+    """Có mật khẩu GOOGLE đã lưu cho tài khoản này không."""
+    return _co_creds("google", profile, email)
+
+
+def _has_openai_creds(profile: str = "", email: str = "") -> bool:
+    """Có mật khẩu của chính OPENAI đã lưu cho tài khoản này không."""
+    return _co_creds("openai", profile, email)
+
+
+def _ho_so_openai(email: str) -> str:
+    """Tên hồ sơ OpenAI gốc của tài khoản, '' nếu tài khoản KHÔNG đi đường đó.
+
+    Bằng chứng theo đúng quy tắc `_ho_so_ung_vien` của solver: thư mục
+    `openai-<localpart>` chỉ có thể do thẻ "OpenAI gốc" tạo ra nên nó LÀ bằng
+    chứng; thư mục `google-<localpart>` thì KHÔNG — mọi lượt mở Chrome đều sinh
+    ra nó, kể cả lượt khôi phục đi nhầm đường. Đo thật 20/08/2026:
+    `bios.disused99+6e84t67f@icloud.com` có CẢ HAI thư mục, và cái `google-`
+    chính là do các lượt khôi phục sai đường tạo ra.
+
+    Chưa có thư mục nào thì hỏi kho: chỉ có mật khẩu OpenAI mà không có mật khẩu
+    Google cũng là tài khoản OpenAI gốc — chỉ là chưa từng đăng nhập ở máy này.
+    """
+    local = (email or "").split("@", 1)[0]
+    if not local:
+        return ""
+    an_toan = "".join(c if c.isalnum() or c == "-" else "-" for c in local)
+    try:
+        import os
+        co_that = {n.lower(): n for n in os.listdir(_CAPTCHA_PROFILES)}
+    except OSError:
+        co_that = {}
+    for ten in (f"openai-{local}", f"openai-{an_toan}", f"openai-{an_toan.lower()}"):
+        thuc = co_that.get(ten.lower())
+        if thuc:
+            return thuc
+    if _has_openai_creds(email=email) and not _has_google_creds("", email):
+        return f"openai-{an_toan}"
+    return ""
+
+
+# Trạng thái auto-login CUỐI của từng profile, để tầng trên báo ĐÚNG nguyên nhân
+# thay vì một câu "không khôi phục được" chung chung. Chỉ ghi/đọc chuỗi ngắn, một
+# khoá mỗi profile — không phải cache, không cần hết hạn.
+_LAST_LOGIN_STATE: dict[str, str] = {}
+
+# Lý do đọc được đi kèm trạng thái đó — CHÍNH LÀ thứ solver nói ("Hồ sơ đang bận
+# — chưa tới lượt", "no saved Google credentials…") hoặc lỗi mạng của chính lượt
+# gọi này. Thiếu nó thì mọi kiểu trượt đều bị in ra bằng một câu đoán mò.
+_LAST_LOGIN_NOTE: dict[str, str] = {}
+
+
+def _ghi_ket_qua(profile: str, state: str, note: str = "") -> None:
+    """Ghi trạng thái + lý do của lượt đăng nhập Google gần nhất."""
+    if state:
+        _LAST_LOGIN_STATE[profile] = state
+    _LAST_LOGIN_NOTE[profile] = (note or "")[:200]
+
+
+# Những trạng thái nghĩa là PHẢI CÓ NGƯỜI, máy chờ thêm cũng vô ích:
+# - need_captcha : Google bắt captcha; auto_login chỉ gắn cờ rồi đợi người gõ
+#                  trên noVNC. Thiếu nó trong danh sách này thì vòng poll chờ hết
+#                  ~310 s mới bỏ — mỗi lần thử đốt 5 phút và mở một phiên trình
+#                  duyệt ngồi im ở màn hình captcha (đo thật 30/07: 10:03:01 phát
+#                  hiện captcha → 10:08:02 đóng, state=failed).
+# - need_code / need_tap : 2FA không có TOTP → cần người bấm.
+_CAN_NGUOI = ("need_captcha", "need_code", "need_tap")
+
+
+def _refresh_captcha_hold(base: str, headers: dict) -> str:
+    """Read the challenged login's status under _glogin_serial; never open Chrome.
+
+    Only evidence from the owning profile releases the shared login pause.
+    Failure/timeout leaves the existing deadline unchanged.
+    """
+    global _glogin_captcha_until, _glogin_captcha_profile
+    if time.time() >= _glogin_captcha_until or not _glogin_captcha_profile:
+        return ""
+    import requests
+    from urllib.parse import quote
+    try:
+        response = requests.get(
+            f"{base}/v1/session/{quote(_glogin_captcha_profile, safe='')}/auto-login-status",
+            headers=headers, timeout=5)
+        if getattr(response, "status_code", 200) != 200:
+            return "paused"
+        payload = response.json()
+        state = str(payload.get("state") or "") if isinstance(payload, dict) else ""
+        if state in ("success", "done", "logged_in"):
+            _glogin_captcha_until = 0.0
+            _glogin_captcha_profile = ""
+            return "success"
+    except Exception:
+        pass
+    return "paused"
+
+
+def _flow_login_paused() -> bool:
+    if time.time() >= _glogin_captcha_until:
+        return False
+    url, key = _solver_cfg()
+    with _glogin_serial:
+        _refresh_captcha_hold(url.rstrip("/"), {"Authorization": f"Bearer {key}"})
+        return time.time() < _glogin_captcha_until
+
+
+def _freshen_google(profile: str, *,
+                    khi_toi_luot: Callable[[float], None] | None = None) -> bool:
+    """Tầng 2 — 'Đăng nhập tài khoản Google': làm tươi session Google bằng
+    credentials đã lưu trong solver (accounts_db, có totp → tự chạy). Trả True
+    nếu login thành công. Password KHÔNG rời khỏi solver.
+
+    ``khi_toi_luot`` được gọi ĐÚNG lúc lượt này bắt đầu chạy thật, kèm số giây
+    đã nằm chờ. Người gọi báo tin ở đó chứ đừng báo trước khi gọi hàm này: chờ
+    tới lượt có thể mất hàng chục phút, mà tin báo gửi trước thì nói rằng mọi
+    tài khoản đang đăng nhập cùng lúc — đúng thứ khoá dưới đây sinh ra để tránh.
+    """
+    import requests
+    url, api_key = _solver_cfg()
+    base = url.rstrip("/")
+    H = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+    # Chờ tới lượt: chỉ MỘT phiên đăng nhập Google trên toàn hệ thống tại một
+    # thời điểm. 6 tài khoản chết cùng lúc → 6 thread xếp hàng ở đây, không bắn
+    # login đồng thời (thứ làm Google bung captcha). Lock giữ suốt cả lượt poll
+    # nên tài khoản sau chỉ bắt đầu khi tài khoản trước đã xong.
+    global _glogin_last_done, _glogin_captcha_until, _glogin_captcha_profile
+    vao_hang = time.time()
+    _glogin_serial.acquire()
+    try:
+        owner = _glogin_captcha_profile
+        resolved = _refresh_captcha_hold(base, H)
+        if resolved == "success" and profile == owner:
+            _ghi_ket_qua(profile, "success", "Người dùng đã hoàn tất đăng nhập")
+            return True
+        if time.time() < _glogin_captcha_until:
+            remain = max(1, int((_glogin_captcha_until - time.time()) / 60))
+            _ghi_ket_qua(
+                profile, "blocked_captcha_window",
+                f"Hệ thống đang hoãn tự đăng nhập vì CAPTCHA ở {_glogin_captcha_profile or 'một hồ sơ khác'}; "
+                f"còn khoảng {remain} phút nghỉ tối đa, có thể mở lại sớm khi hồ sơ đó đăng nhập xong.",
+            )
+            return False
+        cho = _GLOGIN_GAP_S - (time.time() - _glogin_last_done)
+        if cho > 0:
+            time.sleep(cho)  # giãn cách như bấm tay lần lượt
+        if khi_toi_luot is not None:
+            try:
+                khi_toi_luot(time.time() - vao_hang)
+            except Exception:
+                pass
+        r = requests.post(f"{base}/v1/session/auto-login-saved", headers=H,
+                          json={"profile": profile}, timeout=30)
+        d = r.json() or {}
+        st = d.get("state", "")
+        _ghi_ket_qua(profile, st, str(d.get("error") or d.get("message") or ""))
+        if st == "need_captcha":
+            _glogin_captcha_until = time.time() + _GLOGIN_CAPTCHA_HOLD_S
+            _glogin_captcha_profile = profile
+            return False
+        if st in ("failed", "blocked", "error"):
+            return False
+        # Poll tối đa ~700s — KHỚP ngân sách thật của auto_login: 420s cho giai
+        # đoạn vào ô mật khẩu (lặp 'Thử lại' + bấm lại vào mail, ~100 lượt) + 240s
+        # cho bước 2FA + lề. Chờ ngắn hơn là bỏ cuộc oan khi nó VẪN ĐANG thử —
+        # đúng kiểu "cắt bớt số lần thử" mà bản trước mắc.
+        # 'running' = đang thử lại → cứ chờ tiếp.
+        for _ in range(140):
+            time.sleep(5)
+            try:
+                s = requests.get(f"{base}/v1/session/{profile}/auto-login-status",
+                                 headers=H, timeout=15).json()
+            except Exception:
+                continue
+            state = str(s.get("state") or "")
+            _ghi_ket_qua(profile, state, str(s.get("error") or s.get("message") or ""))
+            if state == "need_captcha":
+                _glogin_captcha_until = time.time() + _GLOGIN_CAPTCHA_HOLD_S
+                _glogin_captcha_profile = profile
+                return False
+            if state in ("success", "done", "logged_in"):
+                _glogin_captcha_until = 0.0
+                _glogin_captcha_profile = ""
+                return True
+            if state in ("failed", "blocked", "error") or state in _CAN_NGUOI:
+                # Cần người → bỏ NGAY, đừng chờ hết ngân sách. Chờ thêm không
+                # làm captcha tự biến mất, chỉ giữ trình duyệt mở vô ích.
+                return False
+        _LAST_LOGIN_STATE.setdefault(profile, "timeout")
+        _LAST_LOGIN_NOTE.setdefault(profile, "hết 700s vẫn chưa xong")
+        return False
+    except Exception as exc:
+        # KHÔNG được nuốt. Lượt trượt vì lỗi mạng/timeout trông y hệt lượt trượt
+        # vì Google chặn, nếu chỗ này im lặng. Đo thật 09/08/2026
+        # (benbap115@gmail.com): handler `/v1/session/auto-login-saved` treo vì hồ
+        # sơ đang bận, POST hết hạn 30s, `except Exception: return False` trần
+        # nuốt sạch — không log, không trạng thái — nên tin báo cho chủ máy nói
+        # "không vào được ô mật khẩu (Google chặn)" về một trình duyệt chưa mở.
+        _ghi_ket_qua(profile, "error", f"{type(exc).__name__}: {exc}")
+        logger.warning({
+            "event": "freshen_google_error",
+            "profile": profile,
+            "error": str(exc)[:200],
+        })
+        return False
+    finally:
+        # Đóng mốc SAU khi phiên này xong để tài khoản kế tiếp tính giãn cách từ
+        # đây, rồi mới nhả lượt cho nó.
+        _glogin_last_done = time.time()
+        _glogin_serial.release()
+
+
+def trang_thai_dang_nhap_cuoi(profile: str) -> str:
+    """Trạng thái auto-login cuối của profile ("" nếu chưa từng thử)."""
+    return _LAST_LOGIN_STATE.get(profile, "")
+
+
+def ly_do_dang_nhap_cuoi(profile: str) -> str:
+    """Lý do đọc được kèm trạng thái đó ("" nếu không có)."""
+    return _LAST_LOGIN_NOTE.get(profile, "")
+
+
+# ── Steps riêng theo provider ────────────────────────────────────────────────
+
+def _codex_pick_working(email: str) -> str:
+    """Quet pool tim token codex CON SONG cua email; don token chet cung email.
+
+    FIX: khong duoc giu account_service._lock xuyen suot vong goi mang
+    (list_models, timeout=30) - lock nay gate gan nhu moi thao tac account o
+    request-path, mot luot quet nhieu account chet co the khoa ca traffic
+    song hang chuc giay moi lan. Snapshot token duoi lock -> probe network
+    KHONG lock -> ghi ket qua qua update_account() (tu lock ngan moi lan).
+    Theo dung pattern services/providers/antigravity.py::_try_refresh_antigravity_token.
+    """
+    from services.account_service import account_service, account_group
+    from services.openai_backend_api import OpenAIBackendAPI
+    good = ""
+    with account_service._lock:
+        candidates = [
+            k for k, a in account_service._accounts.items()
+            if isinstance(a, dict) and account_group(a) == "codex"
+            and str(a.get("email") or "").lower() == email.lower()
+            and str(k).startswith("eyJ")
+        ]
+
+    for token in candidates:
+        try:
+            OpenAIBackendAPI(access_token=token).list_models()
+            good = token
+            account_service.update_account(token, {"status": "active"})
+        except Exception:
+            account_service.update_account(token, {"status": "disabled"})
+    return good
+
+
+def _codex_exchange_from_redirect(redirect_url: str, state: str) -> None:
+    """Đổi code → token. Lỗi "state đã dùng" ở đây được NUỐT CÓ CHỦ Ý.
+
+    Trình duyệt chạy trong CÙNG container, nên khi nó đi tới
+    http://localhost:1455/auth/callback?code=… thì listener :1455
+    (services/codex_callback_listener) bắt được và đổi code TRƯỚC. State là
+    dùng-một-lần, nên lần đổi thứ hai này chắc chắn ném ValueError.
+
+    Đo thật 30/07 (smarthomebanbap2011@gmail.com): tầng 2 lấy code lúc 21:00:33,
+    token mới vào pool và account về active — nhưng lần đổi thứ hai ném lỗi, lỗi
+    đó xuyên qua _codex_reuse ra tới scheduler và được ghi thành
+    `dead_recovery_t13_error`; người vận hành nhận ❌ trong khi tài khoản ĐÃ sống.
+
+    Ai thắng cuộc đua không quan trọng. Người phán xử là _codex_pick_working():
+    có token dùng được hay không.
+    """
+    from urllib.parse import urlparse, parse_qs
+    from services.oauth_service import exchange_codex_code
+    q = parse_qs(urlparse(redirect_url or "").query)
+    code = (q.get("code") or [""])[0]
+    st = (q.get("state") or [state])[0]
+    try:
+        exchange_codex_code(code, st)
+    except Exception as exc:
+        logger.info({
+            "event": "codex_exchange_skipped",
+            "error": str(exc)[:160],
+            "hint": "thường là listener :1455 đã đổi code trước — kiểm token trong pool",
+        })
+
+
+def _cho_token_song(email: str, so_lan: int = 4, nghi: float = 4.0) -> str:
+    """Chờ token mới hiện trong pool rồi trả về token còn sống ('' nếu không có).
+
+    `codex-google-onboard` trả về NGAY khi bắt được request callback, tức có thể
+    sớm hơn lúc việc đổi code xong vài giây. Hỏi pool đúng một lần là dễ hụt.
+    """
+    tok = ""
+    for lan in range(so_lan):
+        tok = _codex_pick_working(email)
+        if tok:
+            return tok
+        if lan < so_lan - 1:
+            time.sleep(nghi)
+    return tok
+
+
+def _codex_reuse(profile: str, email: str) -> str:
+    """Tầng 1/2-retry — ride session Google, authorize Codex → token. '' nếu fail."""
+    import requests
+    from services.oauth_service import get_codex_auth_url
+    url, api_key = _solver_cfg()
+    auth = get_codex_auth_url("http://localhost:1455")
+    try:
+        r = requests.post(f"{url.rstrip('/')}/v1/codex-google-onboard",
+                          headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+                          json={"profile": profile, "auth_url": auth["auth_url"],
+                                "email": email, "headless": True}, timeout=180)
+        data = r.json()
+    except Exception:
+        return ""
+    if data.get("state") != "success":
+        # Tài khoản bị OpenAI xóa/vô hiệu hóa — VĨNH VIỄN, y hệt nhánh T3 hàng
+        # loạt bên dưới. Không bắt ở đây thì tài khoản giữ nguyên status 'error'
+        # và lượt quét định kỳ lôi ra thử lại mỗi 2 tiếng, mãi mãi.
+        _deact = f"{data.get('error_code') or ''} {data.get('error') or ''}".lower()
+        if "account_deactivated" in _deact:
+            from services.codex_deactivated import handle_deactivated, CodexAccountDeactivated
+            handle_deactivated(
+                email,
+                reason="T2 mở đăng nhập Codex trong workspace → account_deactivated",
+            )
+            raise CodexAccountDeactivated(email)
+        return ""
+    _codex_exchange_from_redirect(data.get("redirect_url") or "", auth["state"])
+    return _cho_token_song(email)
+
+
+def _codex_batch(email: str) -> str:
+    """Tầng 3 — 'Danh sách Tài khoản Codex' (config.codex_auto_list).
+
+    Cùng endpoint/code Playwright với nút "Đăng nhập hàng loạt":
+      POST captcha-solver /v1/codex-onboard → run_codex_onboard
+      (Microsoft OTC + IMAP + Tiếp tục + bắt OAuth callback).
+
+    IMAP: ưu tiên cột 3–4 trên dòng; nếu trống → IMAP Gmail dùng chung
+    (config.codex_imap_gmail_email / codex_imap_gmail_app_password).
+    """
+    import requests
+    from services.config import config
+    from services.oauth_service import get_codex_auth_url
+    cfg = config.data if isinstance(config.data, dict) else {}
+    line = _dong_hang_loat(email)
+    if not line or len(line) < 2:
+        return ""
+    g_email, g_pass = line[0].strip(), line[1].strip()
+    # Per-line IMAP optional; shared IMAP from settings (same as UI batch)
+    shared_imap = str(cfg.get("codex_imap_gmail_email") or "").strip()
+    shared_pass = str(cfg.get("codex_imap_gmail_app_password") or "").strip()
+    imap_email = (line[2].strip() if len(line) > 2 and line[2].strip() else shared_imap)
+    imap_pass = (line[3].strip() if len(line) > 3 and line[3].strip() else shared_pass)
+    if not imap_email or not imap_pass:
+        logger.warning({
+            "event": "codex_batch_missing_imap",
+            "email": email,
+            "hint": "Điền IMAP Gmail dùng chung trong Settings Codex hoặc thêm |imap|pass trên dòng",
+        })
+        return ""
+    url, api_key = _solver_cfg()
+    auth = get_codex_auth_url("http://localhost:1455")
+    try:
+        # 420s: OTC + IMAP poll + consent can exceed 4 min
+        r = requests.post(
+            f"{url.rstrip('/')}/v1/codex-onboard",
+            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+            json={
+                "auth_url": auth["auth_url"],
+                "github_email": g_email,
+                "github_password": g_pass,
+                "gmail_email": imap_email,
+                "gmail_app_password": imap_pass,
+            },
+            timeout=420,
+        )
+        data = r.json()
+    except Exception as exc:
+        logger.warning({"event": "codex_batch_request_failed", "email": email, "error": str(exc)[:160]})
+        return ""
+    # Tài khoản đã bị xóa/vô hiệu hóa (OpenAI account_deactivated) — VĨNH VIỄN,
+    # không refresh được. Báo admin + hỏi xóa, rồi short-circuit (đừng báo
+    # "KHÔNG khôi phục được" generic nữa).
+    _deact = f"{data.get('error_code') or ''} {data.get('error') or ''}".lower()
+    if "account_deactivated" in _deact:
+        from services.codex_deactivated import handle_deactivated, CodexAccountDeactivated
+        handle_deactivated(email, reason="refresh nhiều tầng (T3 bulk onboard) → account_deactivated")
+        raise CodexAccountDeactivated(email)
+    if data.get("state") != "success" or not data.get("redirect_url"):
+        logger.warning({
+            "event": "codex_batch_onboard_failed",
+            "email": email,
+            "error": str(data.get("error") or data.get("state") or "")[:200],
+        })
+        return ""
+    _codex_exchange_from_redirect(data.get("redirect_url"), auth["state"])
+    return _cho_token_song(email)
+
+
+def _cgf_onboard_once(profile: str, *, reuse_session: bool, timeout_polls: int = 36) -> str:
+    """One ChatGPT onboard attempt. Returns JWT or ''."""
+    import requests
+    url, api_key = _solver_cfg()
+    base = url.rstrip("/")
+    H = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+    try:
+        r = requests.post(
+            f"{base}/v1/chatgpt/onboard",
+            headers=H,
+            json={
+                "profile": profile,
+                "email": "",
+                "password": "",
+                "reuse_session": reuse_session,
+            },
+            timeout=180,
+        )
+        init = r.json() if r.headers.get("content-type", "").startswith("application/json") else {}
+    except Exception as exc:
+        logger.warning({
+            "event": "cgf_onboard_request_failed",
+            "profile": profile,
+            "reuse": reuse_session,
+            "error": str(exc)[:160],
+        })
+        return ""
+    token = str(init.get("access_token") or "")
+    state = str(init.get("state") or "")
+    if state == "success" and token.startswith("eyJ"):
+        return token
+    if state != "success" or not token.startswith("eyJ"):
+        for i in range(timeout_polls):  # default ~180s
+            time.sleep(5)
+            try:
+                s = requests.get(
+                    f"{base}/v1/chatgpt/{profile}/onboard-status",
+                    headers=H,
+                    timeout=15,
+                ).json()
+            except Exception:
+                continue
+            st = str(s.get("state") or "")
+            tok = str(s.get("access_token") or "")
+            if st == "success" and tok.startswith("eyJ"):
+                return tok
+            if st in ("failed", "error"):
+                logger.warning({
+                    "event": "cgf_onboard_failed",
+                    "profile": profile,
+                    "reuse": reuse_session,
+                    "error": str(s.get("error") or s.get("message") or "")[:200],
+                    "poll": i,
+                })
+                return ""
+    if token.startswith("eyJ"):
+        return token
+    return ""
+
+
+def _cgf_session_trang_thai(email: str) -> str:
+    """Phiên ChatGPT free của email: 'ok'|'mat'|'chua_ro' — cho quét định kỳ.
+
+    Không cần mở trình duyệt: JWT ĐÃ CÓ trong kho `account_service` (nếu còn
+    hạn) đủ để gọi thẳng `list_models()`, cùng kiểu kiểm đã dùng ở
+    `_codex_pick_working`. Không có JWT trong kho → 'mat' thẳng (không có gì
+    healthy để kiểm, tài khoản này cần khôi phục). 'ban' không áp dụng — gọi
+    thẳng chatgpt.com bằng JWT không tranh trình duyệt với ai."""
+    try:
+        from services.account_service import account_service, account_group
+        with account_service._lock:
+            token = next((k for k, a in account_service._accounts.items()
+                         if isinstance(a, dict) and account_group(a) == "free"
+                         and str(a.get("email") or "").lower() == email.lower()
+                         and str(k).startswith("eyJ")), "")
+    except Exception:
+        return "chua_ro"
+    if not token:
+        return "mat"
+    try:
+        from services.openai_backend_api import OpenAIBackendAPI
+        OpenAIBackendAPI(access_token=token).list_models()
+        return "ok"
+    except Exception as exc:
+        msg = str(exc).lower()
+        return "mat" if ("401" in msg or "invalidaccesstoken" in msg) else "chua_ro"
+
+
+def _cgf_reuse(profile: str, email: str) -> str:
+    """ChatGPT-free (web JWT): ride Google/ChatGPT session → scrape JWT →
+    upsert free pool (chỉ email đã có). '' nếu fail.
+
+    ĐÚNG MỘT lượt, `reuse_session=True`.
+
+    Bản cũ thử thêm lượt hai với `reuse_session=False`, ý là "SSO đầy đủ hơn khi
+    cookie ChatGPT chết nhưng profile Google vẫn còn". Ý đó không thực hiện được:
+    `_cgf_onboard_once` luôn gửi email và mật khẩu RỖNG, nên lượt hai không có gì
+    để đăng nhập Google — nó chỉ kịp XOÁ hồ sơ (đường `reuse_session=False` gọi
+    `_nuke_profile`) rồi lặp vô ích.
+
+    Đo thật 09/08/2026 (benbap115@gmail.com): lượt hai xoá mất phiên Google đang
+    sống lúc 22:13:41, chạy tiếp 7 phút rưỡi với ô email trống ("bấm lại vào mail
+    lần 35"), giữ khoá hồ sơ — nên tầng T3 xếp hàng phía sau treo luôn và cả
+    thang khôi phục báo hỏng. Tài khoản đi từ "chỉ hỏng token" thành "mất luôn
+    phiên Google", phải đăng nhập tay.
+    """
+    token = _cgf_onboard_once(profile, reuse_session=True)
+    if not token or not token.startswith("eyJ"):
+        return ""
+    return _cgf_ghi_pool(token, email, profile, "reuse")
+
+
+def _cgf_openai(profile: str, email: str) -> str:
+    """Tầng trình duyệt cho tài khoản OPENAI GỐC — email + mật khẩu của chính
+    OpenAI, KHÔNG có tài khoản Google nào phía sau. Trả JWT hoặc ''.
+
+    Gọi đúng endpoint mà bộ lịch làm mới token vẫn dùng
+    (`GET /v1/chatgpt/{profile}/refresh-jwt`), vì nó đã là một thang hai bước
+    nằm trong solver: quét phiên ChatGPT sẵn có trong hồ sơ trước — rẻ, không mở
+    màn đăng nhập nào — hết đường mới chạy `start_openai_login`, tức luồng đăng
+    nhập của chính OpenAI với mật khẩu và hạt giống TOTP nằm trong solver
+    (không rời khỏi đó, giống `auto-login-saved` của nhánh Google).
+
+    KHÔNG dùng `_cgf_reuse` cho tài khoản kiểu này: `/v1/chatgpt/onboard` cưỡi
+    COOKIE GOOGLE của hồ sơ, nên với hồ sơ OpenAI gốc nó chỉ có thể trả
+    "Hồ sơ không có phiên Google mà lượt gọi cũng không kèm mật khẩu".
+    """
+    import requests
+    url, api_key = _solver_cfg()
+    H = {"Authorization": f"Bearer {api_key}"}
+    try:
+        # Trần khớp ngân sách của endpoint: quét phiên + tối đa 300s đăng nhập lại.
+        r = requests.get(f"{url.rstrip('/')}/v1/chatgpt/{profile}/refresh-jwt",
+                         headers=H, timeout=400)
+        d = r.json() or {}
+    except Exception as exc:
+        _ghi_ket_qua(profile, "error", f"{type(exc).__name__}: {exc}")
+        logger.warning({"event": "cgf_openai_error", "profile": profile,
+                        "error": str(exc)[:200]})
+        return ""
+    token = str(d.get("access_token") or "")
+    if not (d.get("ok") and token.startswith("eyJ")):
+        _ghi_ket_qua(profile, "failed", str(d.get("error") or "")[:200])
+        logger.warning({"event": "cgf_openai_failed", "profile": profile,
+                        "error": str(d.get("error") or "")[:200]})
+        return ""
+    _ghi_ket_qua(profile, "success", str(d.get("method") or ""))
+    return _cgf_ghi_pool(token, email, profile, str(d.get("method") or "openai"))
+
+
+def _cgf_ghi_pool(token: str, email: str, profile: str, nguon: str) -> str:
+    """Ghi JWT vừa lấy được vào pool free. Trả token, '' nếu không ghi.
+
+    CHỈ cập nhật dòng free ĐÃ có trong pool (cùng email) — không tự thêm tài
+    khoản mới từ hồ sơ captcha. Mọi tầng lấy được JWT đều đi qua đây để luật
+    "không tự thêm" chỉ nằm ở một chỗ.
+    """
+    try:
+        from services.account_service import account_service
+        existing = account_service.find_free_by_email(email)
+        if not existing:
+            logger.info({
+                "event": "cgf_reuse_skip_not_in_pool",
+                "email": email,
+                "hint": "Chỉ refresh account free user đã thêm tay — không auto-add",
+            })
+            return ""
+        account_service.upsert_free_token(token, {
+            "status": "active",
+            "email": email,
+        })
+        logger.info({
+            "event": "cgf_reuse_ok",
+            "email": email,
+            "profile": profile,
+            "nguon": nguon,
+        })
+        return token
+    except Exception as exc:
+        logger.warning({
+            "event": "cgf_reuse_upsert_failed",
+            "email": email,
+            "error": str(exc)[:160],
+        })
+        return ""
+
+
+# ── Claude (claude.ai) — theo PROFILE, kiểm phiên THẲNG bằng HTTP ────────────
+#
+# Khác Flow: kiểm phiên Claude KHÔNG cần mở trình duyệt. `api/claude.py` vốn
+# đã nói chuyện với claude.ai bằng HTTP thuần (cookie sessionKey qua
+# curl_cffi, xem `ClaudeFreeBackend`) — chỉ khi ĐĂNG NHẬP LẠI mới cần solver mở
+# trình duyệt (`_freshen_google`, dùng chung với mọi provider). Vì vậy quét
+# định kỳ cho Claude rẻ hơn Flow nhiều: bước kiểm không tranh trình duyệt với
+# traffic thật, chỉ bước T2 (đăng nhập Google) mới xếp hàng.
+
+def _claude_verify(session_key: str) -> str:
+    """Gọi thẳng claude.ai bằng sessionKey đã có — 'ok'|'mat'|'chua_ro'.
+
+    Cùng cách gọi với `ClaudeFreeBackend._org_id_get` (curl_cffi,
+    impersonate="chrome110") nhưng KHÔNG dùng lại class đó để tránh vòng import
+    `api.claude` ⇄ `services.account_recovery` ở mức module (cả hai chỉ import
+    nhau CỤC BỘ trong thân hàm, xem `_fetch_session_key_from_solver`)."""
+    if not session_key:
+        return "mat"
+    from curl_cffi import requests as curl_requests
+    try:
+        r = curl_requests.get(
+            "https://claude.ai/api/organizations",
+            headers={"Cookie": f"sessionKey={session_key}", "Accept": "*/*"},
+            timeout=20, impersonate="chrome110")
+    except Exception:
+        return "chua_ro"
+    if r.status_code == 200:
+        try:
+            data = r.json()
+        except Exception:
+            return "chua_ro"
+        co_org = bool(data) if isinstance(data, list) else bool((data or {}).get("uuid"))
+        return "ok" if co_org else "chua_ro"
+    if r.status_code in (401, 403):
+        return "mat"
+    if r.status_code in (409, 429):
+        return "ban"
+    return "chua_ro"
+
+
+def _claude_session_trang_thai(profile: str) -> str:
+    """Phiên claude.ai của profile: 'ok'|'ban'|'mat'|'chua_ro'.
+
+    Đọc sessionKey đã lưu trên solver (`GET /v1/claude-web/{profile}/session`
+    — đọc cookie trên đĩa, KHÔNG mở trình duyệt, xem
+    `captcha-solver/src/claude_web_login.py::get_saved_session`), rồi xác nhận
+    bằng một lượt gọi thật tới claude.ai."""
+    import requests
+    url, api_key = _solver_cfg()
+    H = {"Authorization": f"Bearer {api_key}"}
+    try:
+        r = requests.get(f"{url.rstrip('/')}/v1/claude-web/{profile}/session",
+                         headers=H, timeout=15)
+    except Exception:
+        return "chua_ro"
+    if r.status_code in (409, 429):
+        return "ban"
+    if r.status_code == 404:
+        return "mat"          # chưa từng đăng nhập / cookie đã hết hạn
+    if r.status_code != 200:
+        return "chua_ro"
+    try:
+        key = str((r.json() or {}).get("session_key") or "")
+    except Exception:
+        return "chua_ro"
+    return _claude_verify(key)
+
+
+def claude_recover_and_notify(profile: str, reason: str = "mất phiên") -> None:
+    """Khôi phục 1 profile Claude Web (thread nền) + Telegram — thang T0–T3
+    dùng chung với Flow, xem `_dang_nhap_lai_theo_thang`.
+
+    Chỉ phục vụ quét định kỳ (`services/web_session_scheduler.py`) — đường
+    phản ứng trong lúc chat thật (`api/claude.py::_fetch_session_key_from_solver`,
+    đã sửa vụ "✅ rồi ❌ trái ngược" 12/09/2026) vẫn giữ nguyên làm lưới đỡ
+    cuối cho request đang chạy dở."""
+    _dang_nhap_lai_theo_thang(
+        provider="claude", nhan="Claude", ten_phien="claude.ai",
+        profile=profile, reason=reason,
+        trang_thai_fn=lambda: _claude_session_trang_thai(profile))
+
+
+# ── gma (Gemini web) — theo PROFILE (không có token pool, cookie fetch live) ──
+
+def _gma_authenticated(profile: str) -> bool:
+    """Session gma của profile có AUTHENTICATED không (account_status AVAILABLE).
+    Đây là tín hiệu THẬT của gma (không dựa state string của onboard)."""
+    try:
+        import api.gemini_web as gw
+        ck = gw._fetch_cookies_from_solver(profile)
+        psid = ck.get("__Secure-1PSID", "")
+        if not psid:
+            return False
+        cli = gw._get_client(psid, ck.get("__Secure-1PSIDTS", ""))
+        st = getattr(cli, "account_status", None)
+        return st is not None and getattr(st, "name", "") == "AVAILABLE"
+    except Exception:
+        return False
+
+
+def _gma_has_session(profile: str) -> bool:
+    """Profile có cookie session Google (__Secure-1PSID) không. Sau relogin,
+    gma kích hoạt AVAILABLE ở lượt dùng kế — nên cookie-có-mặt là đủ để coi
+    session đã khôi phục."""
+    try:
+        import api.gemini_web as gw
+        return bool(gw._fetch_cookies_from_solver(profile).get("__Secure-1PSID"))
+    except Exception:
+        return False
+
+
+def _gma_session_trang_thai(profile: str) -> str:
+    """Phiên gma của profile: 'ok'|'ban'|'mat'|'chua_ro' — cho quét định kỳ.
+
+    Gọi thẳng `/v1/gemini-web/{profile}/cookies` (không qua
+    `_fetch_cookies_from_solver` — hàm đó nuốt mã lỗi HTTP, không phân biệt
+    được 'bận' với 'mất phiên'). Có cookie thì xác nhận bằng `_gma_authenticated`
+    (gọi thật `GeminiClient.init()` — HTTP thuần, không mở trình duyệt)."""
+    import requests
+    url, api_key = _solver_cfg()
+    H = {"Authorization": f"Bearer {api_key}"}
+    try:
+        r = requests.get(f"{url.rstrip('/')}/v1/gemini-web/{profile}/cookies",
+                         headers=H, timeout=15)
+    except Exception:
+        return "chua_ro"
+    if r.status_code == 429:
+        return "ban"
+    if r.status_code == 404:
+        return "mat"          # chưa có __Secure-1PSID
+    if r.status_code != 200:
+        return "chua_ro"
+    return "ok" if _gma_authenticated(profile) else "mat"
+
+
+def _gma_reuse(profile: str) -> bool:
+    """Khôi phục session Gemini web cho profile. Nếu đang AUTHENTICATED thật
+    (account_status AVAILABLE) → xong ngay. Nếu không → relogin-via-google
+    (solver tự tra creds, ride SSO hoặc full login) → chờ session cookie xuất
+    hiện lại (activation AVAILABLE diễn ra ở lượt dùng kế)."""
+    if _gma_authenticated(profile):
+        return True
+    import requests
+    url, api_key = _solver_cfg()
+    H = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+    try:
+        requests.post(f"{url.rstrip('/')}/v1/gemini-web/{profile}/relogin-via-google",
+                      headers=H, timeout=150)
+    except Exception:
+        pass
+    for _ in range(18):  # chờ ~90s: session cookie khôi phục hoặc auth AVAILABLE
+        time.sleep(5)
+        if _gma_authenticated(profile) or _gma_has_session(profile):
+            return True
+    return False
+
+
+def gma_recover_and_notify(profile: str, reason: str = "mất session") -> None:
+    """Khôi phục 1 profile Gemini web (thread nền) + Telegram. Thang:
+    T1 tái dùng (gemini-web onboard, ride Google) → T2 'Đăng nhập tài khoản
+    Google' làm tươi rồi tái dùng lại → hết thì báo tay. Debounce 30ph/profile."""
+    key = f"recover:gma:{profile}"
+    with _lock:
+        if time.time() - _last_attempt.get(key, 0.0) < _GRELOGIN_COOLDOWN_S:
+            return
+        _last_attempt[key] = time.time()
+
+    started = time.time()
+    det = {"provider": "gemini_web_api", "profile": profile}
+    _notify(f"⚠️ Gemini web — {profile}\nLỗi: {reason}\n→ Đang tự khôi phục…",
+            {**det, "step": "start", "reason": reason})
+    if _gma_reuse(profile):
+        _notify(f"✅ Gemini web — {profile}\nKhôi phục xong ([T1] tái dùng session Google).",
+                {**det, "step": "T1-reuse-ok"})
+        logger.info({"event": "recover_ok", "provider": "gemini_web_api", "tier": "reuse", "profile": profile})
+        return
+    if time.time() - started < _RECOVER_BUDGET_S:
+        _notify(f"🔧 Gemini web — {profile}\n[T1] tái dùng lỗi → [T2] đang đăng nhập lại tài khoản Google…",
+                {**det, "step": "T2-freshen"})
+        if _freshen_google(profile) and _gma_reuse(profile):
+            _notify(f"✅ Gemini web — {profile}\nKhôi phục xong ([T2] đăng nhập Google + tái dùng).",
+                    {**det, "step": "T2-freshen-ok"})
+            logger.info({"event": "recover_ok", "provider": "gemini_web_api", "tier": "freshen", "profile": profile})
+            return
+    _notify(f"❌ Gemini web — {profile}\nKHÔNG tự khôi phục được. Cần xử lý tay (noVNC cổng 6080).",
+            {**det, "step": "failed"})
+    logger.warning({"event": "recover_failed", "provider": "gemini_web_api", "profile": profile})
+
+
+# ── flow (Google Labs Flow / Veo) — theo PROFILE, session labs.google ─────────
+
+def _flow_session_trang_thai(profile: str) -> str:
+    """Phiên Flow của profile: 'ok' | 'ban' | 'mat' | 'chua_ro'.
+
+    VÌ SAO PHẢI TÁCH 'ban' RA: `get-or-create-project` lấy trình duyệt bằng
+    `pool.page()`, mà hàm đó fast-failover **429 Account Busy** ngay khi hồ sơ
+    đang bị lượt khác giữ — tức là đúng lúc tài khoản đang TẠO ẢNH/VIDEO. Bản
+    cũ chỉ đọc `project_id`, nên 429 rơi vào nhánh "không có project_id" và bị
+    kết luận là MẤT PHIÊN.
+
+    Hậu quả đo thật 09/08/2026 (chủ máy báo "tôi thấy vẫn vào và tạo được mà
+    nhỉ"): bộ quét định kỳ bắt gặp một tài khoản đang tạo ảnh → báo "mất phiên
+    labs.google" → chạy T2 đăng nhập lại Google (tuần tự toàn hệ thống, vài
+    phút, và mỗi lần login tự động là một lần mời Google bung captcha) → kiểm
+    lại vẫn bận → kết luận "KHÔNG tự khôi phục được, cần đăng nhập tay". Toàn
+    bộ chuỗi đó xảy ra trên một tài khoản HOÀN TOÀN KHOẺ.
+
+    Bận thì im lặng bỏ qua: vòng quét sau sẽ kiểm lại. Chỉ 'mat' mới được kích
+    hoạt khôi phục.
+    """
+    import requests
+    project_id = _flow_project_id(profile)
+    if not project_id:
+        logger.warning({"event": "flow_session_missing_project", "profile": profile})
+        return "chua_ro"
+    url, api_key = _solver_cfg()
+    H = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+    try:
+        r = requests.post(f"{url.rstrip('/')}/v1/google/flow/check-project",
+                          headers=H, json={"profile": profile, "project_id": project_id,
+                                           "headless": True, "timeout": 150}, timeout=170)
+        if r.status_code in (409, 429):
+            return "ban"
+        if r.status_code == 401:
+            # Only an explicit session-expired result from the authenticated
+            # solver counts. A bad solver API key is not a Google login failure.
+            detail = (r.json() or {}).get("detail")
+            # Solver ném 401 theo HAI dạng khác nhau:
+            #   captcha-solver/src/main.py:775      → dict có code=flow_login_required
+            #   captcha-solver/src/solvers/flow_rpc.py:140 → CHUỖI thuần
+            # Bản cũ chỉ nhận dạng dict, nên đường thứ hai (đường thực tế đang
+            # chạy) rơi vào "chua_ro" — mà chỉ "mat" mới kích hoạt khôi phục.
+            # Hậu quả đo 10/09/2026: cả 4 tài khoản Flow hết phiên mà KHÔNG
+            # cái nào tự đăng nhập lại, người dùng thấy "toàn chạy ChatGPT".
+            if isinstance(detail, dict):
+                return "mat" if detail.get("code") == "flow_login_required" else "chua_ro"
+            thap = str(detail or "").lower()
+            if any(k in thap for k in ("đăng nhập lại", "dang nhap lai",
+                                       "login required", "flow_login_required")):
+                # 401 dạng CHUỖI đến từ hai nguyên nhân KHÁC HẲN nhau, mà lời
+                # nhắn thì y hệt:
+                #   (a) phiên Google chết thật → phải đăng nhập lại
+                #   (b) project_id đã lưu bị Google XOÁ → chỉ cần tạo cái mới
+                # Đo 10/09/2026 (google-mitbap0610): cookie phiên còn đủ, hạn
+                # 398 ngày, mà check-project vẫn 401. Tạo project mới thì HTTP
+                # 200 trong 68 giây, KHÔNG cần đăng nhập lần nào.
+                #
+                # Kết luận nhầm là (a) thì chạy đăng nhập tự động — và mỗi lượt
+                # đó là một lần mời Google bung captcha, tức tự tay đẩy tài
+                # khoản khoẻ vào đúng cái bẫy làm nó không tự chữa được nữa.
+                # Nên: THỬ TẠO PROJECT MỚI TRƯỚC, hỏng mới kết luận mất phiên.
+                if _flow_tao_project_moi(profile):
+                    return "ok"
+                return "mat"
+            return "chua_ro"
+        if r.status_code != 200:
+            return "chua_ro"
+        if (r.json() or {}).get("ready") is True:
+            # A manual CAPTCHA solve makes the recovery circuit usable again.
+            global _glogin_captcha_until, _glogin_captcha_profile
+            with _glogin_serial:
+                if _glogin_captcha_profile == profile:
+                    _glogin_captcha_until = 0.0
+                    _glogin_captcha_profile = ""
+            return "ok"
+        return "chua_ro"
+    except Exception:
+        return "chua_ro"
+
+
+def _flow_tao_project_moi(profile: str) -> bool:
+    """Xin Google cấp project Flow mới rồi ghi đè vào cấu hình.
+
+    Trả True khi lấy được — nghĩa là phiên Google VẪN SỐNG, chỉ project cũ bị
+    xoá. Đây là đường chữa rẻ nhất: không đụng mật khẩu, không mời captcha.
+    """
+    import requests
+
+    url, api_key = _solver_cfg()
+    if not url:
+        return False
+    try:
+        r = requests.post(
+            f"{url.rstrip('/')}/v1/google/flow/get-or-create-project",
+            headers={"Authorization": f"Bearer {api_key}",
+                     "Content-Type": "application/json"},
+            json={"profile": profile, "headless": True, "timeout": 150},
+            timeout=180)
+    except Exception as exc:
+        logger.info({"event": "flow_tao_project_loi", "profile": profile,
+                     "error": str(exc)[:140]})
+        return False
+    if r.status_code != 200:
+        return False
+    pid = str(((r.json() or {}).get("project_id") or "")).strip()
+    if not pid:
+        return False
+
+    # Ghi lại để lần sau khỏi phải xin nữa.
+    try:
+        from services.config import config as _c
+
+        def _ghi(data: dict) -> None:
+            pr = data.setdefault("providers", {}).setdefault("flow", {})
+            for a in (pr.get("accounts") or []):
+                if isinstance(a, dict) and str(a.get("profile") or "") == profile:
+                    a["project_id"] = pid
+
+        _c.mutate(_ghi)
+    except Exception as exc:
+        logger.warning({"event": "flow_luu_project_loi", "profile": profile,
+                        "error": str(exc)[:140]})
+    logger.info({"event": "flow_project_moi", "profile": profile, "project_id": pid})
+    return True
+
+
+def _flow_project_id(profile: str) -> str:
+    """Configured project is part of the account identity, not optional proof."""
+    try:
+        from services.image_providers.flow_google import _accounts
+        for account in _accounts():
+            if str(account.get("profile") or "") == profile:
+                return str(account.get("project_id") or "").strip()
+    except Exception:
+        logger.debug("flow configured project lookup failed", exc_info=True)
+    return ""
+
+
+def _flow_session_ok(profile: str) -> bool:
+    """Còn giữ cho các chỗ chỉ cần biết phiên có dùng được ngay không.
+
+    'ban' KHÔNG phải 'ok' (chưa chứng minh được phiên còn sống) nhưng cũng
+    tuyệt đối không phải 'mat'. Nơi nào ra quyết định khôi phục thì phải gọi
+    `_flow_session_trang_thai` để phân biệt cả trạng thái chưa kiểm chứng.
+    """
+    return _flow_session_trang_thai(profile) == "ok"
+
+
+def _dang_nhap_lai_theo_thang(*, provider: str, nhan: str, ten_phien: str,
+                              profile: str, reason: str,
+                              trang_thai_fn: Callable[[], str]) -> None:
+    """Thang khôi phục NHIỀU TẦNG dùng chung, rút từ `flow_recover_and_notify`
+    (hành vi/tin nhắn giữ NGUYÊN cho Flow — xem hàm đó). Cùng thang áp cho mọi
+    provider Google-SSO (claude, gma…): đi từ tầng rẻ nhất lên tầng đắt nhất,
+    mỗi tầng một tin báo, và tin cuối nói đã thử những gì.
+
+      T0  Phiên còn sống không? — `trang_thai_fn()` do provider tự định nghĩa
+          (không mở trình duyệt cho claude/gma/chatgpt-free — chỉ Flow cần).
+          'ban' (429/bận) = tài khoản đang bận việc khác → KHOẺ, bỏ lượt im
+          lặng, không báo động.
+      T1  Nghỉ rồi KIỂM LẠI, vẫn chưa đụng tới mật khẩu — phiên có lúc chập
+          chờn (đo thật với Flow 24/08/2026), kết luận ngay sau lần trượt đầu
+          là nhảy thẳng lên đăng nhập oan, mà mỗi lượt đăng nhập tự động là
+          một lần mời Google bung captcha.
+      T2  Đăng nhập lại tài khoản Google (`_freshen_google`: `auto-login-saved`,
+          mật khẩu + TOTP nằm trong solver, xếp hàng toàn cục) — đúng nút "Chỉ
+          đăng nhập". Chỉ báo tin KHI TỚI LƯỢT, không báo trước.
+      T3  Đăng nhập xong kiểm lại phiên; chỉ 'ok' xác nhận khôi phục thành
+          công. Bận hoặc chưa kiểm chứng được thì hoãn, không báo thành
+          công/thất bại.
+
+    Debounce 30 phút/(provider, profile). Ngân sách 1200s KHÔNG tính thời gian
+    nằm chờ tới lượt đăng nhập.
+    """
+    # Hàng chờ captcha là TOÀN CỤC (mọi provider dùng chung `_glogin_serial`),
+    # dù tên hàm mang tiền tố "flow" từ lúc chỉ Flow dùng nó.
+    if _flow_login_paused():
+        logger.info({"event": "recover_deferred_captcha", "provider": provider, "profile": profile})
+        return
+
+    key = f"recover:{provider}:{profile}"
+    with _lock:
+        if time.time() - _last_attempt.get(key, 0.0) < _GRELOGIN_COOLDOWN_S:
+            return
+        _last_attempt[key] = time.time()
+
+    started = time.time()
+    cho_hang_doi = 0.0
+    tried: list[str] = []
+    det = {"provider": provider, "profile": profile}
+
+    def _con_gio() -> bool:
+        return time.time() - started - cho_hang_doi < _RECOVER_BUDGET_S
+
+    def _xong(tier: str, step: str, note: str) -> None:
+        _notify(f"✅ {nhan} — {profile}\nKhôi phục xong ({note}).", {**det, "step": step})
+        logger.info({"event": "recover_ok", "provider": provider, "tier": tier,
+                     "profile": profile})
+
+    # ── T0: phiên còn sống không? ────────────────────────────────────────────
+    tt = trang_thai_fn()
+    if tt in ("ban", "chua_ro"):
+        logger.info({"event": "recover_skip_busy", "provider": provider, "profile": profile,
+                     "reason": reason[:120]})
+        return
+    tried.append("T0-kiểm-phiên")
+    _notify(f"⚠️ {nhan} — {profile}\nLỗi: {reason}\n→ Đang tự khôi phục…",
+            {**det, "step": "start", "reason": reason})
+    if tt == "ok":
+        _xong("T0", "T0-reuse-ok", f"[T0] phiên {ten_phien} còn sống")
+        return
+
+    # ── T1: nghỉ rồi kiểm lại — rẻ, không mời captcha ────────────────────────
+    _notify(f"🔧 {nhan} — {profile}\n[T1] Chưa vội đăng nhập lại — nghỉ {int(_FLOW_NGHI_S)}s "
+            f"rồi kiểm lại phiên, tối đa {_FLOW_KIEM_LAI} lượt…",
+            {**det, "step": "T1-kiem-lai"})
+    for lan in range(1, _FLOW_KIEM_LAI + 1):
+        if not _con_gio():
+            break
+        tried.append(f"T1-kiểm-lại-{lan}")
+        time.sleep(_FLOW_NGHI_S)
+        if _flow_login_paused():
+            return
+        tt = trang_thai_fn()
+        if tt == "ok":
+            _xong("T1", "T1-kiem-lai-ok",
+                  f"[T1] phiên lên lại sau {lan} lượt kiểm, không cần đăng nhập")
+            return
+        if tt in ("ban", "chua_ro"):
+            _notify(f"ℹ️ {nhan} — {profile}\nHoãn khôi phục: hồ sơ đang bận hoặc chưa kiểm chứng được phiên. "
+                    "Chưa cần đăng nhập lại; lần sau kiểm lại.",
+                    {**det, "step": "T1-ban"})
+            logger.info({"event": "recover_hoan_busy", "provider": provider, "profile": profile})
+            return
+
+    # ── T2: đăng nhập lại tài khoản Google ───────────────────────────────────
+    dang_nhap_ok = False
+    if _con_gio():
+        tried.append("T2-đăng-nhập-Google")
+
+        def _bao_khi_toi_luot(cho_giay: float) -> None:
+            nonlocal cho_hang_doi
+            cho_hang_doi += cho_giay
+            them = f" — sau {cho_giay / 60:.0f} phút xếp hàng" if cho_giay >= 60 else ""
+            _notify(f"🔧 {nhan} — {profile}\n[T2] Đang đăng nhập lại tài khoản Google "
+                    f"(giống nút 'Chỉ đăng nhập'){them}…",
+                    {**det, "step": "T2-google-login", "cho_giay": round(cho_giay)})
+
+        dang_nhap_ok = _freshen_google(profile, khi_toi_luot=_bao_khi_toi_luot)
+
+    if not dang_nhap_ok:
+        state = trang_thai_dang_nhap_cuoi(profile)
+        if state == "blocked_captcha_window":
+            with _lock:
+                _last_attempt.pop(key, None)
+            logger.info({"event": "recover_deferred_captcha", "provider": provider, "profile": profile})
+            return
+        if state in _CAN_NGUOI:
+            action = "CAPTCHA" if state == "need_captcha" else "xác nhận 2FA"
+            _notify(f"⚠️ {nhan} — {profile}\nĐang chờ bạn hoàn thành {action} trong workspace trên noVNC cổng 6080. "
+                    "Nếu cửa sổ đã hết thời gian chờ, mở lại workspace để đăng nhập. "
+                    "Các hồ sơ khác bị hoãn tự đăng nhập, chưa được kết luận là lỗi.",
+                    {**det, "step": "waiting_user", "state": state})
+            return
+
+    # ── T3: đăng nhập xong thì kiểm lại vài lượt ─────────────────────────────
+    if dang_nhap_ok:
+        for lan in range(1, _FLOW_KIEM_LAI + 1):
+            if not _con_gio():
+                break
+            tried.append(f"T3-kiểm-lại-{lan}")
+            checked = trang_thai_fn()
+            if checked in ("ban", "chua_ro"):
+                return
+            if checked == "ok":
+                _xong("T3", "T3-tai-lap-ok",
+                      f"[T2] đăng nhập Google + [T3] tái lập phiên {ten_phien}")
+                return
+            if lan < _FLOW_KIEM_LAI:
+                time.sleep(_FLOW_NGHI_S)
+
+    # ── Hết đường: nói ĐÃ THỬ GÌ và VÌ SAO ───────────────────────────────────
+    tt_login = trang_thai_dang_nhap_cuoi(profile)
+    if "T2-đăng-nhập-Google" not in tried:
+        vi_sao = "hết ngân sách khôi phục trước khi kịp đăng nhập lại"
+    elif dang_nhap_ok:
+        vi_sao = (f"đăng nhập Google xong nhưng phiên {ten_phien} vẫn chưa lên "
+                  f"(đã kiểm lại {_FLOW_KIEM_LAI} lượt)")
+    elif tt_login == "need_captcha":
+        vi_sao = ("Google đang bắt CAPTCHA — vào noVNC cổng 6080 gõ captcha, hệ thống "
+                  "TỰ tiếp tục mật khẩu + 2FA. Mật khẩu/TOTP không liên quan.")
+    elif tt_login == "blocked_captcha_window":
+        vi_sao = ("đã có một hồ sơ gặp CAPTCHA nên hệ thống tạm dừng tự đăng nhập "
+                  "các hồ sơ khác, tránh Google tăng mức chặn. "
+                  + (ly_do_dang_nhap_cuoi(profile) or ""))
+    elif tt_login in ("need_code", "need_tap"):
+        vi_sao = ("Google đòi mã 2FA phải người bấm (hồ sơ này chưa có TOTP) — "
+                  "xử lý trên noVNC cổng 6080, hoặc thêm TOTP cho hồ sơ.")
+    else:
+        vi_sao = (ly_do_dang_nhap_cuoi(profile)
+                  or f"solver báo trạng thái '{tt_login or 'không rõ'}'")
+    tried_s = " → ".join(tried) if tried else "none"
+    _notify(f"❌ {nhan} — {profile}\n"
+            f"KHÔNG tự khôi phục được (đã thử: {tried_s}).\n"
+            f"→ Lý do: {vi_sao}\n"
+            f"→ Hoặc xử lý tay trên noVNC cổng 6080.",
+            {**det, "step": "failed", "tried": tried, "vi_sao": vi_sao})
+    logger.warning({"event": "recover_failed", "provider": provider, "profile": profile,
+                    "tried": tried, "vi_sao": vi_sao[:160]})
+
+
+def flow_recover_and_notify(profile: str, reason: str = "mất phiên") -> None:
+    """Thang khôi phục NHIỀU TẦNG cho một hồ sơ Flow (labs.google) + Telegram.
+
+    Hành vi và nội dung tin nhắn giữ NGUYÊN so với trước khi rút thang dùng
+    chung — chỉ khác là thân hàm nay gọi `_dang_nhap_lai_theo_thang`, cùng
+    thang này còn phục vụ Claude/ChatGPT-free/Gemini web (xem các hàm
+    `*_recover_and_notify` khác trong file)."""
+    _dang_nhap_lai_theo_thang(
+        provider="flow", nhan="Flow", ten_phien="labs.google",
+        profile=profile, reason=reason,
+        trang_thai_fn=lambda: _flow_session_trang_thai(profile))
+
+
+# ── Registry provider (bật dần) ──────────────────────────────────────────────
+
+_PROVIDERS: dict[str, dict[str, Any]] = {
+    "codex": {"enabled": True, "label": "Codex",
+              "reuse": _codex_reuse, "batch": _codex_batch},
+    # Label dùng trong tin nhắn bot admin (log ChatGPT free / Codex)
+    "free": {"enabled": True, "label": "ChatGPT free",
+             "reuse": _cgf_reuse, "batch": None, "openai": _cgf_openai},
+    # Bật dần tiếp:
+    "gemini_web_api": {"enabled": False, "label": "Gemini web"},
+    "claude": {"enabled": False, "label": "Claude"},
+    "flow": {"enabled": False, "label": "Flow"},
+}
+
+
+def con_tang_trinh_duyet(email: str, provider: str) -> bool:
+    """Sau tầng T0 (refresh_token) còn tầng TRÌNH DUYỆT nào chạy được không?
+
+    T0 nằm ở `recover_and_notify`, các tầng trình duyệt nằm ở
+    `recover_provider_account`, và người gọi (`codex_error_recovery_scheduler`)
+    chạy LẦN LƯỢT cả hai. Nhưng T0 không hề biết điều đó nên nó tự kết luận
+    "❌ Cần đăng nhập lại thủ công" ngay khi thiếu refresh_token — rồi vài giây
+    sau tầng trình duyệt mới bắt đầu và báo "→ Đang tự khôi phục…". Người nhận
+    đọc được lời tuyên bố thua TRƯỚC cả lúc hệ thống bắt đầu thử, nên hoặc đi
+    đăng nhập tay một tài khoản mà máy tự chữa được, hoặc mất tin vào thông báo.
+
+    Tách phép kiểm ra đây để T0 và tầng trình duyệt nói CÙNG một sự thật.
+    """
+    prov = _PROVIDERS.get(provider) or {}
+    if not prov.get("enabled"):
+        return False
+    # Tài khoản OpenAI gốc có tầng trình duyệt RIÊNG, và nhánh Google không tính
+    # cho nó — phải khớp đúng cách `recover_provider_account` rẽ nhánh.
+    if prov.get("openai") and _ho_so_openai(email):
+        return True
+    profile = _profile_for(email)
+    can_google = bool(prov.get("reuse") and (_has_profile(profile)
+                                             or _has_google_creds(profile, email)))
+    can_batch = bool(prov.get("batch") and _dong_hang_loat(email) is not None)
+    return can_google or can_batch
+
+
+def recover_provider_account(account: dict[str, Any], provider: str, reason: str) -> None:
+    """Các tầng khôi phục SAU KHI tầng 1 (refresh_token) đã trượt — thread nền.
+
+    Phân loại tài khoản bằng **danh sách đăng nhập hàng loạt** (`codex_auto_list`),
+    không bằng đuôi email — xem `_dong_hang_loat`.
+
+    **Hồ sơ `openai-…` có thật → tài khoản OPENAI GỐC** (email + mật khẩu của
+      chính OpenAI, không có tài khoản Google nào)
+      T2/T3  `refresh-jwt` của solver trên hồ sơ đó: quét lại phiên ChatGPT,
+             phiên chết thì đăng nhập lại bằng mật khẩu OpenAI + TOTP đã lưu.
+             KHÔNG đụng nhánh Google — không có mật khẩu Google nào để mà thử.
+
+    **KHÔNG có dòng trong danh sách → tài khoản Google**
+      T2  Mở đăng nhập Codex trong workspace của tài khoản đó: `codex-google-onboard`
+          ride session Google của profile rồi authorize Codex (cần đã có profile).
+      T3  Đăng nhập lại tài khoản Google — đúng nút "Chỉ đăng nhập" ở thẻ
+          "Provider qua tài khoản Google" (`auto-login-saved`, mật khẩu + TOTP nằm
+          trong solver) — xong thì làm lại T2 để lấy token.
+
+    **CÓ dòng trong danh sách → tài khoản đăng nhập hàng loạt**
+      T3  Giống hệt nút "Đăng nhập hàng loạt" nhưng chỉ với dòng của tài khoản
+          đang lỗi (`codex-onboard`: email|pass, mã dùng một lần qua IMAP,
+          consent, callback). Luồng này tự dựng profile mới nên không có session
+          nào để ride — vì vậy tài khoản hàng loạt không có T2.
+          Nếu tài khoản đó tình cờ cũng có creds Google đã lưu thì sau khi T3
+          trượt vẫn thử tiếp thang Google: có đường nào thì đi.
+
+    Mỗi bước báo Telegram; debounce 30ph/account."""
+    prov = _PROVIDERS.get(provider) or {}
+    if not prov.get("enabled"):
+        return  # provider chưa bật auto-recovery → giữ hành vi cũ
+    if not isinstance(account, dict):
+        return
+    label = prov.get("label", provider)
+    email = _acct_label(account)
+    profile = _profile_for(email)
+    key = f"recover:{provider}:{email}"
+
+    with _lock:
+        if time.time() - _last_attempt.get(key, 0.0) < _GRELOGIN_COOLDOWN_S:
+            return
+        _last_attempt[key] = time.time()
+
+    reuse = prov.get("reuse")
+    batch = prov.get("batch")
+    openai_goc = prov.get("openai")
+    hang_loat = _dong_hang_loat(email) is not None
+    # Tài khoản OpenAI gốc: mật khẩu và 2FA nằm ở OPENAI, không tồn tại đường
+    # Google nào. Tắt hẳn hai cờ Google thay vì để chúng bật lên nhờ một thư mục
+    # `google-…` mà chính lượt khôi phục sai đường trước đó đã tạo ra, và nhờ một
+    # bản ghi kho 'openai' bị đếm nhầm thành "có mật khẩu Google".
+    ho_so_openai = _ho_so_openai(email) if openai_goc else ""
+    has_profile = False if ho_so_openai else _has_profile(profile)
+    has_creds = False if ho_so_openai else _has_google_creds(profile, email)
+    # Ngân sách thời gian tổng — ca vô vọng (account bị ban) sẽ bail thay vì treo
+    # mãi qua từng tầng browser. Ca hợp lệ (session Google còn sống) xong T2 trong
+    # ~40s nên không đụng trần.
+    started = time.time()
+    # Thời gian NẰM CHỜ tới lượt đăng nhập Google — không tính vào ngân sách.
+    # Ngân sách 1200s là để cắt một ca vô vọng, không phải để phạt tài khoản
+    # xếp hàng sau: một lượt T3 giữ khoá tới 700s, nên tài khoản thứ ba trở đi
+    # là hết giờ ngay khi tới lượt, và bước T2 lấy token sau khi đăng nhập
+    # THÀNH CÔNG bị bỏ qua — máy báo "không khôi phục được" cho một tài khoản
+    # vừa đăng nhập xong, rồi để nó nằm chết tới lần quét sau.
+    cho_hang_doi = 0.0
+    tried: list[str] = []
+
+    def _con_gio() -> bool:
+        return time.time() - started - cho_hang_doi < _RECOVER_BUDGET_S
+
+    # KHÔNG có tầng nào chạy được → bỏ qua im lặng, đừng báo "đang khôi phục…"
+    # rồi "KHÔNG khôi phục được (đã thử: none)". Ca điển hình: acc ChatGPT free
+    # tự thu thập — không có dòng hàng loạt, cũng không có profile/creds Google,
+    # tức không tồn tại đường đăng nhập lại nào để mà thử.
+    can_openai = bool(ho_so_openai)
+    can_google = bool(reuse and (has_profile or has_creds))
+    can_batch = bool(batch and hang_loat)
+    # Giữ nguyên phép kiểm tại chỗ (đã có `reuse`/`batch` trong tay) — nó phải
+    # cho cùng kết quả với `con_tang_trinh_duyet`, thứ mà T0 dùng để biết có nên
+    # im lặng nhường lượt hay không.
+    if not (can_google or can_batch or can_openai):
+        logger.info({
+            "event": "recover_skip_no_tier",
+            "provider": provider,
+            "email": email,
+            "hang_loat": hang_loat,
+            "has_profile": has_profile,
+            "has_google_creds": has_creds,
+            "ho_so_openai": ho_so_openai,
+            "reason": reason[:120],
+        })
+        return
+
+    kind = ("tài khoản OpenAI gốc" if can_openai else
+            "đăng nhập hàng loạt" if hang_loat else "tài khoản Google")
+    det = {"provider": provider, "email": email}
+    _notify(f"⚠️ {label} — {email}\nLỗi: {reason}\n→ Đang tự khôi phục ({kind})…",
+            {**det, "step": "start", "reason": reason})
+    logger.info({
+        "event": "recover_start",
+        "provider": provider,
+        "email": email,
+        "hang_loat": hang_loat,
+        "has_profile": has_profile,
+        "has_google_creds": has_creds,
+        "ho_so_openai": ho_so_openai,
+        "reason": reason[:120],
+    })
+
+    def _do_reuse(tag: str, step: str, note: str) -> bool:
+        tried.append(tag)
+        if not reuse(profile, email):
+            return False
+        _notify(f"✅ {label} — {email}\nKhôi phục xong ({note}).",
+                {**det, "step": step})
+        logger.info({"event": "recover_ok", "provider": provider,
+                     "tier": tag, "email": email})
+        return True
+
+    def _do_freshen() -> bool:
+        tried.append("T3-đăng-nhập-Google")
+
+        def _bao_khi_toi_luot(cho_giay: float) -> None:
+            nonlocal cho_hang_doi
+            cho_hang_doi += cho_giay
+            them = f" — sau {cho_giay / 60:.0f} phút xếp hàng" if cho_giay >= 60 else ""
+            _notify(f"🔧 {label} — {email}\n[T3] Đang đăng nhập lại tài khoản Google "
+                    f"(giống nút 'Chỉ đăng nhập'){them}…",
+                    {**det, "step": "T3-google-login", "cho_giay": round(cho_giay)})
+
+        if _freshen_google(profile, khi_toi_luot=_bao_khi_toi_luot):
+            return True
+        logger.warning({"event": "recover_freshen_failed",
+                        "provider": provider, "email": email})
+        return False
+
+    google_login_failed = False
+
+    # ── Tài khoản OPENAI GỐC: một tầng trình duyệt duy nhất ──────────────────
+    # `refresh-jwt` của solver tự đi hai bước bên trong (quét phiên → đăng nhập
+    # lại bằng mật khẩu OpenAI đã lưu), nên ở đây không cần thang riêng. Xong
+    # nhánh này là DỪNG: các nhánh dưới đều là đường Google/hàng loạt, mà tài
+    # khoản này không có mật khẩu Google lẫn dòng hàng loạt nào để thử.
+    if can_openai and _con_gio():
+        tried.append("T2/T3-OpenAI-gốc")
+        _notify(
+            f"🔧 {label} — {email}\n"
+            f"[T2] Đọc lại phiên ChatGPT trong hồ sơ OpenAI gốc ({ho_so_openai}); "
+            f"phiên chết thì [T3] tự đăng nhập lại bằng mật khẩu OpenAI đã lưu…",
+            {**det, "step": "T2-openai-goc", "profile": ho_so_openai},
+        )
+        if openai_goc(ho_so_openai, email):
+            _notify(f"✅ {label} — {email}\nKhôi phục xong (hồ sơ OpenAI gốc).",
+                    {**det, "step": "T2-openai-goc-ok", "profile": ho_so_openai})
+            logger.info({"event": "recover_ok", "provider": provider,
+                         "tier": "T2/T3-OpenAI-gốc", "email": email})
+            return
+
+    # ── Tài khoản ĐĂNG NHẬP HÀNG LOẠT: T3 = chạy lại đúng luồng hàng loạt ─────
+    # Cùng endpoint/code với nút "Đăng nhập hàng loạt" (/v1/codex-onboard), chỉ
+    # với dòng của tài khoản đang lỗi. Không có T2 vì luồng này tự dựng profile
+    # mới (force_recreate) nên chẳng có session nào để tái dùng.
+    if can_batch and _con_gio():
+        tried.append("T3-hàng-loạt")
+        _notify(
+            f"🔧 {label} — {email}\n"
+            f"[T3] Đăng nhập lại giống nút 'Đăng nhập hàng loạt', chỉ với tài "
+            f"khoản này (email|pass + mã dùng một lần qua IMAP)…",
+            {**det, "step": "T3-batch"},
+        )
+        from services.codex_deactivated import CodexAccountDeactivated
+        try:
+            tok = batch(email)
+        except CodexAccountDeactivated:
+            # account_deactivated: đã báo admin + hỏi xóa trong handle_deactivated.
+            # Dừng hẳn, KHÔNG rơi xuống thông báo "KHÔNG tự khôi phục được".
+            logger.info({"event": "recover_stop_deactivated", "provider": provider, "email": email})
+            return
+        if tok:
+            _notify(f"✅ {label} — {email}\nKhôi phục xong ([T3] đăng nhập hàng loạt).",
+                    {**det, "step": "T3-batch-ok"})
+            logger.info({"event": "recover_ok", "provider": provider,
+                         "tier": "T3-hàng-loạt", "email": email})
+            return
+
+    # ── Tài khoản GOOGLE: T2 (đăng nhập Codex trong workspace) → T3 (đăng nhập
+    #    lại Google) → T2 lần nữa ───────────────────────────────────────────────
+    if can_google:
+        # T2 ĐI TRƯỚC: rẻ, không phải mở màn đăng nhập Google, và session Google
+        # của profile thường VẪN SỐNG dù token Codex đã chết (OpenAI thu hồi
+        # token chứ không đăng xuất Google).
+        #
+        # Bản cũ: hễ `reason` có chữ "dead"/"401"/"expired" là bỏ qua T2, đăng
+        # nhập Google trước. Nhưng scheduler LUÔN gửi reason "dead:…", nên trên
+        # đường quét định kỳ T2 thực tế CHƯA BAO GIỜ được chạy — đo thật 30/07
+        # (smarthomebanbap2011@gmail.com): chỉ chạy đúng "T2-freshen", nó báo
+        # thất bại oan (trang đang ở myaccount.google.com, tức đang đăng nhập),
+        # rồi cả thang bị chặn theo và tài khoản nằm chết.
+        from services.codex_deactivated import CodexAccountDeactivated
+        try:
+            if has_profile and _con_gio():
+                if _do_reuse("T2-workspace", "T2-ok",
+                             "[T2] mở đăng nhập Codex trong workspace (tái dùng "
+                             "session Google của profile)"):
+                    return
+            if has_creds and _con_gio():
+                if _do_freshen():
+                    if _con_gio() and _do_reuse(
+                            "T2-sau-T3", "T3-ok",
+                            "[T3] đăng nhập lại Google + [T2] đăng nhập Codex tại workspace"):
+                        return
+                else:
+                    google_login_failed = True
+        except CodexAccountDeactivated:
+            # handle_deactivated đã báo admin + hỏi xóa/giữ. Dừng hẳn, KHÔNG rơi
+            # xuống thông báo "KHÔNG tự khôi phục được" chung chung bên dưới.
+            logger.info({"event": "recover_stop_deactivated",
+                         "provider": provider, "email": email})
+            return
+
+    tried_s = " → ".join(tried) if tried else "none"
+    # Nguyên nhân CỤ THỂ thắng gợi ý chung.
+    #
+    # Câu "Kiểm tra profile Google / pass+TOTP / codex_auto_list + IMAP" đưa người
+    # đọc đi sai hướng khi thực tế là Google bắt captcha: mật khẩu, TOTP, IMAP đều
+    # đúng cả, không có gì để "kiểm tra". Đo thật 30/07 với benbap2011@gmail.com —
+    # log auto_login ghi rõ captcha, còn thông báo lại bảo đi soi cấu hình.
+    #
+    # Và KHÔNG khẳng định thứ chưa đo. Đo thật 09/08/2026 (benbap115@gmail.com):
+    # lượt T3 hết hạn 30s ở tầng HTTP vì hồ sơ đang bận — trình duyệt chưa từng
+    # mở — mà tin báo vẫn nói chắc "không vào được ô mật khẩu (Google chặn hoặc
+    # đổi giao diện)". Chủ máy bấm tay "Chỉ đăng nhập" ngay sau đó thì vào bình
+    # thường, nên câu đổ lỗi cho Google vừa sai vừa làm mất tin vào thông báo.
+    trang_thai = trang_thai_dang_nhap_cuoi(profile) if can_google else ""
+    ly_do = ly_do_dang_nhap_cuoi(profile) if can_google else ""
+    if can_openai:
+        vi_sao = ly_do_dang_nhap_cuoi(ho_so_openai) or "không rõ"
+        hint = (f"Tài khoản OpenAI gốc — mật khẩu và 2FA nằm ở OpenAI, KHÔNG có "
+                f"đường Google nào để thử. Lý do: {vi_sao}. Đăng nhập tay MỘT lần "
+                f"ở thẻ 'OpenAI gốc' trong Settings (hoặc noVNC cổng 6080, hồ sơ "
+                f"{ho_so_openai}), xong hệ thống tự dùng lại phiên đó.")
+    elif trang_thai == "need_captcha":
+        hint = ("Google đang bắt CAPTCHA — vào noVNC cổng 6080 gõ captcha, hệ thống "
+                "TỰ tiếp tục mật khẩu + 2FA. Mật khẩu/TOTP/IMAP không liên quan.")
+    elif trang_thai in ("need_code", "need_tap"):
+        hint = ("Google đòi mã 2FA phải người bấm (profile này chưa có TOTP) — "
+                "xử lý trên noVNC cổng 6080, hoặc thêm TOTP cho profile.")
+    elif google_login_failed:
+        vi_sao = ly_do or f"solver báo trạng thái '{trang_thai or 'không rõ'}'"
+        hint = (f"Đăng nhập lại Google chưa xong. Lý do: {vi_sao}. Đăng nhập tay "
+                f"MỘT lần qua noVNC cổng 6080 (profile {profile}), xong hệ thống "
+                f"tự dùng lại session đó.")
+    elif hang_loat:
+        hint = ("Soi lại dòng email|pass của tài khoản này trong Settings Codex "
+                "(codex_auto_list) + IMAP Gmail dùng chung.")
+    elif not (has_profile or has_creds):
+        hint = ("Chưa có đường nào để đăng nhập lại: lưu tài khoản Google "
+                "(email + mật khẩu + TOTP) ở thẻ 'Provider qua tài khoản Google', "
+                "hoặc thêm dòng vào danh sách đăng nhập hàng loạt.")
+    else:
+        hint = "Kiểm tra profile Google + mật khẩu/TOTP đã lưu trong solver."
+    _notify(
+        f"❌ {label} — {email}\n"
+        f"KHÔNG tự khôi phục được (đã thử: {tried_s}).\n"
+        f"→ {hint}\n"
+        f"→ Hoặc xử lý tay noVNC cổng 6080.",
+        {**det, "step": "failed", "reason": f"tried: {tried_s}"},
+    )
+    logger.warning({
+        "event": "recover_failed",
+        "provider": provider,
+        "email": email,
+        "hang_loat": hang_loat,
+        "tried": tried,
+    })
+
+
+def codex_google_relogin_and_notify(account: dict[str, Any], reason: str) -> None:
+    """Wrapper tương thích call-site cũ → orchestrator chung cho codex."""
+    recover_provider_account(account, "codex", reason)
+
+
+def recover_and_notify(account: dict[str, Any], reason: str) -> str | None:
+    """Recover a failing account (reuse refresh_token) and notify admin of the
+    error → action → result. Returns the NEW access_token on success, else None.
+    Best-effort; never raises. Debounced per account."""
+    if not isinstance(account, dict):
+        return None
+    email = _acct_label(account)
+    key = str(account.get("access_token") or email)
+    # Nhãn provider để log đủ "tài khoản nào, provider nào" (codex/free/…)
+    try:
+        from services.account_service import account_group
+        group = account_group(account)
+    except Exception:
+        group = ""
+    label = _PROVIDERS.get(group, {}).get("label") or {
+        "openai": "OpenAI", "antigravity": "Antigravity",
+    }.get(group, group or "ChatGPT")
+    det = {"provider": group or "chatgpt", "email": email}
+
+    with _lock:
+        if time.time() - _last_attempt.get(key, 0.0) < _COOLDOWN_S:
+            return None  # attempted recently — skip to avoid spam
+        _last_attempt[key] = time.time()
+
+    if not str(account.get("refresh_token") or "").strip():
+        # Acc tự thu thập (free/bulk): KHÔNG có email → không có đường đăng nhập
+        # lại nào để mà refresh. Báo mỗi lần chỉ là nhiễu → chỉ ghi log.
+        if not str(account.get("email") or "").strip():
+            logger.info({"event": "recovery_skip_anonymous", "provider": group,
+                         "email": email, "reason": reason[:120]})
+            return None
+        # CÒN tầng trình duyệt phía sau thì T0 KHÔNG được tuyên bố thua. Người
+        # gọi sẽ chạy tiếp T1–T3 ngay sau đây; báo "cần đăng nhập tay" lúc này
+        # là nói sai, và nói trước cả lúc hệ thống bắt đầu thử.
+        if con_tang_trinh_duyet(email, group):
+            logger.info({"event": "recovery_t0_nhuong_luot", "email": email,
+                         "provider": group, "reason": reason[:120]})
+            return None
+        _notify(f"⚠️ {label} — {email}\nLỗi: {reason}\n"
+                f"→ [T0] Không có refresh_token, và không còn đường đăng nhập lại "
+                f"tự động nào cho tài khoản này.\n"
+                f"❌ Cần đăng nhập lại thủ công qua noVNC (cổng 6080).",
+                {**det, "step": "T0-no-refresh-token", "reason": reason})
+        logger.warning({"event": "recovery_no_refresh", "email": email, "reason": reason})
+        return None
+
+    _notify(f"⚠️ {label} — {email}\nLỗi: {reason}\n→ [T0] Đang tự làm mới token (refresh)…",
+            {**det, "step": "T0-refresh", "reason": reason})
+    try:
+        from services.codex_refresh_scheduler import _refresh_one
+        from services.account_service import account_service
+        # bo_qua_cache=True: T0 hỏi "giấy tờ đăng nhập còn sống không", mà
+        # cache thì trả lời được cả khi đã chết. Không bỏ qua thì T0 nhận lại
+        # đúng access_token cũ trong tủ và phép so ngay dưới coi là trượt.
+        updated = _refresh_one(account, bo_qua_cache=True)
+        if updated:
+            new_token = str(updated.get("access_token") or "")
+            old_token = str(account.get("access_token") or "")
+            # Điều kiện cũ đòi new_token != old_token. Đo 18/08: máy chủ OAuth
+            # nhận refresh_token và trả token hợp lệ, nhưng vì trùng chuỗi cũ
+            # nên T0 báo "Refresh trượt" rồi đẩy sang đăng nhập trình duyệt —
+            # lặp mỗi 2 tiếng, vĩnh viễn, kèm một thông báo trượt mỗi lượt.
+            # Máy chủ đã cấp token tức là giấy tờ còn sống; đó CHÍNH LÀ điều
+            # T0 cần biết, token có trùng chuỗi hay không không liên quan.
+            if new_token:
+                # update_account() DA ho tro re-key qua updates["access_token"]
+                # (services/account_service.py) va merge voi hang LIVE trong
+                # _accounts (khong phai snapshot "account" cu chup truoc luc
+                # goi mang refresh) - dung thang thay vi tu pop/normalize/
+                # reinsert thu cong, tranh mat field doi song song trong luc
+                # cho refresh network (notes sua tay, mark_image_result bump,
+                # quota_watcher doi status...).
+                # Kéo trạng thái về 'active'. _refresh_one trả {**account, …}
+                # nên nó mang theo status='error' cũ; không đặt lại thì T0 báo
+                # "Khôi phục xong" mà tài khoản vẫn nằm lỗi, và vòng quét định
+                # kỳ lại nhặt lên ngay lượt sau — đúng vòng lặp đã quan sát.
+                result = account_service.update_account(
+                    old_token, {**updated, "status": "active"})
+                if result is not None:
+                    _notify(f"✅ {label} — {email}\nKhôi phục xong ([T0] refresh token mới). Dùng lại bình thường.",
+                            {**det, "step": "T0-refresh-ok"})
+                    logger.info({"event": "recovery_ok", "email": email})
+                    return new_token
+    except Exception as exc:
+        logger.warning({"event": "recovery_error", "email": email, "error": str(exc)[:150]})
+
+    # Cùng lý do như nhánh thiếu refresh_token: còn tầng trình duyệt thì đây
+    # CHƯA phải kết luận cuối, chỉ là một tầng trượt.
+    if con_tang_trinh_duyet(email, group):
+        _notify(f"🔧 {label} — {email}\n[T0] Refresh trượt ({reason}) — "
+                f"chuyển sang đăng nhập lại bằng trình duyệt…",
+                {**det, "step": "T0-refresh-failed-tiep-tuc", "reason": reason})
+        return None
+    _notify(f"❌ {label} — {email}\n[T0] Refresh THẤT BẠI ({reason}).\n"
+            f"→ refresh_token có thể đã hết hạn, và không còn đường tự động nào "
+            f"khác. Cần đăng nhập lại qua noVNC (`:6080`).",
+            {**det, "step": "T0-refresh-failed", "reason": reason})
+    return None
