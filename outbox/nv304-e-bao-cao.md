@@ -143,7 +143,8 @@ hay module):
 
 ## Xác minh nộp
 
-- Nhánh Giao: `muse/nv304-e` (tạo từ main mới nhất lúc đẩy).
+- Nhánh Giao: `muse/nv304-e` = `3fbdd8a55ab698743bbffc45c1c66ed07fe9e16b`
+  (kiểm bằng ls-remote; Giao main lúc đẩy không đổi `3d5c37b0`).
 - Patch: `outbox/nv304-e.patch` trên nhánh (385 dòng, 3 tệp).
 - Commit repo: `a6b7686` «NV304e: bam demo (o tim tron, nut tron, nhom
   trong the phat) + sua 409 xac nhan», cha là commit (c) `d4c4483`.
