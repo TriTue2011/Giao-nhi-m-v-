@@ -1,0 +1,1986 @@
+diff --git a/app/kham_pha.py b/app/kham_pha.py
+index de3a41d..f645a5b 100644
+--- a/app/kham_pha.py
++++ b/app/kham_pha.py
+@@ -465,6 +465,11 @@ def _chuan_hoa_giao_dien(m: dict) -> None:
+         return
+     g = m["giao_dien"]
+     mod_id = m.get("id", "chua_ro")
++    if g is False:
++        # NV301: module CHỈ-công-cụ tự khai không có giao diện (không tạo
++        # tab/mục) — giữ nguyên False, đừng coi là sai định dạng rồi bỏ
++        # trường (bỏ thì khung lại suy từ cấu trúc và vẽ tab thừa).
++        return
+ 
+     def bo(ly_do: str) -> None:
+         log.warning("Module %s: giao_dien %s", mod_id, ly_do)
+@@ -497,14 +502,43 @@ def _chuan_hoa_giao_dien(m: dict) -> None:
+     m["giao_dien"] = {"khu": g["khu"], "muc": muc, "nhan": nhan.strip(), "chip": chip_ra}
+ 
+ 
++def _chuan_hoa_thay_the(m: dict) -> None:
++    """NV301: trường tuỳ chọn `thay_the` — module mới tự khai nó thay thế
++    (những) module cũ nào: khi module này đã cài thì module bị thay KHÔNG
++    tạo mục/tab riêng nữa (chỉ một mục, không hai). Tối đa 8 id,
++    id hợp lệ, bỏ chính mình, giữ thứ tự; sai định dạng → cảnh báo và bỏ
++    trường (không chặn nạp module)."""
++    if "thay_the" not in m:
++        return
++    t = m["thay_the"]
++    mod_id = m.get("id", "chua_ro")
++
++    def bo(ly_do: str) -> None:
++        log.warning("Module %s: thay_the %s", mod_id, ly_do)
++        m.pop("thay_the", None)
++
++    if not isinstance(t, list) or len(t) > 8:
++        return bo("phải là danh sách tối đa 8 id")
++    sach = []
++    for x in t:
++        if not isinstance(x, str) or not ID_HOP_LE.match(x) or x == m.get("id"):
++            return bo(f"id thay thế {x!r} không hợp lệ")
++        if x not in sach:
++            sach.append(x)
++    m["thay_the"] = sach
++
++
+ def giao_dien_cua(m: dict) -> dict | None:
+     """Tab và mục của một module trên thanh chính: `giao_dien` module khai, không thì SUY từ cấu trúc manifest
+     (`loai`, `nhom_con`, `cung_cap`) — không bảng tên module. Không thuộc tab nào → None.
+       - loại «nha» / «thiet_bi» (thiết bị nhà, mạng, camera) → Nhà
+       - loại «tien_ich» (trừ nhóm con kênh nhắn tin) → Đời sống
+       - cấp ảnh/video (cung_cap) → Tác phẩm
+-    Mục mặc định là chính module (không chip khai thì khung dựng một chip theo module)."""
++    Mục mặc định là chính module (không chip khai thì khung dựng một chip theo module).
++    `giao_dien` là False (module chỉ-công-cụ tự khai) → None, không suy."""
+     g = m.get("giao_dien")
++    if g is False:
++        return None
+     if isinstance(g, dict):
+         return g
+     khu = None
+@@ -528,6 +562,7 @@ def kiem_manifest(m) -> str | None:
+     _chuan_hoa_nhom(m)
+     _chuan_hoa_nhom_con(m)
+     _chuan_hoa_giao_dien(m)
++    _chuan_hoa_thay_the(m)
+     for k in TRUONG_CHUOI_BAT_BUOC:
+         if not isinstance(m.get(k), str) or not m[k].strip():
+             return f"thiếu hoặc sai trường «{k}» (cần chuỗi khác rỗng)"
+diff --git a/app/so_module.py b/app/so_module.py
+index 0246a6c..49af2d5 100644
+--- a/app/so_module.py
++++ b/app/so_module.py
+@@ -404,6 +404,15 @@ class SoModule:
+         theo múi giờ của nhà. Không bí mật, không cấu hình module. Đánh giá điều kiện (`can`) là
+         việc của giao diện — một hàm duy nhất cho cả điều kiện của khung lẫn `muc` của module."""
+         modules, loai, da_cai, lien_ket, tab, muc = [], {}, {}, {}, [], []
++        # NV301: tập module bị thay — module thay thế ĐÃ CÀI (trong catalog)
++        # thì module bị thay không tạo mục/tab riêng nữa. Quy tắc «đã cài
++        # thì thắng»: kể cả khi module thay thế chưa chạy, tab cũ vẫn ẩn
++        # (muốn tab cũ hiện lại thì gỡ module thay thế).
++        bi_thay = set()
++        for km in self.catalog.values():
++            tt = (km.manifest or {}).get("thay_the")
++            if isinstance(tt, list):
++                bi_thay.update(x for x in tt if isinstance(x, str))
+ 
+         def ghi(id_: str, man: dict, tu_xa: bool) -> None:
+             lk = id_ in self.dang_chay
+@@ -426,7 +435,8 @@ class SoModule:
+                             "man_hinh": bool(xem),
+                             "nhom": nhom,
+                             # NV297: tab + mục trên thanh chính (khai trong manifest, hoặc suy từ cấu trúc) — module từ xa không có.
+-                            "giao_dien": None if tu_xa else giao_dien_cua(man)}
++                            # NV301: module bị thay (đã có thay thế trong catalog) thì không có mục.
++                            "giao_dien": None if (tu_xa or id_ in bi_thay) else giao_dien_cua(man)}
+             # NV289: module khai đường riêng cho dịch vụ ngoài gọi vào (manifest `duong_module`): khoá cho nó do lõi
+             # tự sinh ở Bảo mật & người dùng (phạm vi `tich_hop@<id>`), không có ô nhập khoá. Chỉ thêm khi có.
+             if isinstance(man.get("duong_module"), dict):
+@@ -458,7 +468,8 @@ class SoModule:
+             man = km.manifest
+             ghi(id_, man, False)
+             t = man.get("tab_web")
+-            if t and id_ in self.dang_chay:
++            # NV301: tab của module bị thay cũng ẩn theo cùng quy tắc.
++            if t and id_ in self.dang_chay and id_ not in bi_thay:
+                 # Đường TƯƠNG ĐỐI: web2api sau proxy ở thư mục con vẫn mở đúng.
+                 # NV263: `an_khoi_thanh` đi theo để khung.js ẩn khỏi thanh điều hướng;
+                 # trang vẫn mở được bằng đường dẫn trực tiếp (duong).
+diff --git a/modules/doc-viettat/manifest.json b/modules/doc-viettat/manifest.json
+index 15cdd08..ec2dfe3 100644
+--- a/modules/doc-viettat/manifest.json
++++ b/modules/doc-viettat/manifest.json
+@@ -12,6 +12,7 @@
+     "ten": "Đời sống và giải trí",
+     "thu_tu": 3
+   },
++  "giao_dien": false,
+   "giao_thuc": "cuc_bo",
+   "tien_to": "doc_viettat",
+   "cung_cap": [
+diff --git a/modules/youtube/manifest.json b/modules/youtube/manifest.json
+index 740a951..3d732a1 100644
+--- a/modules/youtube/manifest.json
++++ b/modules/youtube/manifest.json
+@@ -1 +1 @@
+-{"cung_cap":[],"duong_module":{"lan_chi":true},"giao_dien":{"chip":[],"khu":"doi_song","muc":"youtube","nhan":"YouTube"},"giao_thuc":"https","hang":"B","id":"youtube","loai":"tien_ich","loai_ten":"Tiện ích","loai_thu_tu":48,"mo_ta":"Máy phát YouTube/Zing chạy thẳng trong web2api cho Home Assistant (tích hợp tritue_youtube_player), KHÔNG cần container dịch vụ phụ riêng và không cần c2a. Phục vụ qua đường riêng của lõi /m/youtube/api/integration/* (Bearer = khoá khách phạm vi tich_hop@youtube do web2api tự tạo ở «Bảo mật & người dùng» > «Khoá cho dịch vụ ngoài gọi vào») và đường luồng mở bằng vé ký có hạn /m/youtube/api/stream/<vé> (loa không gửi được header); chỉ nhận nguồn LAN. Tìm kiếm + giải luồng bằng yt-dlp (YouTube) và endpoint gợi ý công khai của Zing; rơ-le nối lại tối đa 5 lần từ đúng byte, dừng là dừng hẳn (phiên chỉ ở RAM; danh sách phát và lịch sử lưu ở thư mục dữ liệu của module). HOÀN TOÀN RIÊNG với module youtube-phat (module đó chỉ là máy khách của dịch vụ phụ dich-vu/youtube-phat). CHƯA thử với YouTube thật / loa thật / HA thật; giải luồng Zing/Facebook chưa chuyển (trả 502 rõ, không bịa link); danh sách phát mới là tập con của dịch vụ cũ (chưa nhập từ liên kết/mã chia sẻ).","nhom_con":"doi-song-va-giai-tri","phien_ban":"0.1.0","tab_web":{"nhan":"YouTube","trang":"web/index.html"},"tai_nguyen":{"dia_mb":null,"ghi_chu":"Chạy cùng tiến trình lõi. Trích xuất bằng yt-dlp tốn vài chục tới trăm MB + một lõi CPU mỗi lần (trần 2 lần cùng lúc, như dịch vụ cũ). Cần yt-dlp/yt-dlp-ejs/deno trong ảnh lõi (requirements.txt); thiếu thì module báo 502 rõ. RAM/đĩa chưa đo trên máy thật.","gpu":false,"mang_ra":["youtube.com","googlevideo.com","ytimg.com","zingmp3.vn","ac.zingmp3.vn"],"ram_them_mb":null},"ten":"YouTube (chạy thẳng trong web2api)","tien_to":"youtube","truong_cau_hinh":[],"yeu_cau_goi":["httpx"]}
++{"cung_cap":[],"duong_module":{"lan_chi":true},"giao_dien":{"chip":[],"khu":"doi_song","muc":"youtube","nhan":"YouTube"},"giao_thuc":"https","hang":"B","id":"youtube","loai":"tien_ich","loai_ten":"Tiện ích","loai_thu_tu":48,"mo_ta":"Máy phát YouTube/Zing chạy thẳng trong web2api cho Home Assistant (tích hợp tritue_youtube_player), KHÔNG cần container dịch vụ phụ riêng và không cần c2a. Phục vụ qua đường riêng của lõi /m/youtube/api/integration/* (Bearer = khoá khách phạm vi tich_hop@youtube do web2api tự tạo ở «Bảo mật & người dùng» > «Khoá cho dịch vụ ngoài gọi vào») và đường luồng mở bằng vé ký có hạn /m/youtube/api/stream/<vé> (loa không gửi được header); chỉ nhận nguồn LAN. Tìm kiếm + giải luồng bằng yt-dlp (YouTube) và endpoint gợi ý công khai của Zing; rơ-le nối lại tối đa 5 lần từ đúng byte, dừng là dừng hẳn (phiên chỉ ở RAM; danh sách phát và lịch sử lưu ở thư mục dữ liệu của module). HOÀN TOÀN RIÊNG với module youtube-phat (module đó chỉ là máy khách của dịch vụ phụ dich-vu/youtube-phat). CHƯA thử với YouTube thật / loa thật / HA thật; giải luồng Zing/Facebook chưa chuyển (trả 502 rõ, không bịa link); danh sách phát nhập được từ link playlist YouTube và mã chia sẻ TTPL1. (NV301).","nhom_con":"doi-song-va-giai-tri","phien_ban":"0.1.0","tab_web":{"nhan":"YouTube","trang":"web/index.html"},"tai_nguyen":{"dia_mb":null,"ghi_chu":"Chạy cùng tiến trình lõi. Trích xuất bằng yt-dlp tốn vài chục tới trăm MB + một lõi CPU mỗi lần (trần 2 lần cùng lúc, như dịch vụ cũ). Cần yt-dlp/yt-dlp-ejs/deno trong ảnh lõi (requirements.txt); thiếu thì module báo 502 rõ. RAM/đĩa chưa đo trên máy thật.","gpu":false,"mang_ra":["youtube.com","googlevideo.com","ytimg.com","zingmp3.vn","ac.zingmp3.vn"],"ram_them_mb":null},"ten":"YouTube (chạy thẳng trong web2api)","thay_the":["youtube-phat"],"tien_to":"youtube","truong_cau_hinh":[],"yeu_cau_goi":["httpx"]}
+diff --git a/modules/youtube/module.py b/modules/youtube/module.py
+index 502866f..0f9a3f2 100644
+--- a/modules/youtube/module.py
++++ b/modules/youtube/module.py
+@@ -332,10 +332,10 @@ class Module:
+         self._phien_hien_tai = None
+         self._luong.clear()
+ 
+-    # ── thực thể cho trang Đời sống + tab riêng (NV301 mảnh tab) ──────────
+-    # Mảnh tab chỉ có thực thể ĐỌC trạng thái: tab tĩnh + ô Đời sống đọc
+-    # trạng thái qua đây; nút điều khiển (phát/dừng/chuyển bài/…) đi theo
+-    # mảnh lõi và mảnh giao diện. Trang tĩnh KHÔNG gọi thẳng đường
++    # ── thực thể cho trang Đời sống + tab riêng (NV301 mảnh giao diện) ───
++    # Hai thực thể theo rủi ro (khuôn NV181 của youtube-phat): `xem`
++    # (doc: đọc trạng thái/tìm/playlist) và `dieu_khien` (ghi: phát/dừng/
++    # chuyển bài/tua/nhập playlist). Trang tab KHÔNG gọi thẳng đường
+     # integration (đường đó cần khoá khách tich_hop@youtube, trình duyệt
+     # không có) — mọi lệnh đi qua hành động thực thể của lõi, phiên quản trị.
+ 
+@@ -356,28 +356,215 @@ class Module:
+             return "dang_phat", phien
+         return "dung", phien
+ 
++    def _tinh_nang_xem(self) -> list[dict]:
++        return [
++            {"hanh_dong": "trang_thai",
++             "mo_ta": "Đọc bài đang phát và trạng thái lúc hỏi",
++             "tham_so": {"type": "object", "additionalProperties": False,
++                         "properties": {}}},
++            {"hanh_dong": "tim",
++             "mo_ta": "Tìm bài hát trên YouTube, Zing MP3 (Facebook chỉ nhận link)",
++             "tham_so": {
++                 "type": "object", "required": ["tu_khoa"],
++                 "additionalProperties": False,
++                 "properties": {
++                     "tu_khoa": {"type": "string", "minLength": 1,
++                                 "maxLength": 2048,
++                                 "description": "Từ khoá, hoặc link YouTube/playlist"},
++                     "nguon": {"type": "string",
++                               "enum": ["youtube", "zing", "facebook"],
++                               "description": "Nguồn tìm (mặc định youtube)"},
++                     "gioi_han": {"type": "integer", "minimum": 1, "maximum": 30,
++                                  "description": "Số kết quả (mặc định 10)"}}}},
++            {"hanh_dong": "danh_sach_playlist",
++             "mo_ta": "Liệt kê playlist trong kho chung",
++             "tham_so": {"type": "object", "additionalProperties": False,
++                         "properties": {}}},
++            {"hanh_dong": "cac_phien",
++             "mo_ta": "Liệt kê các nhóm loa đang phát (mỗi nhóm một phiên)",
++             "tham_so": {"type": "object", "additionalProperties": False,
++                         "properties": {}}},
++        ]
++
++    def _tinh_nang_dieu_khien(self) -> list[dict]:
++        phien = {"type": "string", "minLength": 1, "maxLength": 64,
++                 "description": "Mã phiên (bỏ trống: dùng phiên đang chạy)"}
++        return [
++            {"hanh_dong": "phat",
++             "mo_ta": "Phát một bài (hoặc tiếp tục phiên đang dừng)",
++             "tham_so": {
++                 "type": "object", "additionalProperties": False,
++                 "properties": {
++                     "muc_tieu": {"type": "string", "minLength": 1,
++                                  "maxLength": 2048,
++                                  "description": "Mã video, link bài hoặc URL trực tiếp"},
++                     "nguon": {"type": "string",
++                               "enum": ["youtube", "zing", "facebook", "http"],
++                               "description": "Nguồn của mục tiêu (mặc định youtube)"},
++                     "phien": phien,
++                     "playlist_id": {"type": "string", "minLength": 1,
++                                     "maxLength": 64,
++                                     "description": "Phát theo playlist trong kho"},
++                     "thiet_bi": {"type": "array", "minItems": 1, "maxItems": 32,
++                                  "items": {"type": "string", "minLength": 1,
++                                            "maxLength": 64},
++                                  "description": "Loa/tivi nhận phát (entity_id)"},
++                     "tieu_de": {"type": "string", "maxLength": 512,
++                                 "description": "Tên bài gợi ý (tuỳ chọn)"},
++                     "thoi_luong": {"type": "number", "minimum": 0,
++                                    "description": "Thời lượng gợi ý, giây (tuỳ chọn)"}}}},
++            {"hanh_dong": "dung",
++             "mo_ta": "Dừng hẳn phiên phát (dừng là dừng hẳn, không phát lại)",
++             "tham_so": {"type": "object", "additionalProperties": False,
++                         "properties": {"phien": phien}}},
++            {"hanh_dong": "tam_dung",
++             "mo_ta": "Tạm dừng phiên phát, giữ nguyên bài (bấm Phát để tiếp tục)",
++             "tham_so": {"type": "object", "additionalProperties": False,
++                         "properties": {"phien": phien}}},
++            {"hanh_dong": "bai_ke",
++             "mo_ta": "Chuyển bài kế trong hàng đợi của phiên",
++             "tham_so": {"type": "object", "additionalProperties": False,
++                         "properties": {"phien": phien}}},
++            {"hanh_dong": "bai_truoc",
++             "mo_ta": "Chuyển bài trước trong hàng đợi của phiên",
++             "tham_so": {"type": "object", "additionalProperties": False,
++                         "properties": {"phien": phien}}},
++            {"hanh_dong": "tua",
++             "mo_ta": "Tua phiên phát tới vị trí giây",
++             "tham_so": {
++                 "type": "object", "required": ["giay"],
++                 "additionalProperties": False,
++                 "properties": {
++                     "phien": phien,
++                     "giay": {"type": "number", "minimum": 0,
++                              "description": "Vị trí muốn tua tới (giây, >= 0)"}}}},
++            {"hanh_dong": "doi_loa",
++             "mo_ta": "Đổi loa/tivi của phiên đang phát (không phát lại từ đầu)",
++             "tham_so": {
++                 "type": "object", "required": ["thiet_bi"],
++                 "additionalProperties": False,
++                 "properties": {
++                     "phien": phien,
++                     "thiet_bi": {"type": "array", "minItems": 1, "maxItems": 32,
++                                  "items": {"type": "string", "minLength": 1,
++                                            "maxLength": 64},
++                                  "description": "Loa/tivi mới nhận phát (entity_id)"}}}},
++            {"hanh_dong": "nhap_playlist",
++             "mo_ta": "Nhập playlist từ link playlist YouTube hoặc mã chia sẻ TTPL1.",
++             "tham_so": {
++                 "type": "object", "required": ["text"],
++                 "additionalProperties": False,
++                 "properties": {
++                     "text": {"type": "string", "minLength": 1,
++                              "maxLength": 400000,
++                              "description": "Link playlist YouTube hoặc mã TTPL1."},
++                     "ten": {"type": "string", "minLength": 1, "maxLength": 120,
++                             "description": "Tên đặt cho playlist (tuỳ chọn)"}}}},
++            {"hanh_dong": "phat_tu_hang_doi",
++             "mo_ta": "Phát hàng đợi của phiên từ bài ở vị trí chọn (giữ nguyên hàng đợi)",
++             "tham_so": {
++                 "type": "object", "required": ["chi_so"],
++                 "additionalProperties": False,
++                 "properties": {
++                     "phien": phien,
++                     "chi_so": {"type": "integer", "minimum": 0,
++                                "description": "Vị trí bài trong hàng đợi"}}}},
++            {"hanh_dong": "tao_playlist",
++             "mo_ta": "Tạo playlist mới trong kho",
++             "tham_so": {
++                 "type": "object", "required": ["ten"],
++                 "additionalProperties": False,
++                 "properties": {
++                     "ten": {"type": "string", "minLength": 1, "maxLength": 120,
++                             "description": "Tên playlist mới"}}}},
++            {"hanh_dong": "xoa_playlist",
++             "mo_ta": "Xoá một playlist khỏi kho",
++             "tham_so": {
++                 "type": "object", "required": ["playlist_id"],
++                 "additionalProperties": False,
++                 "properties": {
++                     "playlist_id": {"type": "string", "minLength": 1,
++                                     "maxLength": 64,
++                                     "description": "Mã playlist trong kho"}}}},
++            {"hanh_dong": "xoa_khoi_hang_doi",
++             "mo_ta": "Xoá một bài khỏi hàng đợi của phiên đang phát",
++             "tham_so": {
++                 "type": "object", "required": ["chi_so"],
++                 "additionalProperties": False,
++                 "properties": {
++                     "phien": phien,
++                     "chi_so": {"type": "integer", "minimum": 0,
++                                "description": "Vị trí bài trong hàng đợi"}}}},
++            {"hanh_dong": "phat_playlist",
++             "mo_ta": "Phát một playlist trong kho, từ bài ở vị trí chọn",
++             "tham_so": {
++                 "type": "object", "required": ["playlist_id"],
++                 "additionalProperties": False,
++                 "properties": {
++                     "playlist_id": {"type": "string", "minLength": 1,
++                                     "maxLength": 64,
++                                     "description": "Mã playlist trong kho"},
++                     "chi_so": {"type": "integer", "minimum": 0,
++                                "description": "Vị trí bài bắt đầu (mặc định 0)"}}}},
++            {"hanh_dong": "them_vao_playlist",
++             "mo_ta": "Thêm một bài vào playlist trong kho",
++             "tham_so": {
++                 "type": "object", "required": ["playlist_id", "muc_tieu"],
++                 "additionalProperties": False,
++                 "properties": {
++                     "playlist_id": {"type": "string", "minLength": 1,
++                                     "maxLength": 64,
++                                     "description": "Mã playlist trong kho"},
++                     "muc_tieu": {"type": "string", "minLength": 1,
++                                  "maxLength": 2048,
++                                  "description": "Mã video, link bài hoặc URL trực tiếp"},
++                     "nguon": {"type": "string",
++                               "enum": ["youtube", "zing", "facebook", "http"],
++                               "description": "Nguồn của bài (mặc định youtube)"},
++                     "tieu_de": {"type": "string", "maxLength": 512,
++                                 "description": "Tên bài gợi ý (tuỳ chọn)"}}}},
++            {"hanh_dong": "them_vao_hang_doi",
++             "mo_ta": "Thêm một bài vào cuối hàng đợi của phiên đang phát",
++             "tham_so": {
++                 "type": "object", "required": ["muc_tieu"],
++                 "additionalProperties": False,
++                 "properties": {
++                     "phien": phien,
++                     "muc_tieu": {"type": "string", "minLength": 1,
++                                  "maxLength": 2048,
++                                  "description": "Mã video, link bài hoặc URL trực tiếp"},
++                     "nguon": {"type": "string",
++                               "enum": ["youtube", "zing", "facebook", "http"],
++                               "description": "Nguồn của bài (mặc định youtube)"},
++                     "tieu_de": {"type": "string", "maxLength": 512,
++                                 "description": "Tên bài gợi ý (tuỳ chọn)"}}}},
++        ]
++
+     async def thuc_the(self, loc=None) -> list[dict]:
+-        """Một thực thể chỉ-đọc trạng thái phát (rủi ro «doc»).
++        """Hai thực thể: xem (doc) + điều khiển (ghi).
+ 
+         Không mang khoá, URL luồng hay thông tin kết nối nào: trạng thái
+         phát là dữ liệu hiển thị, không phải bí mật."""
+         tien_to = self._tien_to_thuc_the()
+-        return [{
+-            "id": f"{tien_to}.xem",
+-            "ten": "YouTube — trạng thái phát",
+-            "loai": "cong_cu",
+-            "thuoc_tinh": {"nguon_phat": "YouTube, Zing MP3, HTTP trực tiếp"},
+-            "mo_ta": ("Trạng thái phát của máy phát YouTube/Zing chạy thẳng "
+-                       "trong web2api: bài đang phát, đã dừng hay chưa phát. "
+-                       "Điều khiển đầy đủ ở tab YouTube."),
+-            "tinh_nang": [{
+-                "hanh_dong": "trang_thai",
+-                "mo_ta": "Đọc bài đang phát và trạng thái lúc hỏi",
+-                "tham_so": {"type": "object", "additionalProperties": False,
+-                            "properties": {}},
+-            }],
+-            "rui_ro_mac_dinh": "doc",
+-        }]
++        return [
++            {"id": f"{tien_to}.xem",
++             "ten": "YouTube — trạng thái phát",
++             "loai": "cong_cu",
++             "thuoc_tinh": {"nguon_phat": "YouTube, Zing MP3, HTTP trực tiếp"},
++             "mo_ta": ("Trạng thái phát của máy phát YouTube/Zing chạy thẳng "
++                        "trong web2api: bài đang phát, đã dừng hay chưa phát. "
++                        "Điều khiển đầy đủ ở tab YouTube."),
++             "tinh_nang": self._tinh_nang_xem(),
++             "rui_ro_mac_dinh": "doc"},
++            {"id": f"{tien_to}.dieu_khien",
++             "ten": "YouTube — điều khiển phát",
++             "loai": "cong_cu",
++             "thuoc_tinh": {"nguon_phat": "YouTube, Zing MP3, HTTP trực tiếp"},
++             "mo_ta": ("Phát, dừng, tạm dừng, chuyển bài, tua và quản lý "
++                        "playlist/hàng đợi của máy phát YouTube/Zing."),
++             "tinh_nang": self._tinh_nang_dieu_khien(),
++             "rui_ro_mac_dinh": "ghi"},
++        ]
+ 
+     async def trang_thai(self, ids) -> dict:
+         """Trạng thái THẬT lúc hỏi (hợp đồng C1 — lõi `await m.trang_thai(ids)`):
+@@ -386,17 +573,249 @@ class Module:
+         gia_tri, _ = self._phien_trang_thai()
+         return {str(i): {"gia_tri": gia_tri, "luc": luc} for i in (ids or [])}
+ 
++    def _loi_hanh_dong(self, ma: int, nd: dict) -> dict:
++        """(mã, nội dung) của tich_hop → dict lỗi cho tab (tiếng thường)."""
++        code = (nd or {}).get("error") or "module_error"
++        chu = {
++            "session_not_found": "Không có phiên nào đang chạy.",
++            "queue_end": "Đã hết hàng đợi — không còn bài kế.",
++            "queue_start": "Đang ở đầu hàng đợi — không còn bài trước.",
++            "playlist_not_found": "Không tìm thấy playlist trong kho.",
++            "playlist_empty": "Playlist nhập về không có bài nào.",
++            "playlist_unavailable": "Không lấy được playlist lúc này (nguồn lỗi hoặc chưa hỗ trợ).",
++            "invalid_playlist_link": "Link chưa đúng: cần link playlist YouTube hoặc mã chia sẻ TTPL1.",
++            "invalid_share_code": "Mã chia sẻ không đúng định dạng.",
++            "invalid_target": "Mục tiêu chưa đúng (mã video, link bài hoặc URL trực tiếp).",
++            "invalid_queue_item": "Bài thêm vào hàng đợi chưa đúng định dạng.",
++            "invalid_item": "Bài thêm vào playlist chưa đúng định dạng.",
++            "invalid_volume_level": "Âm lượng phải từ 0 tới 1.",
++        }.get(code, f"Không thực hiện được ({code}).")
++        return {"ok": False, "loi": chu, "ma_loi": code}
++
+     async def thuc_hien(self, id: str, hanh_dong: str, tham_so: dict | None) -> dict:
+-        """Điều phối hành động thực thể — mảnh tab chỉ có `trang_thai` (đọc).
++        """Điều phối hành động thực thể qua tich_hop nội bộ (không qua HTTP).
+         Lỗi → dict {"ok": False, "loi": ...}, KHÔNG ném."""
+         tham_so = dict(tham_so or {})
+-        if id != f"{self._tien_to_thuc_the()}.xem":
+-            return {"ok": False, "loi": "khong_thay_thuc_the"}
+-        if hanh_dong != "trang_thai":
++        tien_to = self._tien_to_thuc_the()
++        xem_id, dk_id = f"{tien_to}.xem", f"{tien_to}.dieu_khien"
++        xem_hd = {t["hanh_dong"] for t in self._tinh_nang_xem()}
++        dk_hd = {t["hanh_dong"] for t in self._tinh_nang_dieu_khien()}
++        try:
++            if id == xem_id and hanh_dong in xem_hd:
++                if hanh_dong == "trang_thai":
++                    gia_tri, phien = self._phien_trang_thai()
++                    return {"ok": True, "trang_thai": gia_tri,
++                            "phien": self._anh_xa_phien(phien) if phien else None}
++                if hanh_dong == "tim":
++                    ma, _, nd = await self.tich_hop(
++                        "integration/search", "GET",
++                        {"q": tham_so.get("tu_khoa", ""),
++                         "source": tham_so.get("nguon") or "youtube",
++                         "limit": tham_so.get("gioi_han") or 10}, None)
++                    if ma != 200:
++                        return self._loi_hanh_dong(ma, nd)
++                    return {"ok": True, "ket_qua": nd.get("results") or [],
++                            "tong": nd.get("total", 0)}
++                if hanh_dong == "danh_sach_playlist":
++                    return {"ok": True, "danh_sach": self._playlists}
++                if hanh_dong == "cac_phien":
++                    song = [p for p in self._phien.values()
++                            if p.get("status") != "stopped"]
++                    song.sort(key=lambda p: p.get("revision", 0), reverse=True)
++                    return {"ok": True,
++                            "cac_phien": [self._anh_xa_phien(p) for p in song]}
++            if id == dk_id and hanh_dong in dk_hd:
++                if hanh_dong == "phat":
++                    than = {}
++                    if tham_so.get("phien"):
++                        than["session_id"] = tham_so["phien"]
++                    if tham_so.get("muc_tieu"):
++                        than["target"] = tham_so["muc_tieu"]
++                    if tham_so.get("nguon"):
++                        than["source"] = tham_so["nguon"]
++                    if tham_so.get("playlist_id"):
++                        than["playlist_id"] = tham_so["playlist_id"]
++                    if tham_so.get("thiet_bi"):
++                        than["outputs"] = tham_so["thiet_bi"]
++                    if tham_so.get("tieu_de"):
++                        than["title"] = tham_so["tieu_de"]
++                    if tham_so.get("thoi_luong") is not None:
++                        than["duration"] = tham_so["thoi_luong"]
++                    ma, _, nd = await self.tich_hop(
++                        "integration/play", "POST", {}, than)
++                    if ma != 200:
++                        return self._loi_hanh_dong(ma, nd)
++                    return {"ok": True, "phien": nd.get("session"),
++                            "bai": nd.get("item")}
++                if hanh_dong in ("dung", "tam_dung", "bai_ke", "bai_truoc"):
++                    duong = {"dung": "integration/stop",
++                             "tam_dung": "integration/pause",
++                             "bai_ke": "integration/next",
++                             "bai_truoc": "integration/prev"}[hanh_dong]
++                    than = {}
++                    if tham_so.get("phien"):
++                        than["session_id"] = tham_so["phien"]
++                    ma, _, nd = await self.tich_hop(duong, "POST", {}, than)
++                    if ma != 200:
++                        return self._loi_hanh_dong(ma, nd)
++                    if hanh_dong == "dung":
++                        return {"ok": True, "da_dung": bool(nd.get("stopped", True)),
++                                "phien": nd.get("session")}
++                    return {"ok": True, "phien": nd.get("session"),
++                            "bai": nd.get("item")}
++                if hanh_dong == "tua":
++                    than = {"giay": tham_so.get("giay")}
++                    if tham_so.get("phien"):
++                        than["session_id"] = tham_so["phien"]
++                    ma, _, nd = await self.tich_hop(
++                        "integration/seek", "POST", {}, than)
++                    if ma != 200:
++                        return self._loi_hanh_dong(ma, nd)
++                    return {"ok": True, "phien": nd.get("session"),
++                            "vi_tri": nd.get("position")}
++                if hanh_dong == "doi_loa":
++                    than = {"output_entity_ids": tham_so.get("thiet_bi") or []}
++                    if tham_so.get("phien"):
++                        than["session_id"] = tham_so["phien"]
++                    ma, _, nd = await self.tich_hop(
++                        "integration/session/outputs", "POST", {}, than)
++                    if ma != 200:
++                        return self._loi_hanh_dong(ma, nd)
++                    return {"ok": True, "phien": nd.get("session"),
++                            "da_dung": bool(nd.get("stopped", False))}
++                if hanh_dong == "nhap_playlist":
++                    ma, _, nd = await self._playlists_hanh_dong(
++                        {"action": "import", "text": tham_so.get("text", ""),
++                         "name": tham_so.get("ten") or ""})
++                    if ma != 200:
++                        return self._loi_hanh_dong(ma, nd)
++                    self._ghi_tep("playlists.json", "playlists", self._playlists)
++                    return {"ok": True, "playlist": nd.get("playlist")}
++                if hanh_dong == "phat_tu_hang_doi":
++                    sid = tham_so.get("phien") or self._phien_hien_tai
++                    phien = self._phien_song(sid)
++                    if phien is None:
++                        return {"ok": False, "loi": "Không có phiên nào đang chạy.",
++                                "ma_loi": "session_not_found"}
++                    hang = phien.get("queue") or {"index": 0, "items": []}
++                    items = hang.get("items") or []
++                    try:
++                        chi_so = int(tham_so.get("chi_so"))
++                    except (TypeError, ValueError):
++                        return {"ok": False,
++                                "loi": "Vị trí bài trong hàng đợi chưa đúng.",
++                                "ma_loi": "invalid_queue_index"}
++                    if not 0 <= chi_so < len(items):
++                        return {"ok": False,
++                                "loi": "Hàng đợi không có bài ở vị trí đó.",
++                                "ma_loi": "invalid_queue_index"}
++                    bai = items[chi_so]
++                    try:
++                        phien_moi = await self._tao_phien(
++                            {"source": bai.get("source") or "youtube",
++                             "target": bai.get("id"),
++                             "queue": [dict(m) for m in items],
++                             "queue_index": chi_so,
++                             "outputs": list(phien.get("outputs") or [])})
++                    except ValueError as e:
++                        return self._loi_hanh_dong(400, {"error": str(e)})
++                    self._ghi_lich_su({"source": phien_moi["source"],
++                                       "target": phien_moi["target"],
++                                       "title": phien_moi.get("title")})
++                    anh_xa = self._anh_xa_phien(phien_moi)
++                    return {"ok": True, "phien": anh_xa, "bai": anh_xa["item"]}
++                if hanh_dong == "tao_playlist":
++                    ma, _, nd = await self._playlists_hanh_dong(
++                        {"action": "create", "name": tham_so.get("ten") or ""})
++                    if ma != 200:
++                        return self._loi_hanh_dong(ma, nd)
++                    self._ghi_tep("playlists.json", "playlists", self._playlists)
++                    return {"ok": True, "playlist": nd.get("playlist")}
++                if hanh_dong == "xoa_playlist":
++                    ma, _, nd = await self._playlists_hanh_dong(
++                        {"action": "delete",
++                         "playlist_id": tham_so.get("playlist_id")})
++                    if ma != 200:
++                        return self._loi_hanh_dong(ma, nd)
++                    self._ghi_tep("playlists.json", "playlists", self._playlists)
++                    return {"ok": True, "da_xoa": True}
++                if hanh_dong == "xoa_khoi_hang_doi":
++                    than = {"action": "remove", "index": tham_so.get("chi_so")}
++                    if tham_so.get("phien"):
++                        than["session_id"] = tham_so["phien"]
++                    ma, _, nd = await self.tich_hop(
++                        "integration/queue", "POST", {}, than)
++                    if ma != 200:
++                        return self._loi_hanh_dong(ma, nd)
++                    return {"ok": True, "phien": nd.get("session"),
++                            "hang_doi": nd.get("queue")}
++                if hanh_dong == "phat_playlist":
++                    muc = next((p for p in self._playlists
++                                if p.get("id") == tham_so.get("playlist_id")), None)
++                    if muc is None:
++                        return {"ok": False, "loi": "Không tìm thấy playlist trong kho.",
++                                "ma_loi": "playlist_not_found"}
++                    items = muc.get("items") or []
++                    try:
++                        chi_so = int(tham_so.get("chi_so") or 0)
++                    except (TypeError, ValueError):
++                        chi_so = 0
++                    if not items or not 0 <= chi_so < len(items):
++                        return {"ok": False, "loi": "Playlist không có bài ở vị trí đó.",
++                                "ma_loi": "invalid_playlist_index"}
++                    bai = items[chi_so]
++                    ma, _, nd = await self.tich_hop(
++                        "integration/play", "POST", {},
++                        {"source": bai.get("source") or "youtube",
++                         "target": bai.get("id"),
++                         "playlist_id": muc["id"]})
++                    if ma != 200:
++                        return self._loi_hanh_dong(ma, nd)
++                    return {"ok": True, "phien": nd.get("session"),
++                            "bai": nd.get("item")}
++                if hanh_dong == "them_vao_playlist":
++                    muc = self._chuan_hoa_muc(
++                        {"source": tham_so.get("nguon") or "youtube",
++                         "target": tham_so.get("muc_tieu"),
++                         "title": tham_so.get("tieu_de")})
++                    if muc is None:
++                        return {"ok": False,
++                                "loi": "Bài thêm vào playlist chưa đúng định dạng.",
++                                "ma_loi": "invalid_item"}
++                    ma, _, nd = await self._playlists_hanh_dong(
++                        {"action": "add", "playlist_id": tham_so.get("playlist_id"),
++                         "item": muc})
++                    if ma != 200:
++                        return self._loi_hanh_dong(ma, nd)
++                    self._ghi_tep("playlists.json", "playlists", self._playlists)
++                    return {"ok": True, "playlist": nd.get("playlist"),
++                            "added": nd.get("added", 0)}
++                if hanh_dong == "them_vao_hang_doi":
++                    sid = tham_so.get("phien") or self._phien_hien_tai
++                    phien = self._phien_song(sid)
++                    if phien is None:
++                        return {"ok": False, "loi": "Không có phiên nào đang chạy.",
++                                "ma_loi": "session_not_found"}
++                    muc = self._chuan_hoa_muc(
++                        {"source": tham_so.get("nguon") or "youtube",
++                         "target": tham_so.get("muc_tieu"),
++                         "title": tham_so.get("tieu_de")})
++                    if muc is None:
++                        return {"ok": False,
++                                "loi": "Bài thêm vào hàng đợi chưa đúng định dạng.",
++                                "ma_loi": "invalid_queue_item"}
++                    hang = phien.setdefault("queue", {"index": 0, "items": []})
++                    if len(hang.get("items", [])) >= BAI_TOI_DA:
++                        return {"ok": False, "loi": "Hàng đợi đã đầy.",
++                                "ma_loi": "queue_full"}
++                    hang.setdefault("items", []).append(muc)
++                    phien["revision"] = self._tang_ban_sua()
++                    return {"ok": True, "hang_doi": hang,
++                            "so_bai": len(hang["items"])}
+             return {"ok": False, "loi": "hanh_dong_khong_ho_tro"}
+-        gia_tri, phien = self._phien_trang_thai()
+-        return {"ok": True, "trang_thai": gia_tri,
+-                "phien": self._anh_xa_phien(phien) if phien else None}
++        except Exception as e:
++            log.warning("thuc_hien youtube lỗi: %s", type(e).__name__)
++            return {"ok": False, "loi": "Không thực hiện được."}
+ 
+     # ── tiện ích nội bộ ─────────────────────────────────────────────────
+ 
+@@ -808,8 +1227,19 @@ class Module:
+             muc_hien_tai = await self._sieu_du_lieu(source, target, goi_y)
+         # Giải hàng đợi.
+         hang, chi_so, playlist_cua_hang = None, 0, None
++        # Bên gọi chỉ rõ vị trí trong hàng đợi đưa (phát từ bài thứ i):
++        # dùng thẳng vị trí đó, khỏi tìm theo mục tiêu (tránh nhầm khi
++        # hàng đợi có bài trùng nhau).
++        if hang_goi is not None and than.get("queue_index") is not None:
++            try:
++                chi_so_goi = int(than["queue_index"])
++            except (TypeError, ValueError):
++                chi_so_goi = -1
++            if 0 <= chi_so_goi < len(hang_goi):
++                hang, chi_so = hang_goi, chi_so_goi
++                muc_hien_tai = dict(hang_goi[chi_so_goi])
+         ung_vien = []
+-        if hang_goi is not None:
++        if hang is None and hang_goi is not None:
+             ung_vien.append((hang_goi, None))
+         if muc_playlist is not None:
+             ung_vien.append((muc_playlist, playlist_id))
+@@ -818,25 +1248,26 @@ class Module:
+             ung_vien.append(((phien_cu.get("queue") or {}).get("items") or [], None))
+         if target:
+             ung_vien.append((self._hang_doi_tim_kiem.get(source) or [], None))
+-        for ds, pid in ung_vien:
+-            if not ds:
+-                continue
+-            if target:
+-                tim = next((i for i, m in enumerate(ds)
+-                            if m.get("source") == source
+-                            and target in {m.get("id"), m.get("url")}), -1)
+-                if tim < 0:
++        if hang is None:
++            for ds, pid in ung_vien:
++                if not ds:
+                     continue
+-                hang, chi_so, playlist_cua_hang = ds, tim, pid
+-                muc_hien_tai = dict(ds[tim])
++                if target:
++                    tim = next((i for i, m in enumerate(ds)
++                                if m.get("source") == source
++                                and target in {m.get("id"), m.get("url")}), -1)
++                    if tim < 0:
++                        continue
++                    hang, chi_so, playlist_cua_hang = ds, tim, pid
++                    muc_hien_tai = dict(ds[tim])
++                    if pid:
++                        muc_hien_tai["playlist_id"] = pid
++                    break
++                hang, chi_so, playlist_cua_hang = ds, 0, pid
++                muc_hien_tai = dict(ds[0])
+                 if pid:
+                     muc_hien_tai["playlist_id"] = pid
+                 break
+-            hang, chi_so, playlist_cua_hang = ds, 0, pid
+-            muc_hien_tai = dict(ds[0])
+-            if pid:
+-                muc_hien_tai["playlist_id"] = pid
+-            break
+         if hang is None:
+             if muc_hien_tai is None:
+                 raise ValueError("invalid_target")
+@@ -1142,6 +1573,62 @@ class Module:
+             # trên URL luồng đã có. Trả None rõ ràng thay vì URL sai.
+             return _ok({"session": anh_xa, "item": anh_xa["item"],
+                         "position": vi_tri, "seek_url": None})
++        if duong == "integration/queue" and phuong_thuc == "GET":
++            # NV301 mảnh giao diện: hàng đợi của phiên (tab hiện «Queue
++            # (a/b)», nút «Thêm vào Queue» dùng POST bên dưới).
++            sid = query.get("session_id") or self._phien_hien_tai
++            phien = self._phien_song(sid)
++            if phien is None:
++                return _loi(404, "session_not_found")
++            hang = phien.get("queue") or {"index": 0, "items": []}
++            return _ok({"session_id": phien["id"], "queue": hang,
++                        "queue_index": hang.get("index", 0)})
++        if duong == "integration/queue" and phuong_thuc == "POST":
++            sid = than.get("session_id") or self._phien_hien_tai
++            phien = self._phien_song(sid)
++            if phien is None:
++                return _loi(404, "session_not_found")
++            hanh_dong = than.get("action") or "add"
++            if hanh_dong == "add":
++                muc = self._chuan_hoa_muc(than.get("item") or {})
++                if muc is None:
++                    return _loi(400, "invalid_queue_item")
++                hang = phien.setdefault("queue", {"index": 0, "items": []})
++                if len(hang.get("items", [])) >= BAI_TOI_DA:
++                    return _loi(400, "queue_full")
++                hang.setdefault("items", []).append(muc)
++                phien["revision"] = self._tang_ban_sua()
++            elif hanh_dong == "remove":
++                hang = phien.get("queue") or {"index": 0, "items": []}
++                try:
++                    chi_so = int(than.get("index"))
++                except (TypeError, ValueError):
++                    return _loi(400, "invalid_queue_index")
++                items = hang.get("items", [])
++                if not 0 <= chi_so < len(items):
++                    return _loi(400, "invalid_queue_index")
++                del items[chi_so]
++                if chi_so < hang.get("index", 0):
++                    hang["index"] -= 1
++                elif chi_so == hang.get("index", 0):
++                    # Xoá đúng bài đang phát: bài kế (nếu còn) thành bài
++                    # hiện tại, vị trí về 0; hết hàng thì giữ chỉ số cuối.
++                    phien["position"] = 0
++                    if hang["index"] >= len(items):
++                        hang["index"] = max(0, len(items) - 1)
++                    if items:
++                        bai_moi = items[hang["index"]]
++                        phien["item"] = dict(bai_moi)
++                        phien["title"] = bai_moi.get("title")
++                        phien["duration"] = bai_moi.get("duration", 0)
++                elif hang.get("index", 0) >= len(items):
++                    hang["index"] = max(0, len(items) - 1)
++                phien["revision"] = self._tang_ban_sua()
++            else:
++                return _loi(400, "invalid_queue_action")
++            anh_xa = self._anh_xa_phien(phien)
++            return _ok({"session": anh_xa, "queue": anh_xa["queue"],
++                        "queue_index": anh_xa["queue_index"]})
+         return _loi(404, "not_found")
+ 
+     def _tao_playlist_moi(self, ten, items):
+diff --git a/modules/youtube/web/index.html b/modules/youtube/web/index.html
+index bbe7af0..4050d83 100644
+--- a/modules/youtube/web/index.html
++++ b/modules/youtube/web/index.html
+@@ -6,6 +6,37 @@
+ <meta name="referrer" content="no-referrer">
+ <title>YouTube</title>
+ <link rel="stylesheet" href="../../khung.css">
++<style>
++  .bia { width: 100%; max-width: 480px; aspect-ratio: 16 / 9; object-fit: cover;
++         background: #ddd; border-radius: 8px; display: block; }
++  .chip-nguon { display: inline-block; padding: 2px 10px; border-radius: 999px;
++         background: #eee; font-size: 13px; margin-right: 6px; }
++  .thanh-tien-do { width: 100%; height: 10px; background: #ddd; border-radius: 5px;
++         cursor: pointer; margin: 10px 0 4px; }
++  .thanh-tien-do > div { height: 100%; background: #c00; border-radius: 5px; width: 0%; }
++  .hang-nut { display: flex; gap: 8px; flex-wrap: wrap; margin: 10px 0; }
++  .hang-nut .nut { flex: 1 1 auto; }
++  .thanh-chip-duoi { position: sticky; bottom: 0; display: flex; gap: 6px;
++         flex-wrap: wrap; background: #fff; padding: 10px 0; border-top: 1px solid #ddd; }
++  .thanh-chip-duoi .nut { flex: 1 1 auto; }
++  .hang-kq { display: flex; gap: 10px; align-items: flex-start; padding: 8px 0;
++         border-bottom: 1px solid #eee; }
++  .hang-kq img { width: 96px; height: 54px; object-fit: cover; border-radius: 4px;
++         background: #ddd; flex: none; }
++  .hang-kq .nd { flex: 1 1 auto; min-width: 0; }
++  .hang-kq .tieu-de { font-weight: 600; }
++  .hang-kq .kenh { color: #555; font-size: 13px; }
++  .hang-kq .hang-nut { margin: 6px 0 0; }
++  .hang-kq .hang-nut .nut { flex: none; }
++  .phien-dang-chon { background: #fff8e1; }
++  @media (prefers-color-scheme: dark) {
++    .bia, .hang-kq img { background: #333; }
++    .chip-nguon { background: #333; }
++    .thanh-tien-do { background: #444; }
++    .thanh-chip-duoi { background: #111; border-top-color: #333; }
++    .phien-dang-chon { background: #332f00; }
++  }
++</style>
+ <script src="trang.js" defer></script>
+ </head>
+ <body>
+@@ -13,15 +44,122 @@
+ <main class="trang-tb">
+   <a class="quay-lai" href="../../He-thong.dc.html">← Hệ thống</a>
+   <h1>YouTube</h1>
+-  <p class="phu">Máy phát YouTube/Zing chạy thẳng trong web2api. Mọi lệnh đi qua
++  <p class="phu">Trình phát YouTube/Zing chạy thẳng trong web2api. Mọi lệnh đi qua
+     máy chủ (trình duyệt không giữ khoá nào). Mục nào chưa có thì ẩn — không có nút chết.</p>
+   <p class="bao bao-loi" id="loi-chung" role="alert" hidden></p>
+ 
+-  <section class="the" aria-labelledby="tieu-de-trang-thai">
+-    <h2 id="tieu-de-trang-thai">Đang phát</h2>
+-    <p id="trang-thai" aria-live="polite">Đang tải…</p>
+-    <p class="phu" id="bai-hien-tai" hidden></p>
++  <section class="the" aria-labelledby="tieu-de-dang-phat">
++    <h2 id="tieu-de-dang-phat">Đang phát</h2>
++    <img class="bia" id="anh-bia" alt="" hidden>
++    <p>
++      <span class="chip-nguon" id="chip-nguon" hidden></span>
++      <strong id="ten-bai">Chưa có dữ liệu.</strong>
++    </p>
++    <p class="phu" id="kenh-bai" hidden></p>
++    <p class="phu" id="tren-loa" hidden></p>
++    <p class="bao bao-vang" id="bao-nguon-chua-ho-tro" hidden></p>
++    <div class="thanh-tien-do" id="thanh-tien-do" role="slider"
++         aria-label="Vị trí phát" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
++      <div id="tien-do"></div>
++    </div>
++    <p class="phu" id="thoi-gian" aria-live="off"></p>
++    <div class="hang-nut">
++      <button class="nut" id="nut-truoc" type="button" disabled>⏮ Bài trước</button>
++      <button class="nut nut-chinh" id="nut-phat-tam-dung" type="button" disabled>▶ Phát</button>
++      <button class="nut" id="nut-sau" type="button" disabled>Bài kế ⏭</button>
++      <button class="nut" id="nut-dung" type="button" disabled>⏹ Dừng hẳn</button>
++    </div>
++    <p><button class="nut nut-nho" id="nut-man-hinh" type="button">🌙 Nghe khi tắt màn hình</button></p>
++    <p class="bao bao-vang" id="bao-man-hinh" hidden></p>
+   </section>
++
++  <section class="the" aria-labelledby="tieu-de-nhom">
++    <h2 id="tieu-de-nhom">Nhóm đang phát — bấm để điều khiển</h2>
++    <p class="phu">Mỗi nhóm loa/tivi đang phát là một phiên riêng. Bấm một nhóm
++      để các nút ở trên điều khiển nhóm đó.</p>
++    <ul class="ds-kq" id="ds-nhom" aria-live="polite"></ul>
++  </section>
++
++  <section class="the" aria-labelledby="tieu-de-tim">
++    <h2 id="tieu-de-tim">Tìm kiếm</h2>
++    <div class="hang-nut" role="group" aria-label="Nguồn tìm">
++      <button class="nut nut-chinh" id="chip-yt" type="button" aria-pressed="true">YouTube</button>
++      <button class="nut" id="chip-zing" type="button" aria-pressed="false">Zing MP3</button>
++      <button class="nut" id="chip-fb" type="button" aria-pressed="false">Facebook</button>
++    </div>
++    <label for="o-tu-khoa">Từ khoá hoặc link bài, link playlist</label>
++    <div class="o-va-nut">
++      <input class="o" id="o-tu-khoa" maxlength="2048" autocomplete="off"
++             placeholder="Tên bài, ca sĩ… hoặc dán link YouTube">
++      <button class="nut nut-chinh" id="nut-tim" type="button">Tìm</button>
++    </div>
++    <p class="phu" id="ghi-chu-nguon">Tìm trên YouTube: gõ từ khoá hoặc dán link bài/playlist.</p>
++    <p class="bao bao-loi" id="loi-tim" role="alert" hidden></p>
++    <label for="o-playlist-nhan">Playlist nhận bài khi bấm «Thêm vào Playlist»</label>
++    <select class="o" id="o-playlist-nhan" aria-label="Playlist nhận bài"></select>
++    <ul class="ds-kq" id="ds-ket-qua" aria-live="polite"></ul>
++  </section>
++
++  <section class="the" aria-labelledby="tieu-de-playlist">
++    <h2 id="tieu-de-playlist">Playlist</h2>
++    <label for="o-nhap-text">Nhập playlist: link playlist YouTube hoặc mã chia sẻ TTPL1.</label>
++    <div class="o-va-nut">
++      <input class="o" id="o-nhap-text" maxlength="400000" autocomplete="off"
++             placeholder="Link playlist YouTube hoặc mã TTPL1.…">
++      <button class="nut nut-chinh" id="nut-nhap" type="button">Nhập</button>
++    </div>
++    <label for="o-nhap-ten">Tên đặt cho playlist nhập về (để trống: giữ tên gốc)</label>
++    <input class="o" id="o-nhap-ten" maxlength="120" autocomplete="off">
++    <p class="bao bao-loi" id="loi-playlist" role="alert" hidden></p>
++    <p class="bao" id="bao-playlist" hidden></p>
++    <label for="o-tao-ten">Tạo playlist mới</label>
++    <div class="o-va-nut">
++      <input class="o" id="o-tao-ten" maxlength="120" autocomplete="off"
++             placeholder="Tên playlist mới">
++      <button class="nut" id="nut-tao" type="button">Tạo</button>
++    </div>
++    <ul class="ds-kq" id="ds-playlist" aria-live="polite"></ul>
++  </section>
++
++  <section class="the" aria-labelledby="tieu-de-queue">
++    <h2 id="tieu-de-queue">Hàng đợi</h2>
++    <p class="phu" id="queue-tom-tat">Chưa có phiên nào đang chạy.</p>
++    <ul class="ds-kq" id="ds-queue" aria-live="polite"></ul>
++  </section>
++
++  <section class="the" aria-labelledby="tieu-de-loa">
++    <h2 id="tieu-de-loa">Loa &amp; tivi</h2>
++    <p class="phu">Chọn loa/tivi rồi bấm «Phát» ở kết quả tìm kiếm hoặc playlist.
++      Danh sách lấy từ module Home Assistant.</p>
++    <p class="bao bao-vang" id="bao-chua-co-ha" hidden>Chưa cài module Home Assistant
++      nên không có danh sách loa/tivi. Cài module rồi quay lại đây.</p>
++    <div class="ds-chon" id="ds-thiet-bi" role="group" aria-label="Chọn loa/tivi"></div>
++    <div class="hang-nut">
++      <button class="nut" id="nut-doi-loa" type="button">Áp dụng cho phiên đang chạy</button>
++    </div>
++    <p class="bao bao-loi" id="loi-loa" role="alert" hidden></p>
++  </section>
++
++  <section class="the" aria-labelledby="tieu-de-cai-dat">
++    <h2 id="tieu-de-cai-dat"><button type="button" class="muc-gap-nut" data-mo-muc="cai-dat"
++        aria-expanded="false" aria-controls="nd-cai-dat">
++      <span>Cài đặt</span><span class="mui" aria-hidden="true">▾</span></button></h2>
++    <div id="nd-cai-dat" hidden>
++      <p class="phu">Module này không có cài đặt nào cần nhập (không ô khoá, không
++        tài khoản). Home Assistant gọi module qua khoá do web2api cấp: tạo
++        và xem khoá ở Hệ thống → Bảo mật &amp; người dùng → «Khoá cho dịch vụ
++        ngoài gọi vào» (chọn phạm vi của module YouTube). Khoá không hiện
++        ở trang này.</p>
++    </div>
++  </section>
++
++  <nav class="thanh-chip-duoi" aria-label="Chuyển mục">
++    <button class="nut nut-nho" type="button" data-cuon-toi="tieu-de-tim">Tìm kiếm</button>
++    <button class="nut nut-nho" type="button" data-cuon-toi="tieu-de-playlist">Playlist (<span id="dem-playlist">0</span>)</button>
++    <button class="nut nut-nho" type="button" data-cuon-toi="tieu-de-queue">Queue (<span id="dem-queue">0/0</span>)</button>
++    <button class="nut nut-nho" type="button" data-cuon-toi="tieu-de-loa">Loa &amp; tivi</button>
++    <button class="nut nut-nho" type="button" data-cuon-toi="tieu-de-cai-dat">Cài đặt</button>
++  </nav>
+ </main>
+ </div>
+ </body>
+diff --git a/modules/youtube/web/trang.js b/modules/youtube/web/trang.js
+index fe7139c..f7a1825 100644
+--- a/modules/youtube/web/trang.js
++++ b/modules/youtube/web/trang.js
+@@ -1,18 +1,36 @@
+-/* Tab YouTube (NV301 mảnh tab) — chỉ ĐỌC trạng thái qua hành động thực thể
+-   của lõi (phiên quản trị). Không gọi thẳng đường riêng của module (đường đó
+-   cần khoá khách, trình duyệt không có) và không giữ bí mật nào. Nút điều khiển
+-   (phát/dừng/chuyển bài/…) đi theo mảnh lõi và mảnh giao diện. */
++/* Tab YouTube (NV301 mảnh giao diện) — trình phát đầy đủ qua hành động
++   thực thể của lõi (phiên quản trị). Không gọi thẳng đường riêng của
++   module (đường đó cần khoá khách, trình duyệt không có) và không giữ
++   bí mật nào. Mọi dữ liệu ngoài đều qua textContent (không innerHTML
++   với dữ liệu) — tên bài/kênh/tên loa không chèn được mã. */
+ 'use strict';
+ 
+ const $ = (id) => document.getElementById(id);
+ 
+-function hienLoi(chu) {
+-  const o = $('loi-chung');
++function el(tag, cls, text) {
++  const o = document.createElement(tag);
++  if (cls) o.className = cls;
++  if (text !== undefined && text !== null) o.textContent = text;
++  return o;
++}
++
++function hienLoi(idO, chu) {
++  const o = $(idO);
+   if (!o) return;
+   o.textContent = chu || '';
+   o.hidden = !chu;
+ }
+ 
++function dinhDangGiay(giay) {
++  if (giay === null || giay === undefined || isNaN(giay) || giay < 0) return '–';
++  const g = Math.floor(giay);
++  const gio = Math.floor(g / 3600);
++  const phut = Math.floor((g % 3600) / 60);
++  const gi = g % 60;
++  if (gio > 0) return gio + ':' + String(phut).padStart(2, '0') + ':' + String(gi).padStart(2, '0');
++  return phut + ':' + String(gi).padStart(2, '0');
++}
++
+ let csrfToken = '';
+ async function layCsrf() {
+   if (csrfToken) return csrfToken;
+@@ -47,42 +65,625 @@ async function goi(duong, than) {
+   return { r, du };
+ }
+ 
+-const CHU_TRANG_THAI = {
+-  chua_phat: 'Chưa phát bài nào.',
+-  dang_phat: 'Đang phát.',
+-  dung: 'Đã dừng.',
+-};
++/* ── trạng thái trang ─────────────────────────────────────────────── */
++let thucTheXem = '';
++let thucTheDieuKhien = '';
++let phienHienTai = null;   // phiên đang hiển thị ở thẻ Đang phát
++let cacPhien = [];
++let phienChon = null;      // id phiên người dùng bấm ở «Nhóm đang phát»
++let playlists = [];
++let loaTen = {};           // hậu tố entity loa -> tên hiển thị
++let nguonTim = 'youtube';
++let viTriHien = 0;         // vị trí hiển thị (tự tick khi đang phát)
++let dongHoTick = null;
++
++async function timThucThe() {
++  if (thucTheXem && thucTheDieuKhien) return;
++  const kq = await goi('api/thiet-bi?module=youtube');
++  if (!kq.r.ok) throw new Error('Không đọc được danh sách thiết bị (HTTP ' + kq.r.status + ').');
++  const ds = ((kq.du || {}).thuc_the || []);
++  const xem = ds.find((e) => String(e.id || '').endsWith('.xem'));
++  const dk = ds.find((e) => String(e.id || '').endsWith('.dieu_khien'));
++  if (!xem || !dk) throw new Error('Chưa thấy thực thể YouTube — module có thể chưa chạy.');
++  thucTheXem = xem.id;
++  thucTheDieuKhien = dk.id;
++}
++
++async function hanhDongDoc(ten, thamSo) {
++  await timThucThe();
++  const kq = await goi('api/thiet-bi/' + encodeURIComponent(thucTheXem) + '/hanh-dong',
++    { hanh_dong: ten, tham_so: thamSo || {} });
++  if (!kq.r.ok) throw new Error('Không thực hiện được (HTTP ' + kq.r.status + ').');
++  const du = kq.du || {};
++  if (du.ok === false) throw new Error(du.loi || 'Không thực hiện được.');
++  return du;
++}
++
++async function hanhDong(ten, thamSo) {
++  await timThucThe();
++  const kq = await goi('api/thiet-bi/' + encodeURIComponent(thucTheDieuKhien) + '/hanh-dong',
++    { hanh_dong: ten, tham_so: thamSo || {} });
++  if (!kq.r.ok) throw new Error('Không thực hiện được (HTTP ' + kq.r.status + ').');
++  const du = kq.du || {};
++  if (du.ok === false) throw new Error(du.loi || 'Không thực hiện được.');
++  return du;
++}
++
++function loaDaChon() {
++  return [...document.querySelectorAll('#ds-thiet-bi input[type="checkbox"]:checked')]
++    .map((o) => o.value);
++}
++
++function tenLoa(entityId) {
++  // outputs lưu dạng «media_player.<phòng>»; tên hiển thị lấy từ danh
++  // sách HA, không có thì hiện hậu tố phòng (không hiện id kỹ thuật).
++  if (loaTen[entityId]) return loaTen[entityId];
++  const phan = String(entityId || '').split('.');
++  return phan.length > 1 ? phan[phan.length - 1] : 'loa/tivi';
++}
++
++function nhanNguon(source) {
++  return { youtube: 'YouTube', zing: 'Zing MP3', facebook: 'Facebook', http: 'HTTP' }[source] || 'YouTube';
++}
++
++/* ── thẻ Đang phát ────────────────────────────────────────────────── */
++function veDangPhat() {
++  const phien = phienHienTai;
++  const anh = $('anh-bia');
++  const ten = $('ten-bai');
++  const kenh = $('kenh-bai');
++  const trenLoa = $('tren-loa');
++  const chip = $('chip-nguon');
++  const baoNguon = $('bao-nguon-chua-ho-tro');
++  const nutPhat = $('nut-phat-tam-dung');
++  const nutTruoc = $('nut-truoc');
++  const nutSau = $('nut-sau');
++  const nutDung = $('nut-dung');
++  if (!phien || !phien.item) {
++    ten.textContent = 'Chưa có dữ liệu.';
++    kenh.hidden = true; trenLoa.hidden = true; chip.hidden = true;
++    anh.hidden = true; baoNguon.hidden = true;
++    nutPhat.textContent = '▶ Phát'; nutPhat.disabled = true;
++    nutTruoc.disabled = true; nutSau.disabled = true; nutDung.disabled = true;
++    $('thoi-gian').textContent = '';
++    $('tien-do').style.width = '0%';
++    return;
++  }
++  const muc = phien.item;
++  ten.textContent = muc.title || muc.id || 'Không rõ tên bài';
++  const kenhChu = muc.channel || muc.artist || '';
++  kenh.hidden = !kenhChu;
++  if (kenhChu) kenh.textContent = kenhChu;
++  chip.hidden = false;
++  chip.textContent = nhanNguon(muc.source);
++  const outputs = phien.outputs || phien.output_entity_ids || [];
++  trenLoa.hidden = false;
++  trenLoa.textContent = outputs.length
++    ? 'Trên ' + outputs.map(tenLoa).join(', ')
++    : 'Chưa chọn loa/tivi.';
++  if (muc.thumbnail) {
++    anh.src = muc.thumbnail;
++    anh.alt = '';
++    anh.hidden = false;
++  } else {
++    anh.hidden = true;
++  }
++  // Zing/Facebook: module chưa giải được luồng — nói rõ, không để người
++  // dùng tưởng loa đang phát mà không nghe thấy gì.
++  if (muc.source === 'zing' || muc.source === 'facebook') {
++    baoNguon.hidden = false;
++    baoNguon.textContent = 'Nguồn ' + nhanNguon(muc.source) + ': module chưa giải được ' +
++      'luồng phát nên loa chưa phát được bài này (lỗi 502 khi lấy luồng). ' +
++      'Phiên ở đây chỉ ghi nhận bài đã chọn.';
++  } else {
++    baoNguon.hidden = true;
++  }
++  const dangPhat = phien.state === 'playing' || phien.status === 'playing';
++  const tamDung = phien.state === 'paused' || phien.status === 'paused';
++  nutPhat.disabled = false;
++  nutPhat.textContent = dangPhat ? '⏸ Tạm dừng' : '▶ Phát';
++  nutTruoc.disabled = false;
++  nutSau.disabled = false;
++  nutDung.disabled = !(dangPhat || tamDung);
++  veTienDo();
++}
++
++function veTienDo() {
++  const phien = phienHienTai;
++  if (!phien || !phien.item) return;
++  const tong = Number(phien.duration || (phien.item && phien.item.duration) || 0);
++  const tyLe = tong > 0 ? Math.min(100, (viTriHien / tong) * 100) : 0;
++  $('tien-do').style.width = tyLe + '%';
++  $('thanh-tien-do').setAttribute('aria-valuenow', String(Math.round(tyLe)));
++  $('thoi-gian').textContent = tong > 0
++    ? dinhDangGiay(viTriHien) + ' / ' + dinhDangGiay(tong)
++    : (viTriHien > 0 ? dinhDangGiay(viTriHien) : '');
++}
++
++function batDongHoTick() {
++  if (dongHoTick) return;
++  dongHoTick = setInterval(() => {
++    const phien = phienHienTai;
++    if (!phien) return;
++    const dangPhat = phien.state === 'playing' || phien.status === 'playing';
++    const tong = Number(phien.duration || (phien.item && phien.item.duration) || 0);
++    if (dangPhat && tong > 0 && viTriHien < tong) {
++      viTriHien += 1;
++      veTienDo();
++    }
++  }, 1000);
++}
++
++function veNhom() {
++  const o = $('ds-nhom');
++  o.replaceChildren();
++  if (!cacPhien.length) {
++    o.append(el('li', 'phu', 'Chưa có nhóm nào đang phát.'));
++    return;
++  }
++  cacPhien.forEach((p) => {
++    const li = el('li', 'hang-kq');
++    if (phienChon === p.session_id) li.classList.add('phien-dang-chon');
++    const nd = el('div', 'nd');
++    const muc = p.item || {};
++    nd.append(el('div', 'tieu-de', muc.title || p.session_id));
++    const outputs = p.outputs || p.output_entity_ids || [];
++    nd.append(el('div', 'kenh',
++      (p.state === 'playing' ? 'Đang phát' : p.state === 'paused' ? 'Tạm dừng' : 'Đã dừng') +
++      (outputs.length ? ' · Trên ' + outputs.map(tenLoa).join(', ') : '')));
++    li.append(nd);
++    li.style.cursor = 'pointer';
++    li.addEventListener('click', () => {
++      phienChon = p.session_id;
++      phienHienTai = p;
++      viTriHien = Number(p.position || 0);
++      veDangPhat();
++      veNhom();
++      veQueue();
++    });
++    o.append(li);
++  });
++}
++
++function veQueue() {
++  const phien = phienHienTai;
++  const tomTat = $('queue-tom-tat');
++  const o = $('ds-queue');
++  o.replaceChildren();
++  if (!phien || !phien.queue || !(phien.queue.items || []).length) {
++    tomTat.textContent = 'Chưa có phiên nào đang chạy.';
++    $('dem-queue').textContent = '0/0';
++    return;
++  }
++  const items = phien.queue.items;
++  const chiSo = phien.queue.index || phien.queue_index || 0;
++  tomTat.textContent = 'Bài ' + (chiSo + 1) + '/' + items.length + ' trong hàng đợi.';
++  $('dem-queue').textContent = (chiSo + 1) + '/' + items.length;
++  items.forEach((muc, i) => {
++    const li = el('li', 'hang-kq');
++    const nd = el('div', 'nd');
++    nd.append(el('div', 'tieu-de', (i === chiSo ? '▶ ' : '') + (muc.title || muc.id)));
++    nd.append(el('div', 'kenh', (muc.channel || muc.artist || '') +
++      (muc.duration ? ' · ' + dinhDangGiay(muc.duration) : '')));
++    li.append(nd);
++    const nutXoa = el('button', 'nut nut-nho', 'Xoá');
++    nutXoa.type = 'button';
++    nutXoa.addEventListener('click', async () => {
++      try {
++        await hanhDong('xoa_khoi_hang_doi', { phien: phien.session_id, chi_so: i });
++        await taiTrangThai();
++      } catch (e) {
++        if (String(e.message) !== 'het_phien') hienLoi('loi-chung', e.message);
++      }
++    });
++    const nutPhatTuDay = el('button', 'nut nut-nho', 'Phát từ đây');
++    nutPhatTuDay.type = 'button';
++    nutPhatTuDay.addEventListener('click', async () => {
++      try {
++        // Phát từ vị trí này, GIỮ NGUYÊN hàng đợi (hành động riêng của
++        // module — không phát bài lẻ làm mất hàng đợi).
++        await hanhDong('phat_tu_hang_doi', { phien: phien.session_id, chi_so: i });
++        await taiTrangThai();
++      } catch (e) {
++        if (String(e.message) !== 'het_phien') hienLoi('loi-chung', e.message);
++      }
++    });
++    const hangNut = el('div', 'hang-nut');
++    hangNut.append(nutPhatTuDay, nutXoa);
++    li.append(hangNut);
++    o.append(li);
++  });
++}
+ 
+ async function taiTrangThai() {
+   try {
+-    const kq = await goi('api/thiet-bi?module=youtube');
+-    if (!kq.r.ok) throw new Error('Không đọc được danh sách thiết bị (HTTP ' + kq.r.status + ').');
+-    const ds = ((kq.du || {}).thuc_the || []);
+-    const thucThe = ds.find((e) => String(e.id || '').startsWith('youtube.'));
+-    if (!thucThe) throw new Error('Chưa thấy thực thể YouTube — module có thể chưa chạy.');
+-    const hd = await goi('api/thiet-bi/' + encodeURIComponent(thucThe.id) + '/hanh-dong',
+-      { hanh_dong: 'trang_thai', tham_so: {} });
+-    if (!hd.r.ok) throw new Error('Không đọc được trạng thái (HTTP ' + hd.r.status + ').');
+-    const du = hd.du || {};
+-    if (du.ok === false) throw new Error(du.loi || 'Không đọc được trạng thái.');
+-    const o = $('trang-thai');
+-    if (o) o.textContent = CHU_TRANG_THAI[du.trang_thai] || 'Chưa có dữ liệu.';
+-    const bai = $('bai-hien-tai');
+-    const phien = du.phien || null;
+-    const ten = phien && (phien.title || (phien.current_item && (phien.current_item.title || phien.current_item.id)));
+-    if (bai) {
+-      bai.hidden = !ten;
+-      if (ten) bai.textContent = 'Bài: ' + ten;
+-    }
+-    hienLoi('');
++    const [tt, nhom] = await Promise.all([
++      hanhDongDoc('trang_thai', {}),
++      hanhDongDoc('cac_phien', {}).catch(() => ({ cac_phien: [] })),
++    ]);
++    cacPhien = nhom.cac_phien || [];
++    // Phiên đang hiển thị: phiên đã chọn (nếu còn sống), không thì phiên
++    // hiện tại của module.
++    const chonConSong = cacPhien.find((p) => p.session_id === phienChon);
++    if (phienChon && !chonConSong) phienChon = null;
++    phienHienTai = chonConSong || tt.phien || null;
++    if (phienHienTai) viTriHien = Number(phienHienTai.position || 0);
++    veDangPhat();
++    veNhom();
++    veQueue();
++    hienLoi('loi-chung', '');
++  } catch (e) {
++    if (String(e.message) !== 'het_phien') {
++      $('ten-bai').textContent = 'Chưa có dữ liệu.';
++      hienLoi('loi-chung', e.message);
++    }
++  }
++}
++
++/* ── tìm kiếm ─────────────────────────────────────────────────────── */
++function nutKetQua(muc) {
++  const li = el('li', 'hang-kq');
++  if (muc.thumbnail) {
++    const img = el('img');
++    img.src = muc.thumbnail;
++    img.alt = '';
++    img.loading = 'lazy';
++    li.append(img);
++  }
++  const nd = el('div', 'nd');
++  nd.append(el('div', 'tieu-de', muc.title || muc.id));
++  nd.append(el('div', 'kenh', (muc.channel || (muc.artists || []).join(', ') || '') +
++    (muc.duration ? ' · ' + dinhDangGiay(muc.duration) : '')));
++  li.append(nd);
++  const mucTieu = muc.source === 'zing' ? (muc.url || muc.id) : muc.id;
++  const nutPhat = el('button', 'nut nut-nho nut-chinh', 'Phát');
++  nutPhat.type = 'button';
++  nutPhat.addEventListener('click', async () => {
++    try {
++      const loa = loaDaChon();
++      const thamSo = { muc_tieu: mucTieu, nguon: muc.source };
++      if (loa.length) thamSo.thiet_bi = loa;
++      if (muc.title) thamSo.tieu_de = muc.title;
++      if (muc.duration) thamSo.thoi_luong = muc.duration;
++      await hanhDong('phat', thamSo);
++      await taiTrangThai();
++    } catch (e) {
++      if (String(e.message) !== 'het_phien') hienLoi('loi-tim', e.message);
++    }
++  });
++  const nutQueue = el('button', 'nut nut-nho', 'Thêm vào Queue');
++  nutQueue.type = 'button';
++  nutQueue.addEventListener('click', async () => {
++    try {
++      const thamSo = { muc_tieu: mucTieu, nguon: muc.source };
++      if (phienHienTai) thamSo.phien = phienHienTai.session_id;
++      if (muc.title) thamSo.tieu_de = muc.title;
++      await hanhDong('them_vao_hang_doi', thamSo);
++      await taiTrangThai();
++    } catch (e) {
++      if (String(e.message) !== 'het_phien') hienLoi('loi-tim', e.message);
++    }
++  });
++  const nutPl = el('button', 'nut nut-nho', 'Thêm vào Playlist');
++  nutPl.type = 'button';
++  nutPl.addEventListener('click', async () => {
++    try {
++      const pid = $('o-playlist-nhan').value;
++      if (!pid) {
++        hienLoi('loi-tim', 'Chưa có playlist — tạo playlist mới ở mục Playlist trước.');
++        return;
++      }
++      const thamSo = { playlist_id: pid, muc_tieu: mucTieu, nguon: muc.source };
++      if (muc.title) thamSo.tieu_de = muc.title;
++      await hanhDong('them_vao_playlist', thamSo);
++      await taiPlaylist();
++      hienLoi('loi-tim', '');
++    } catch (e) {
++      if (String(e.message) !== 'het_phien') hienLoi('loi-tim', e.message);
++    }
++  });
++  const hangNut = el('div', 'hang-nut');
++  hangNut.append(nutPhat, nutQueue, nutPl);
++  li.append(hangNut);
++  return li;
++}
++
++async function timKiem() {
++  const tuKhoa = $('o-tu-khoa').value.trim();
++  if (!tuKhoa) {
++    hienLoi('loi-tim', 'Gõ từ khoá hoặc dán link rồi bấm Tìm.');
++    return;
++  }
++  hienLoi('loi-tim', '');
++  try {
++    const du = await hanhDongDoc('tim', { tu_khoa: tuKhoa, nguon: nguonTim, gioi_han: 20 });
++    const o = $('ds-ket-qua');
++    o.replaceChildren();
++    const ds = du.ket_qua || [];
++    if (!ds.length) o.append(el('li', 'phu', 'Không tìm thấy bài nào.'));
++    ds.forEach((muc) => o.append(nutKetQua(muc)));
++  } catch (e) {
++    if (String(e.message) !== 'het_phien') hienLoi('loi-tim', e.message);
++  }
++}
++
++/* ── playlist ─────────────────────────────────────────────────────── */
++async function taiPlaylist() {
++  try {
++    const du = await hanhDongDoc('danh_sach_playlist', {});
++    playlists = du.danh_sach || [];
++    $('dem-playlist').textContent = String(playlists.length);
++    const chon = $('o-playlist-nhan');
++    chon.replaceChildren();
++    if (!playlists.length) {
++      chon.append(el('option', '', 'Chưa có playlist'));
++      chon.value = '';
++    }
++    playlists.forEach((p) => {
++      const opt = el('option', '', p.name + ' (' + (p.items || []).length + ' bài)');
++      opt.value = p.id;
++      chon.append(opt);
++    });
++    const o = $('ds-playlist');
++    o.replaceChildren();
++    if (!playlists.length) {
++      o.append(el('li', 'phu', 'Chưa có playlist nào. Nhập link/mã ở trên hoặc tạo mới.'));
++      return;
++    }
++    playlists.forEach((p) => {
++      const li = el('li', 'hang-kq');
++      const nd = el('div', 'nd');
++      nd.append(el('div', 'tieu-de', p.name));
++      nd.append(el('div', 'kenh', (p.items || []).length + ' bài'));
++      li.append(nd);
++      const nutPhatPl = el('button', 'nut nut-nho nut-chinh', 'Phát');
++      nutPhatPl.type = 'button';
++      nutPhatPl.addEventListener('click', async () => {
++        try {
++          await hanhDong('phat_playlist', { playlist_id: p.id });
++          await taiTrangThai();
++        } catch (e) {
++          if (String(e.message) !== 'het_phien') hienLoi('loi-playlist', e.message);
++        }
++      });
++      const nutXoa = el('button', 'nut nut-nho', 'Xoá');
++      nutXoa.type = 'button';
++      nutXoa.addEventListener('click', async () => {
++        if (!window.confirm('Xoá playlist «' + p.name + '»?')) return;
++        try {
++          await hanhDong('xoa_playlist', { playlist_id: p.id });
++          await taiPlaylist();
++        } catch (e) {
++          if (String(e.message) !== 'het_phien') hienLoi('loi-playlist', e.message);
++        }
++      });
++      const nutMo = el('button', 'nut nut-nho', 'Xem bài');
++      nutMo.type = 'button';
++      nutMo.addEventListener('click', () => {
++        const cu = li.querySelector('ul.ds-bai');
++        if (cu) { cu.remove(); return; }
++        const ul = el('ul', 'ds-kq ds-bai');
++        (p.items || []).forEach((muc, i) => {
++          const liBai = el('li', 'hang-kq');
++          const ndBai = el('div', 'nd');
++          ndBai.append(el('div', 'tieu-de', muc.title || muc.id));
++          ndBai.append(el('div', 'kenh', (muc.channel || '') +
++            (muc.duration ? ' · ' + dinhDangGiay(muc.duration) : '')));
++          liBai.append(ndBai);
++          const nutTuDay = el('button', 'nut nut-nho', 'Phát từ đây');
++          nutTuDay.type = 'button';
++          nutTuDay.addEventListener('click', async () => {
++            try {
++              await hanhDong('phat_playlist', { playlist_id: p.id, chi_so: i });
++              await taiTrangThai();
++            } catch (e) {
++              if (String(e.message) !== 'het_phien') hienLoi('loi-playlist', e.message);
++            }
++          });
++          liBai.append(nutTuDay);
++          ul.append(liBai);
++        });
++        li.append(ul);
++      });
++      const hangNut = el('div', 'hang-nut');
++      hangNut.append(nutPhatPl, nutMo, nutXoa);
++      li.append(hangNut);
++      o.append(li);
++    });
+   } catch (e) {
+-    const o = $('trang-thai');
+-    if (o) o.textContent = 'Chưa có dữ liệu.';
+-    hienLoi(e && e.message ? e.message : 'Không tải được trạng thái.');
++    if (String(e.message) !== 'het_phien') hienLoi('loi-playlist', e.message);
+   }
+ }
+ 
++/* ── loa & tivi ───────────────────────────────────────────────────── */
++async function napLoa() {
++  const o = $('ds-thiet-bi');
++  try {
++    const kq = await goi('api/thiet-bi?module=home-assistant');
++    const ds = ((kq.du && kq.du.thuc_the) || [])
++      .filter((e) => typeof e.id === 'string' && e.id.indexOf('home_assistant.media_player.') === 0);
++    o.replaceChildren();
++    if (!ds.length) {
++      $('bao-chua-co-ha').hidden = false;
++      return;
++    }
++    $('bao-chua-co-ha').hidden = true;
++    ds.forEach((e) => {
++      const hauTo = e.id.replace(/^home_assistant\./, '');
++      loaTen[hauTo] = e.ten || hauTo.split('.').pop();
++      const lb = el('label', 'lua-chon');
++      const cb = el('input');
++      cb.type = 'checkbox';
++      cb.value = hauTo;
++      const chu = el('span');
++      chu.append(el('span', 'ten', e.ten || hauTo));
++      lb.append(cb, chu);
++      o.append(lb);
++    });
++  } catch (e) {
++    if (String(e.message) !== 'het_phien') hienLoi('loi-loa', e.message);
++  }
++}
++
++/* ── khởi động ────────────────────────────────────────────────────── */
+ document.addEventListener('DOMContentLoaded', () => {
++  document.querySelectorAll('[data-mo-muc]').forEach((nut) => {
++    nut.addEventListener('click', () => {
++      const muc = nut.getAttribute('data-mo-muc');
++      const nd = $('nd-' + muc);
++      if (!nd) return;
++      const mo = nd.hidden;
++      nd.hidden = !mo;
++      nut.setAttribute('aria-expanded', mo ? 'true' : 'false');
++    });
++  });
++  document.querySelectorAll('[data-cuon-toi]').forEach((nut) => {
++    nut.addEventListener('click', () => {
++      const dich = $(nut.getAttribute('data-cuon-toi'));
++      if (dich) dich.scrollIntoView({ behavior: 'smooth', block: 'start' });
++    });
++  });
++
++  const chips = { youtube: $('chip-yt'), zing: $('chip-zing'), facebook: $('chip-fb') };
++  const ghiChu = {
++    youtube: 'Tìm trên YouTube: gõ từ khoá hoặc dán link bài/playlist.',
++    zing: 'Tìm trên Zing MP3: gõ từ khoá. Lưu ý: module chưa giải được luồng Zing nên loa chưa phát được bài Zing.',
++    facebook: 'Facebook chỉ nhận link dán vào (không tìm theo từ khoá). Lưu ý: module chưa giải được luồng Facebook.',
++  };
++  Object.entries(chips).forEach(([nguon, nut]) => {
++    nut.addEventListener('click', () => {
++      nguonTim = nguon;
++      Object.entries(chips).forEach(([n, b]) => {
++        b.setAttribute('aria-pressed', n === nguon ? 'true' : 'false');
++        b.classList.toggle('nut-chinh', n === nguon);
++      });
++      $('ghi-chu-nguon').textContent = ghiChu[nguon];
++    });
++  });
++
++  $('nut-tim').addEventListener('click', timKiem);
++  $('o-tu-khoa').addEventListener('keydown', (e) => {
++    if (e.key === 'Enter') { e.preventDefault(); timKiem(); }
++  });
++  $('nut-truoc').addEventListener('click', async () => {
++    try {
++      await hanhDong('bai_truoc', phienHienTai ? { phien: phienHienTai.session_id } : {});
++      await taiTrangThai();
++    } catch (e) {
++      if (String(e.message) !== 'het_phien') hienLoi('loi-chung', e.message);
++    }
++  });
++  $('nut-sau').addEventListener('click', async () => {
++    try {
++      await hanhDong('bai_ke', phienHienTai ? { phien: phienHienTai.session_id } : {});
++      await taiTrangThai();
++    } catch (e) {
++      if (String(e.message) !== 'het_phien') hienLoi('loi-chung', e.message);
++    }
++  });
++  $('nut-phat-tam-dung').addEventListener('click', async () => {
++    try {
++      if (!phienHienTai) return;
++      const dangPhat = phienHienTai.state === 'playing' || phienHienTai.status === 'playing';
++      if (dangPhat) {
++        await hanhDong('tam_dung', { phien: phienHienTai.session_id });
++      } else {
++        await hanhDong('phat', { phien: phienHienTai.session_id });
++      }
++      await taiTrangThai();
++    } catch (e) {
++      if (String(e.message) !== 'het_phien') hienLoi('loi-chung', e.message);
++    }
++  });
++  $('nut-dung').addEventListener('click', async () => {
++    try {
++      await hanhDong('dung', phienHienTai ? { phien: phienHienTai.session_id } : {});
++      phienChon = null;
++      await taiTrangThai();
++    } catch (e) {
++      if (String(e.message) !== 'het_phien') hienLoi('loi-chung', e.message);
++    }
++  });
++  $('thanh-tien-do').addEventListener('click', async (e) => {
++    try {
++      const phien = phienHienTai;
++      if (!phien) return;
++      const tong = Number(phien.duration || (phien.item && phien.item.duration) || 0);
++      if (tong <= 0) return;
++      const hcn = e.currentTarget.getBoundingClientRect();
++      const tyLe = Math.min(1, Math.max(0, (e.clientX - hcn.left) / hcn.width));
++      await hanhDong('tua', { phien: phien.session_id, giay: Math.floor(tyLe * tong) });
++      await taiTrangThai();
++    } catch (err) {
++      if (String(err.message) !== 'het_phien') hienLoi('loi-chung', err.message);
++    }
++  });
++  $('nut-man-hinh').addEventListener('click', () => {
++    const bao = $('bao-man-hinh');
++    bao.hidden = !bao.hidden;
++    if (!bao.hidden) {
++      bao.textContent = 'Tab này điều khiển loa/tivi — tiếng phát ra loa nên tắt ' +
++        'màn hình vẫn nghe được, không cần giữ tab mở sau khi đã phát.';
++    }
++  });
++  $('nut-nhap').addEventListener('click', async () => {
++    try {
++      const text = $('o-nhap-text').value.trim();
++      if (!text) {
++        hienLoi('loi-playlist', 'Dán link playlist YouTube hoặc mã chia sẻ TTPL1. rồi bấm Nhập.');
++        return;
++      }
++      const thamSo = { text };
++      const ten = $('o-nhap-ten').value.trim();
++      if (ten) thamSo.ten = ten;
++      const du = await hanhDong('nhap_playlist', thamSo);
++      const bao = $('bao-playlist');
++      bao.hidden = false;
++      bao.textContent = 'Đã nhập playlist «' + ((du.playlist || {}).name || '') + '».';
++      $('o-nhap-text').value = '';
++      $('o-nhap-ten').value = '';
++      hienLoi('loi-playlist', '');
++      await taiPlaylist();
++    } catch (e) {
++      if (String(e.message) !== 'het_phien') hienLoi('loi-playlist', e.message);
++    }
++  });
++  $('nut-tao').addEventListener('click', async () => {
++    try {
++      const ten = $('o-tao-ten').value.trim();
++      if (!ten) {
++        hienLoi('loi-playlist', 'Gõ tên playlist mới rồi bấm Tạo.');
++        return;
++      }
++      await hanhDong('tao_playlist', { ten });
++      $('o-tao-ten').value = '';
++      hienLoi('loi-playlist', '');
++      await taiPlaylist();
++    } catch (e) {
++      if (String(e.message) !== 'het_phien') hienLoi('loi-playlist', e.message);
++    }
++  });
++  $('nut-doi-loa').addEventListener('click', async () => {
++    try {
++      const loa = loaDaChon();
++      if (!loa.length) {
++        hienLoi('loi-loa', 'Chọn ít nhất một loa/tivi trước.');
++        return;
++      }
++      await hanhDong('doi_loa', {
++        thiet_bi: loa,
++        ...(phienHienTai ? { phien: phienHienTai.session_id } : {}),
++      });
++      hienLoi('loi-loa', '');
++      await taiTrangThai();
++    } catch (e) {
++      if (String(e.message) !== 'het_phien') hienLoi('loi-loa', e.message);
++    }
++  });
++
+   taiTrangThai();
++  taiPlaylist();
++  napLoa();
++  batDongHoTick();
+   setInterval(taiTrangThai, 20000);
+ });
+diff --git a/test/test_module_youtube_nv301_giao_dien.py b/test/test_module_youtube_nv301_giao_dien.py
+new file mode 100644
+index 0000000..258e3ca
+--- /dev/null
++++ b/test/test_module_youtube_nv301_giao_dien.py
+@@ -0,0 +1,330 @@
++"""Test NV301 mảnh giao diện — trình phát tab + dedup (2)+(3) của file.
++
++Chạy async qua asyncio.run. Không Internet thật: trich_xuat chích giả.
++
++Kiểm:
++- Lõi (2)+(3): `giao_dien: false` giữ lại qua kiem_manifest và cho
++  giao_dien None (module chỉ-công-cụ không tạo tab/mục); `thay_the`
++  chuẩn hoá (tối đa 8, id hợp lệ, bỏ chính mình, sai thì bỏ trường);
++  tinh_nang: module thay thế ĐÃ CÀI thì module bị thay mất mục VÀ tab
++  (kể cả khi thay thế chưa chạy — quy tắc «đã cài thì thắng»); gỡ thay
++  thế thì mục/tab cũ hiện lại. Manifest thật: doc-viettat khai
++  giao_dien false, youtube khai thay_the ["youtube-phat"].
++- Thực thể youtube: 2 thực thể (xem doc + dieu_khien ghi), lược đồ
++  tham số hợp lệ (required ⊆ properties, additionalProperties False),
++  không lộ khoá (dump không chứa Bearer/tich_hop@).
++- Hành động thực thể qua thuc_hien: tim, phat, dung, tam_dung + tiếp
++  tục, bai_ke/bai_truoc, tua, danh_sach_playlist, nhap_playlist (mã
++  TTPL1.), tao_playlist, xoa_playlist, phat_playlist, them_vao_playlist,
++  them_vao_hang_doi, xoa_khoi_hang_doi, phat_tu_hang_doi (giữ nguyên
++  hàng đợi, chuyển đúng vị trí kể cả khi có bài trùng), doi_loa,
++  cac_phien. Lỗi → {ok: False, loi} tiếng thường, không ném.
++- Endpoint integration/queue: GET/POST add/remove.
++- Trang tab tĩnh: index.html có đủ id/chữ theo demo (Đang phát, Nhóm
++  đang phát, Tìm kiếm, Playlist, Hàng đợi, Loa & tivi, Cài đặt, Nghe
++  khi tắt màn hình, chip nguồn, thanh chip dưới); trang.js không dùng
++  innerHTML với dữ liệu, không chứa khoá, và chỉ gọi những hành động
++  thực thể mà module khai.
++"""
++
++from __future__ import annotations
++
++import asyncio
++import base64
++import importlib.util
++import json
++import pathlib
++import re
++import sys
++import tempfile
++import zlib
++from types import SimpleNamespace
++
++import pytest
++
++GOC = pathlib.Path(__file__).resolve().parent.parent
++THU_MUC_MODULE = GOC / "modules" / "youtube"
++MODULE_PY = THU_MUC_MODULE / "module.py"
++TRANG_HTML = THU_MUC_MODULE / "web" / "index.html"
++TRANG_JS = THU_MUC_MODULE / "web" / "trang.js"
++
++VIDEO_1 = "dQw4w9WgXcQ"
++VIDEO_2 = "9bZkp7q19f0"
++VIDEO_3 = "kXYiU_JCYtU"
++
++
++def tai_module():
++    ten = "mod_youtube_nv301_gd"
++    if ten in sys.modules:
++        del sys.modules[ten]
++    spec = importlib.util.spec_from_file_location(
++        ten, MODULE_PY, submodule_search_locations=[str(THU_MUC_MODULE)])
++    mod = importlib.util.module_from_spec(spec)
++    sys.modules[ten] = mod
++    spec.loader.exec_module(mod)
++    return mod
++
++
++def _muc(vid, tieu_de):
++    return {"id": vid, "title": tieu_de, "channel": f"Kênh {tieu_de}",
++            "artists": [], "duration": 200,
++            "url": f"https://www.youtube.com/watch?v={vid}",
++            "thumbnail": f"https://i.ytimg.com/vi/{vid}/hqdefault.jpg",
++            "source": "youtube"}
++
++
++class TrichXuatGia:
++    async def tim_kiem(self, source, query, limit):
++        return [_muc(VIDEO_1, "Bài một"), _muc(VIDEO_2, "Bài hai")][:limit]
++
++    async def giai_am_thanh(self, source, target):
++        return {"url": "fake://am-thanh-1", "title": "Bài giả",
++                "duration": 200, "source": source, "channel": "Kênh giả",
++                "thumbnail": f"https://i.ytimg.com/vi/{target}/hqdefault.jpg"}
++
++    async def lay_danh_sach_phat(self, source, playlist_id, limit=500):
++        return ("Playlist giả", [_muc(VIDEO_1, "Bài một"),
++                                  _muc(VIDEO_2, "Bài hai")])
++
++
++def _mod(tmp_path=None):
++    mod = tai_module()
++    m = mod.Module({}, _thu_muc_du_lieu=tmp_path or tempfile.mkdtemp(prefix="yt301gd-"))
++    m.nap({})
++    m.trich_xuat = TrichXuatGia()
++    return mod, m
++
++
++def _th(m, entity, hanh_dong, tham_so=None):
++    return asyncio.run(m.thuc_hien(entity, hanh_dong, tham_so or {}))
++
++
++# ── lõi: giao_dien false + thay_the ──────────────────────────────────
++
++def test_giao_dien_false_va_thay_the_chuan_hoa():
++    from app.kham_pha import giao_dien_cua, kiem_manifest
++    # Dùng manifest thật trên đĩa (đủ trường bắt buộc), sửa trên bản sao.
++    dv = json.loads((GOC / "modules" / "doc-viettat" / "manifest.json").read_text(encoding="utf-8"))
++    assert kiem_manifest(dict(dv)) is None
++    assert dv["giao_dien"] is False  # giữ lại, không bị coi là sai rồi bỏ
++    assert giao_dien_cua(dv) is None
++    yt = json.loads((GOC / "modules" / "youtube" / "manifest.json").read_text(encoding="utf-8"))
++    assert kiem_manifest(dict(yt)) is None
++    assert yt["thay_the"] == ["youtube-phat"]
++    m3 = dict(yt, thay_the=["youtube", "sai id!", "youtube-phat"])
++    kiem_manifest(m3)
++    assert "thay_the" not in m3  # có mục sai → bỏ cả trường, không chặn nạp
++    m4 = dict(yt, thay_the=[f"m{i}" for i in range(9)])
++    kiem_manifest(m4)
++    assert "thay_the" not in m4  # vượt 8 → bỏ trường
++
++
++def _man(id_, **them):
++    man = {"id": id_, "ten": id_, "mo_ta": "Mô tả", "loai": "tien_ich",
++           "tien_to": id_.replace("-", "_"),
++           "cung_cap": [], "nhom_con": {"id": "doi-song-va-giai-tri"}}
++    man.update(them)
++    return man
++
++
++def _so(catalog, dang_chay):
++    from app.so_module import SoModule
++    so = SoModule()
++    so.catalog = {k: SimpleNamespace(manifest=v, tien_to=v["tien_to"])
++                  for k, v in catalog.items()}
++    so.dang_chay = {k: object() for k in dang_chay}
++    return so
++
++
++def test_thay_the_an_muc_va_tab_khi_da_cai():
++    yt = _man("youtube",
++              giao_dien={"khu": "doi_song", "muc": "youtube", "nhan": "YouTube", "chip": []},
++              tab_web={"nhan": "YouTube", "trang": "web/index.html"},
++              thay_the=["youtube-phat"])
++    phat = _man("youtube-phat",
++                tab_web={"nhan": "YouTube phát", "trang": "web/index.html"})
++    so = _so({"youtube": yt, "youtube-phat": phat}, ["youtube", "youtube-phat"])
++    tn = so.tinh_nang()
++    muc = {e["id"]: e["giao_dien"] for e in tn["modules"]}
++    assert muc["youtube"] is not None and muc["youtube-phat"] is None
++    assert [t["module"] for t in tn["tab"]] == ["youtube"]
++    # Thay thế đã cài nhưng CHƯA chạy: tab cũ vẫn ẩn (quy tắc «đã cài»).
++    so2 = _so({"youtube": yt, "youtube-phat": phat}, ["youtube-phat"])
++    tn2 = so2.tinh_nang()
++    assert tn2["tab"] == []
++    assert {e["id"]: e["giao_dien"] for e in tn2["modules"]}["youtube-phat"] is None
++    # Gỡ thay thế: mục/tab cũ hiện lại.
++    so3 = _so({"youtube-phat": phat}, ["youtube-phat"])
++    tn3 = so3.tinh_nang()
++    assert {e["id"]: e["giao_dien"] for e in tn3["modules"]}["youtube-phat"] is not None
++    assert [t["module"] for t in tn3["tab"]] == ["youtube-phat"]
++
++
++def test_doc_viettat_khong_tao_muc_va_manifest_that():
++    from app.kham_pha import giao_dien_cua, kiem_manifest
++    dv = _man("doc-viettat", giao_dien=False)
++    assert giao_dien_cua(dv) is None
++    so = _so({"doc-viettat": dv}, [])
++    tn = so.tinh_nang()
++    assert tn["modules"][0]["giao_dien"] is None
++    that_dv = json.loads((GOC / "modules" / "doc-viettat" / "manifest.json").read_text(encoding="utf-8"))
++    assert that_dv["giao_dien"] is False and kiem_manifest(dict(that_dv)) is None
++    that_yt = json.loads((GOC / "modules" / "youtube" / "manifest.json").read_text(encoding="utf-8"))
++    assert that_yt["thay_the"] == ["youtube-phat"] and kiem_manifest(dict(that_yt)) is None
++
++
++# ── thực thể + hành động ────────────────────────────────────────────
++
++def test_thuc_the_hai_thuc_the_khong_lo_bi_mat(tmp_path):
++    _, m = _mod(tmp_path)
++    ds = asyncio.run(m.thuc_the())
++    assert [e["id"] for e in ds] == ["youtube.xem", "youtube.dieu_khien"]
++    assert [e["rui_ro_mac_dinh"] for e in ds] == ["doc", "ghi"]
++    for e in ds:
++        assert e["ten"].strip() and e["mo_ta"].strip()
++        for t in e["tinh_nang"]:
++            assert t["hanh_dong"] and t["mo_ta"]
++            ls = t["tham_so"]
++            assert ls["type"] == "object" and ls["additionalProperties"] is False
++            assert set(ls.get("required", [])) <= set(ls["properties"])
++    dump = json.dumps(ds, ensure_ascii=False)
++    assert "Bearer" not in dump and "tich_hop@" not in dump
++
++
++def test_hanh_dong_dieu_khien_tron_vong(tmp_path):
++    _, m = _mod(tmp_path)
++    xem, dk = "youtube.xem", "youtube.dieu_khien"
++    du = _th(m, xem, "tim", {"tu_khoa": "test", "nguon": "youtube", "gioi_han": 2})
++    assert du["ok"] is True and len(du["ket_qua"]) == 2
++    du = _th(m, dk, "phat", {"muc_tieu": VIDEO_1, "nguon": "youtube"})
++    assert du["ok"] is True and du["phien"]["item"]["id"] == VIDEO_1
++    sid = du["phien"]["session_id"]
++    du = _th(m, dk, "tam_dung", {"phien": sid})
++    assert du["ok"] is True and du["phien"]["state"] == "paused"
++    du = _th(m, dk, "phat", {"phien": sid})
++    assert du["ok"] is True and du["phien"]["state"] == "playing"
++    du = _th(m, dk, "tua", {"phien": sid, "giay": 30})
++    assert du["ok"] is True and du["vi_tri"] == 30
++    du = _th(m, dk, "doi_loa", {"phien": sid, "thiet_bi": ["media_player.bep"]})
++    assert du["ok"] is True and du["phien"]["outputs"] == ["media_player.bep"]
++    du = _th(m, xem, "cac_phien", {})
++    assert du["ok"] is True and len(du["cac_phien"]) == 1
++    du = _th(m, dk, "dung", {"phien": sid})
++    assert du["ok"] is True and du["da_dung"] is True
++    du = _th(m, dk, "bai_ke", {"phien": sid})
++    assert du["ok"] is False and du["ma_loi"] == "session_not_found"
++    du = _th(m, "youtube.khong-co", "trang_thai", {})
++    assert du["ok"] is False
++    du = _th(m, xem, "phat", {})
++    assert du["ok"] is False  # xem không có hành động ghi
++
++
++def test_hanh_dong_playlist_va_hang_doi(tmp_path):
++    _, m = _mod(tmp_path)
++    xem, dk = "youtube.xem", "youtube.dieu_khien"
++    du = _th(m, dk, "tao_playlist", {"ten": "Nghe sau"})
++    assert du["ok"] is True
++    pid = du["playlist"]["id"]
++    du = _th(m, dk, "them_vao_playlist",
++             {"playlist_id": pid, "muc_tieu": VIDEO_1, "nguon": "youtube"})
++    assert du["ok"] is True and du["added"] == 1
++    du = _th(m, dk, "them_vao_playlist",
++             {"playlist_id": pid, "muc_tieu": VIDEO_1, "nguon": "youtube"})
++    assert du["added"] == 0  # trùng không thêm nữa
++    du = _th(m, xem, "danh_sach_playlist", {})
++    assert du["ok"] is True and len(du["danh_sach"]) == 1
++    du = _th(m, dk, "phat_playlist", {"playlist_id": pid})
++    assert du["ok"] is True and du["phien"]["item"]["id"] == VIDEO_1
++    sid = du["phien"]["session_id"]
++    du = _th(m, dk, "them_vao_hang_doi",
++             {"phien": sid, "muc_tieu": VIDEO_2, "nguon": "youtube"})
++    assert du["ok"] is True and du["so_bai"] == 2
++    # Hàng đợi có bài trùng: phát từ vị trí 1 phải đúng bài thứ 2, không
++    # rơi về lần xuất hiện đầu tiên.
++    du = _th(m, dk, "them_vao_hang_doi",
++             {"phien": sid, "muc_tieu": VIDEO_1, "nguon": "youtube"})
++    assert du["so_bai"] == 3
++    du = _th(m, dk, "phat_tu_hang_doi", {"phien": sid, "chi_so": 2})
++    assert du["ok"] is True
++    assert du["phien"]["queue_index"] == 2 and len(du["phien"]["queue"]["items"]) == 3
++    du = _th(m, dk, "xoa_khoi_hang_doi", {"phien": sid, "chi_so": 0})
++    assert du["ok"] is True and len(du["hang_doi"]["items"]) == 2
++    du = _th(m, dk, "xoa_playlist", {"playlist_id": pid})
++    assert du["ok"] is True
++    du = _th(m, xem, "danh_sach_playlist", {})
++    assert du["danh_sach"] == []
++
++
++def test_nhap_playlist_qua_thuc_the(tmp_path):
++    _, m = _mod(tmp_path)
++    dk = "youtube.dieu_khien"
++    compact = {"n": "Chia sẻ", "i": [[
++        "youtube", VIDEO_1, f"https://www.youtube.com/watch?v={VIDEO_1}",
++        "Bài một", "Kênh Bài một", 200,
++        f"https://i.ytimg.com/vi/{VIDEO_1}/hqdefault.jpg"]]}
++    raw = zlib.compress(json.dumps(compact, ensure_ascii=False,
++                                   separators=(",", ":")).encode(), 9)
++    code = "TTPL1." + base64.urlsafe_b64encode(raw).decode().rstrip("=")
++    du = _th(m, dk, "nhap_playlist", {"text": code})
++    assert du["ok"] is True and du["playlist"]["name"] == "Chia sẻ"
++    assert len(du["playlist"]["items"]) == 1
++    du = _th(m, dk, "nhap_playlist", {"text": "TTPL1.hong"})
++    assert du["ok"] is False and du["ma_loi"] == "invalid_share_code"
++
++
++def test_endpoint_queue(tmp_path):
++    _, m = _mod(tmp_path)
++    ma, _, nd = asyncio.run(m.tich_hop(
++        "integration/session", "POST", {},
++        {"source": "youtube", "target": VIDEO_1}))
++    assert ma == 200
++    sid = nd["session"]["session_id"]
++    ma, _, nd = asyncio.run(m.tich_hop(
++        "integration/queue", "GET", {"session_id": sid}, None))
++    assert ma == 200 and len(nd["queue"]["items"]) == 1
++    ma, _, nd = asyncio.run(m.tich_hop(
++        "integration/queue", "POST", {},
++        {"session_id": sid, "action": "add",
++         "item": {"source": "youtube", "id": VIDEO_2, "title": "Bài hai"}}))
++    assert ma == 200 and len(nd["queue"]["items"]) == 2
++    ma, _, nd = asyncio.run(m.tich_hop(
++        "integration/queue", "POST", {},
++        {"session_id": sid, "action": "remove", "index": 0}))
++    assert ma == 200 and nd["queue"]["items"][0]["id"] == VIDEO_2
++    ma, _, nd = asyncio.run(m.tich_hop(
++        "integration/queue", "POST", {},
++        {"session_id": sid, "action": "remove", "index": 9}))
++    assert ma == 400 and nd["error"] == "invalid_queue_index"
++
++
++# ── trang tab tĩnh ───────────────────────────────────────────────────
++
++def test_trang_tab_du_id_chu_va_khong_dung_inner_html():
++    html = TRANG_HTML.read_text(encoding="utf-8")
++    js = TRANG_JS.read_text(encoding="utf-8")
++    for id_can in ["anh-bia", "chip-nguon", "ten-bai", "kenh-bai", "tren-loa",
++                   "thanh-tien-do", "tien-do", "thoi-gian", "nut-truoc",
++                   "nut-phat-tam-dung", "nut-sau", "nut-dung", "nut-man-hinh",
++                   "ds-nhom", "chip-yt", "chip-zing", "chip-fb", "o-tu-khoa",
++                   "nut-tim", "ds-ket-qua", "o-playlist-nhan", "o-nhap-text",
++                   "nut-nhap", "ds-playlist", "ds-queue", "ds-thiet-bi",
++                   "nd-cai-dat", "dem-playlist", "dem-queue"]:
++        assert f'id="{id_can}"' in html, f"thiếu id {id_can} trong trang tab"
++    for chu in ["Đang phát", "Nhóm đang phát", "Tìm kiếm", "Playlist",
++                "Hàng đợi", "Loa &amp; tivi", "Cài đặt",
++                "Nghe khi tắt màn hình", "YouTube", "Zing MP3", "Facebook",
++                "Bảo mật"]:
++        assert chu in html, f"thiếu chữ {chu!r} trong trang tab"
++    for chu in ["Thêm vào Queue", "Thêm vào Playlist", "Phát từ đây"]:
++        assert chu in js, f"thiếu nút {chu!r} trong trang.js"
++    assert ".innerHTML" not in js  # dữ liệu ngoài chỉ qua textContent
++    assert "Bearer" not in html and "Bearer" not in js
++    assert "tich_hop@" not in html and "tich_hop@" not in js
++    # JS chỉ gọi hành động mà module khai (xem + điều khiển).
++    _, m = _mod()
++    khai = set()
++    for e in asyncio.run(m.thuc_the()):
++        khai.update(t["hanh_dong"] for t in e["tinh_nang"])
++    goi = set(re.findall(r"hanhDong(?:Doc)?\('([^']+)'", js))
++    assert goi <= khai, f"trang.js gọi hành động module không khai: {goi - khai}"
++    assert goi, "không tìm thấy lời gọi hành động nào trong trang.js"
+diff --git a/test/test_module_youtube_tab.py b/test/test_module_youtube_tab.py
+index 2f38e5e..a67e4a3 100644
+--- a/test/test_module_youtube_tab.py
++++ b/test/test_module_youtube_tab.py
+@@ -80,7 +80,10 @@ def test_trang_tab_khong_chua_bi_mat_va_goi_qua_thuc_the():
+     assert "Bearer" not in html + js
+     assert "tich_hop@" not in html + js
+     assert "integration" not in html + js
+-    assert 'id="trang-thai"' in html or "id='trang-thai'" in html
++    # Mảnh giao diện NV301 viết lại trang chỉ-đọc thành trình phát đầy
++    # đủ: trạng thái hiện ở thẻ Đang phát (tên bài + thanh tiến độ),
++    # không còn phần tử trang-thai của trang chỉ-đọc cũ.
++    assert 'id="ten-bai"' in html and 'id="thanh-tien-do"' in html
+ 
+ 
+ def test_thuc_the_co_thuc_the_trang_thai_khong_lo_bi_mat(tmp_path):
