@@ -1,0 +1,764 @@
+diff --git a/app/novnc.py b/app/novnc.py
+index 1a75f7c..fa82e31 100644
+--- a/app/novnc.py
++++ b/app/novnc.py
+@@ -609,6 +609,108 @@ async def api_xem_trinh_duyet(module: str, request: Request):
+     return {"ho_so": ho_so, "ve": ve, "url": f"/novnc/dang-nhap?ve={ve}"}
+ 
+ 
++# ───────────── NV305: mật khẩu xem trình duyệt (VNC) do chủ máy tự đặt ─────────────
++# Vị trí theo BOTH đặc tả NV305 và quy tắc QUY-TAC-GIAO-DIEN-W2A.md: ô nằm trong «Bảo mật & người dùng»
++# (không nằm trong chip «Cài đặt» của module may-dang-nhap) vì đây KHÔNG phải kết nối RA ngoài tới dịch vụ
++# khác — may-dang-nhap là dịch vụ của chính web2api, và mật khẩu này là bí mật do web2api quản để mở màn
++# hình xem của chính nó (cùng họ với khoá do web2api cấp ở quy tắc 2, nhưng là mật khẩu do chủ máy tự đặt
++# chứ không phải khoá tự sinh hiện một lần). Mật khẩu không bao giờ đi ra phản hồi/log/nhật ký.
++
++MODULE_MAY_DANG_NHAP = "may-dang-nhap"
++#: RFB chỉ dùng 8 ký tự đầu: 1–8 ký tự ASCII in được, không khoảng trắng, không dấu.
++MAU_MAT_KHAU_VNC = re.compile(r"[!-~]{1,8}")
++#: Giới hạn tần suất đặt mật khẩu: tối đa 10 lần / 60 giây cho mỗi người gọi (chống bấm liên tục làm
++#: x11vnc khởi động lại liên tục); vượt thì 429, không tính lần bị step-up chặn.
++GIOI_HAN_MK_VNC_SO_LAN = 10
++GIOI_HAN_MK_VNC_CUA_SO_GIAY = 60
++_GIOI_HAN_MK_VNC: dict[str, list[float]] = {}
++
++
++def _kiem_gioi_han_mk_vnc(nguoi_goi: str) -> None:
++    now = _bay_gio()
++    with _KHOA:
++        ds = [t for t in _GIOI_HAN_MK_VNC.get(nguoi_goi, []) if now - t < GIOI_HAN_MK_VNC_CUA_SO_GIAY]
++        if len(ds) >= GIOI_HAN_MK_VNC_SO_LAN:
++            _GIOI_HAN_MK_VNC[nguoi_goi] = ds
++            raise LoiOpenAI(429, "Đặt mật khẩu xem trình duyệt quá nhiều lần — thử lại sau một phút.")
++        ds.append(now)
++        _GIOI_HAN_MK_VNC[nguoi_goi] = ds
++
++
++def _module_may_dang_nhap(request: Request):
++    mod = _so(request).dang_chay.get(MODULE_MAY_DANG_NHAP)
++    if mod is None:
++        raise LoiOpenAI(404, "Chưa cài module máy đăng nhập tự động")
++    return mod
++
++
++def _loi_dich_vu_thanh_502(kq, mac_dinh: str):
++    """Đổi kết quả lỗi đã khử của module thành 502 với thông điệp CỐ ĐỊNH (không chuyển tiếp chuỗi lạ)."""
++    if isinstance(kq, dict):
++        if kq.get("ma_loi") == "sai_khoa_dich_vu":
++            raise LoiOpenAI(502, "Khoá dịch vụ không đúng hoặc hết hạn")
++        if kq.get("ma_loi") == "tinh_nang_tat":
++            raise LoiOpenAI(502, "Tính năng xem trình duyệt đang tắt trên dịch vụ")
++        loi = kq.get("loi")
++        if isinstance(loi, str) and loi:
++            raise LoiOpenAI(502, loi)
++    raise LoiOpenAI(502, mac_dinh)
++
++
++@api_router.put("/mat-khau-vnc")
++async def api_dat_mat_khau_vnc(request: Request):
++    """NV305: đặt mật khẩu xem trình duyệt. Chỉ quản trị, bắt buộc step-up (phiên web phải xác nhận lại;
++    Bearer <redacted>ản trị được miễn như mọi đường chạm bí mật khác), giới hạn tần suất. Mật khẩu đi lõi →
++    module → dịch vụ trong RAM của lời gọi, không lưu ở lõi, không vào phản hồi/log/nhật ký."""
++    kiem_tra_step_up(request)
++    nguoi_goi = lay_nguoi_dung_id(request) or "quan_tri"
++    _kiem_gioi_han_mk_vnc(nguoi_goi)
++    try:
++        than = json.loads(await doc_het(request, THAN_JSON))
++    except (ValueError, RecursionError):
++        raise LoiOpenAI(400, "Thân yêu cầu phải là JSON hợp lệ") from None
++    if not isinstance(than, dict):
++        raise LoiOpenAI(400, "Thân yêu cầu phải là đối tượng JSON")
++    mk = than.get("mat_khau")
++    if not isinstance(mk, str) or not MAU_MAT_KHAU_VNC.fullmatch(mk):
++        raise LoiOpenAI(400, "Mật khẩu xem trình duyệt chỉ dùng 1–8 ký tự "
++                             "(chữ, số, ký tự thường; không khoảng trắng, không dấu)")
++    mod = _module_may_dang_nhap(request)
++    dat = getattr(mod, "dat_mat_khau_vnc", None)
++    if not callable(dat):
++        raise LoiOpenAI(501, "Module máy đăng nhập tự động chưa hỗ trợ đặt mật khẩu xem trình duyệt")
++    try:
++        kq = await dat(mk)
++    except Exception as e:
++        log.warning("Module may-dang-nhap lỗi khi đặt mật khẩu VNC: %s", _ten_loi(e))
++        raise LoiOpenAI(502, "Module lỗi khi đặt mật khẩu xem trình duyệt") from None
++    if not isinstance(kq, dict) or not kq.get("ok"):
++        _loi_dich_vu_thanh_502(kq, "Dịch vụ không đặt được mật khẩu xem trình duyệt")
++    nhat_ky.ghi("trinh_duyet", "thong_tin", "Đặt mật khẩu xem trình duyệt",
++                hanh_dong="dat_mat_khau_vnc", ket_qua="thanh_cong",
++                da_nap_lai=bool(kq.get("da_nap_lai")))
++    return {"ok": True, "da_nap_lai": bool(kq.get("da_nap_lai"))}
++
++
++@api_router.get("/mat-khau-vnc/trang-thai")
++async def api_trang_thai_mat_khau_vnc(request: Request):
++    """NV305: đã từng đặt mật khẩu qua giao diện hay chưa. Chỉ quản trị, KHÔNG cần step-up vì chỉ trả
++    một bool, không có bí mật nào đi ra. Chưa đặt thì giao diện vẫn cho đặt, và màn hình xem vẫn dùng
++    mật khẩu ngẫu nhiên cũ của dịch vụ."""
++    mod = _module_may_dang_nhap(request)
++    lay = getattr(mod, "trang_thai_mat_khau_vnc", None)
++    if not callable(lay):
++        raise LoiOpenAI(501, "Module máy đăng nhập tự động chưa hỗ trợ trạng thái mật khẩu xem trình duyệt")
++    try:
++        kq = await lay()
++    except Exception as e:
++        log.warning("Module may-dang-nhap lỗi khi hỏi trạng thái mật khẩu VNC: %s", _ten_loi(e))
++        raise LoiOpenAI(502, "Module lỗi khi hỏi trạng thái mật khẩu xem trình duyệt") from None
++    if not isinstance(kq, dict) or not kq.get("ok"):
++        _loi_dich_vu_thanh_502(kq, "Dịch vụ không trả được trạng thái mật khẩu xem trình duyệt")
++    return {"da_dat": bool(kq.get("da_dat"))}
++
++
+ @api_router.post("/{module}/{ho_so}/ve")
+ async def api_xin_ve(module: str, ho_so: str, request: Request):
+     kiem_tra_ho_so_id(ho_so)
+diff --git a/dich-vu/may-dang-nhap/README.md b/dich-vu/may-dang-nhap/README.md
+index 6467d42..07f9848 100644
+--- a/dich-vu/may-dang-nhap/README.md
++++ b/dich-vu/may-dang-nhap/README.md
+@@ -140,6 +140,8 @@ Mọi yêu cầu gọi tới API (ngoại trừ `GET /health`) đều bắt bu
+   `tr -dc 'A-Za-z0-9' < /dev/urandom | head -c 8 > /khoa/mat-khau-vnc`
+ - Tệp mật khẩu lưu tại `/khoa/mat-khau-vnc` với quyền `0600` và không bao giờ được in ra stdout/log.
+ - Ghi chú vận hành: noVNC mặc định TẮT. Khi bật qua `CAPTCHA_SOLVER_BAT_NOVNC=1` (đặt ở tệp ghi đè cục bộ ngoài repo, không sửa trong repo), websockify nghe `0.0.0.0:6080` trên mạng Docker nội bộ để web2api tới được qua proxy `/novnc`; x11vnc vẫn chỉ nghe loopback `127.0.0.1:5900` trong container và vẫn bắt mật khẩu — mật khẩu không đi qua API web2api nào, người xem nhập một lần ở hộp nhập của noVNC (chủ máy đọc mật khẩu bằng `docker exec web2api-may-dang-nhap cat /khoa/mat-khau-vnc`).
++- NV305 — chủ máy tự đặt, không cần docker exec nữa: lõi có ô «Mật khẩu xem trình duyệt đăng nhập» trong «Bảo mật & người dùng» gọi `PUT /api/trinh-duyet/mat-khau-vnc` (quản trị, step-up, giới hạn tần suất), lõi chuyển qua module may-dang-nhap tới `PUT /v1/novnc/mat-khau` của dịch vụ (khoá dịch vụ, nhóm `dang_nhap`): ghi `/khoa/mat-khau-vnc` (0600) + tệp đánh dấu `/khoa/mat-khau-vnc-chu-dat`, rồi `supervisorctl restart x11vnc` để mật khẩu mới có hiệu lực ngay mà không dựng lại container. `GET /v1/novnc/mat-khau/trang-thai` chỉ trả bool «đã từng đặt qua giao diện hay chưa», không trả mật khẩu. Nếu nạp lại x11vnc không được (noVNC đang tắt), mật khẩu vẫn đã ghi và sẽ có hiệu lực khi x11vnc khởi động lại.
++- NV305 — entrypoint chỉ ghi mật khẩu lần đầu: tệp `/khoa/mat-khau-vnc` đã có (do chủ máy đặt qua giao diện) thì entrypoint GIỮ NGUYÊN khi khởi động lại container; biến `CAPTCHA_SOLVER_MAT_KHAU_VNC` chỉ còn là mật khẩu ban đầu khi chưa có tệp nào. Muốn đổi mật khẩu thì đặt qua giao diện, không đổi biến rồi khởi động lại.
+ 
+ ### 3.3. Két mật khẩu tài khoản (`vault.key`)
+ 
+diff --git a/dich-vu/may-dang-nhap/entrypoint.sh b/dich-vu/may-dang-nhap/entrypoint.sh
+index 65b03cf..9dd2a8e 100644
+--- a/dich-vu/may-dang-nhap/entrypoint.sh
++++ b/dich-vu/may-dang-nhap/entrypoint.sh
+@@ -17,19 +17,22 @@ mkdir -p /tmp/.X11-unix && chmod 1777 /tmp/.X11-unix
+ chmod 0700 /khoa /data 2>/dev/null || true
+ 
+ # noVNC/websockify/x11vnc mặc định KHÔNG chạy.
+-# Chỉ khi CAPTCHA_SOLVER_BAT_NOVNC=1 mới sinh mật khẩu VNC vào /khoa/mat-khau-vnc và chạy supervisord-novnc.conf.
++# Chỉ khi CAPTCHA_SOLVER_BAT_NOVNC=1 mới chạy supervisord-novnc.conf.
+ # Giao thức RFB chỉ dùng 8 ký tự đầu nên sinh đúng 8 ký tự ngẫu nhiên A-Za-z0-9 (~47 bit), không in ra stdout.
++# NV305: tệp mật khẩu ĐÃ CÓ thì GIỮ NGUYÊN — mật khẩu chủ máy đặt qua giao diện (đường PUT /v1/novnc/mat-khau)
++# không bị ghi đè mỗi lần khởi động lại container. Biến CAPTCHA_SOLVER_MAT_KHAU_VNC chỉ dùng làm mật khẩu
++# BAN ĐẦU khi chưa có tệp nào (đường tạm trước NV305); muốn đổi mật khẩu thì đặt qua giao diện, không đổi biến.
+ if [ "$CAPTCHA_SOLVER_BAT_NOVNC" = "1" ] || [ "$CAPTCHA_SOLVER_BAT_NOVNC" = "true" ]; then
+-    # Chủ máy tự đặt mật khẩu bằng biến CAPTCHA_SOLVER_MAT_KHAU_VNC (tệp ghi đè ngoài repo; RFB chỉ dùng 8 ký tự đầu,
+-    # nên cắt còn 8). Có biến thì ghi lại MỖI LẦN khởi động (đổi biến là đổi mật khẩu); không có thì sinh ngẫu nhiên một lần.
+-    if [ -n "$CAPTCHA_SOLVER_MAT_KHAU_VNC" ]; then
+-        umask 077
+-        printf '%s' "$CAPTCHA_SOLVER_MAT_KHAU_VNC" | head -c 8 > /khoa/mat-khau-vnc
+-        chmod 0600 /khoa/mat-khau-vnc
+-    elif [ ! -f /khoa/mat-khau-vnc ]; then
+-        umask 077
+-        tr -dc 'A-Za-z0-9' < /dev/urandom | head -c 8 > /khoa/mat-khau-vnc
+-        chmod 0600 /khoa/mat-khau-vnc
++    if [ ! -f /khoa/mat-khau-vnc ]; then
++        if [ -n "$CAPTCHA_SOLVER_MAT_KHAU_VNC" ]; then
++            umask 077
++            printf '%s' "$CAPTCHA_SOLVER_MAT_KHAU_VNC" | head -c 8 > /khoa/mat-khau-vnc
++            chmod 0600 /khoa/mat-khau-vnc
++        else
++            umask 077
++            tr -dc 'A-Za-z0-9' < /dev/urandom | head -c 8 > /khoa/mat-khau-vnc
++            chmod 0600 /khoa/mat-khau-vnc
++        fi
+     fi
+     exec /usr/bin/supervisord -c /etc/supervisor/supervisord-novnc.conf
+ else
+diff --git a/dich-vu/may-dang-nhap/src/main.py b/dich-vu/may-dang-nhap/src/main.py
+index 2863985..f301c54 100644
+--- a/dich-vu/may-dang-nhap/src/main.py
++++ b/dich-vu/may-dang-nhap/src/main.py
+@@ -41,6 +41,7 @@ from .accounts_db import (
+     set_totp,
+ )
+ from . import vault
++from . import mat_khau_vnc  # W2A NV305: mật khẩu xem trình duyệt do chủ máy tự đặt
+ from .auto_login import (
+     get_session as get_login_session,
+     list_sessions as list_login_sessions,
+@@ -240,6 +241,34 @@ async def health(request: Request) -> Any:
+     return kq
+ 
+ 
++class MatKhauVncReq(BaseModel):
++    mat_khau: str
++
++
++# W2A NV305: mật khẩu xem trình duyệt (VNC) do chủ máy tự đặt trong «Bảo mật & người dùng» của lõi.
++# Trước đây mật khẩu do entrypoint sinh ngẫu nhiên vào /khoa/mat-khau-vnc, chủ máy phải docker exec mới đọc
++# được. Đường này ghi đè tệp đó (0600) + tệp đánh dấu «đã đặt», rồi nạp lại x11vnc bằng supervisorctl để
++# mật khẩu mới có hiệu lực ngay mà không dựng lại container. Mật khẩu KHÔNG BAO GIỜ trả về trong phản hồi
++# hay vào log; nhóm tính năng dang_nhap (mặc định bật) vì đây là màn hình của luồng đăng nhập.
++@app.put("/v1/novnc/mat-khau", dependencies=[Depends(can_tinh_nang("dang_nhap"))])
++async def api_dat_mat_khau_vnc(req: MatKhauVncReq) -> dict[str, Any]:
++    loi = mat_khau_vnc.kiem_mat_khau_vnc(req.mat_khau)
++    if loi:
++        raise HTTPException(status_code=400, detail=loi)
++    try:
++        return mat_khau_vnc.ghi_mat_khau_vnc(req.mat_khau, thu_muc_khoa=settings.key_dir)
++    except (OSError, ValueError) as exc:
++        logger.warning("dat mat khau VNC hong: %s", type(exc).__name__)
++        raise HTTPException(status_code=502, detail="Không ghi được mật khẩu xem trình duyệt.") from exc
++
++
++@app.get("/v1/novnc/mat-khau/trang-thai", dependencies=[Depends(can_tinh_nang("dang_nhap"))])
++async def api_trang_thai_mat_khau_vnc() -> dict[str, Any]:
++    """Chỉ trả bool «đã từng đặt qua giao diện hay chưa» — không trả mật khẩu, không cần step-up ở lõi
++    vì không có bí mật nào đi ra."""
++    return {"ok": True, "da_dat": mat_khau_vnc.trang_thai_da_dat(settings.key_dir)}
++
++
+ 
+ class TurnstileReq(BaseModel):
+     url: str
+diff --git a/dich-vu/may-dang-nhap/src/mat_khau_vnc.py b/dich-vu/may-dang-nhap/src/mat_khau_vnc.py
+new file mode 100644
+index 0000000..7f8b1a3
+--- /dev/null
++++ b/dich-vu/may-dang-nhap/src/mat_khau_vnc.py
+@@ -0,0 +1,90 @@
++# W2A NV305: mật khẩu xem trình duyệt (VNC) do chủ máy tự đặt qua giao diện.
++#
++# Chỉ dùng thư viện chuẩn để test nhẹ được mà không import app FastAPI nặng.
++# Mật khẩu KHÔNG BAO GIỜ được ghi vào log hay trả về trong phản hồi: các hàm ở đây
++# chỉ trả {"ok", "da_nap_lai"} / bool, và log chỉ ghi trạng thái chung.
++from __future__ import annotations
++
++import logging
++import os
++import re
++import subprocess
++import tempfile
++from pathlib import Path
++
++log = logging.getLogger("may-dang-nhap.mat-khau-vnc")
++
++#: Tên tệp mật khẩu VNC trong thư mục khoá (x11vnc đọc bằng -passwdfile).
++TEN_TEP_MAT_KHAU = "mat-khau-vnc"
++#: Tệp đánh dấu «đã từng đặt qua giao diện» (rỗng, 0600): phân biệt với mật khẩu
++#: ngẫu nhiên do entrypoint sinh lúc đầu — entrypoint không ghi đè tệp đã có.
++TEN_TEP_DANH_DAU = "mat-khau-vnc-chu-dat"
++#: Cấu hình supervisord chạy noVNC (có chương trình x11vnc) — dùng để nạp lại.
++DUONG_SUPERVISOR_NOVNC = "/etc/supervisor/supervisord-novnc.conf"
++#: RFB chỉ dùng 8 ký tự đầu; mật khẩu 1–8 ký tự ASCII in được, không khoảng trắng
++#: (không dấu: ký tự ngoài ASCII sẽ bị cắt/méo khi qua DES của RFB).
++MAU_MAT_KHAU = re.compile(r"[!-~]{1,8}")
++
++
++def kiem_mat_khau_vnc(mat_khau) -> str | None:
++    """Trả None nếu hợp lệ, ngược lại trả thông điệp lỗi KHÔNG chứa mật khẩu."""
++    if not isinstance(mat_khau, str) or not MAU_MAT_KHAU.fullmatch(mat_khau):
++        return ("Mật khẩu xem trình duyệt chỉ dùng 1–8 ký tự "
++                "(chữ, số, ký tự thường; không khoảng trắng, không dấu)")
++    return None
++
++
++def _ghi_tep_0600(duong: Path, noi_dung: str) -> None:
++    """Ghi nguyên tử (tệp tạm cùng thư mục + os.replace), quyền 0600."""
++    duong.parent.mkdir(parents=True, exist_ok=True)
++    fd, tam = tempfile.mkstemp(dir=str(duong.parent), prefix=".mat-khau-vnc-")
++    try:
++        with os.fdopen(fd, "w", encoding="utf-8") as f:
++            f.write(noi_dung)
++        os.chmod(tam, 0o600)
++        os.replace(tam, duong)
++    except BaseException:
++        try:
++            os.unlink(tam)
++        except OSError:
++            pass
++        raise
++
++
++def _nap_lai_x11vnc(chay_lenh=None) -> bool:
++    """Nạp lại x11vnc để mật khẩu mới có hiệu lực ngay, không dựng lại container.
++
++    Trả False (không ném) khi supervisorctl vắng mặt, x11vnc chưa chạy (noVNC tắt)
++    hay lệnh hỏng — mật khẩu đã ghi vẫn có hiệu lực khi x11vnc khởi động lại.
++    """
++    chay = chay_lenh or (lambda lenh, **kw: subprocess.run(
++        lenh, capture_output=True, timeout=30, **kw).returncode)
++    try:
++        ma = chay(["supervisorctl", "-c", DUONG_SUPERVISOR_NOVNC, "restart", "x11vnc"])
++        ma = ma.returncode if hasattr(ma, "returncode") else ma
++        if ma == 0:
++            return True
++        log.warning("nap lai x11vnc hong (ma=%s)", ma)
++        return False
++    except Exception as exc:  # noqa: BLE001 — mọi lỗi nạp lại đều chỉ là «chưa nạp lại»
++        log.warning("nap lai x11vnc hong: %s", type(exc).__name__)
++        return False
++
++
++def ghi_mat_khau_vnc(mat_khau: str, thu_muc_khoa=None, chay_lenh=None) -> dict:
++    """Ghi mật khẩu + tệp đánh dấu, rồi nạp lại x11vnc. Sai định dạng → ValueError."""
++    loi = kiem_mat_khau_vnc(mat_khau)
++    if loi:
++        raise ValueError(loi)
++    thu_muc = Path(thu_muc_khoa) if thu_muc_khoa is not None else Path("/khoa")
++    _ghi_tep_0600(thu_muc / TEN_TEP_MAT_KHAU, mat_khau)
++    _ghi_tep_0600(thu_muc / TEN_TEP_DANH_DAU, "")
++    da_nap_lai = _nap_lai_x11vnc(chay_lenh)
++    log.info("NV305: da ghi mat khau VNC, da_nap_lai=%s", da_nap_lai)
++    return {"ok": True, "da_nap_lai": da_nap_lai}
++
++
++def trang_thai_da_dat(thu_muc_khoa=None) -> bool:
++    """True chỉ khi đã từng đặt qua giao diện (có tệp đánh dấu)."""
++    thu_muc = Path(thu_muc_khoa) if thu_muc_khoa is not None else Path("/khoa")
++    return (thu_muc / TEN_TEP_DANH_DAU).exists()
+diff --git a/dich-vu/may-dang-nhap/test_nv305_mat_khau_vnc.py b/dich-vu/may-dang-nhap/test_nv305_mat_khau_vnc.py
+new file mode 100644
+index 0000000..322a8b9
+--- /dev/null
++++ b/dich-vu/may-dang-nhap/test_nv305_mat_khau_vnc.py
+@@ -0,0 +1,103 @@
++# test_nv305_mat_khau_vnc.py — Mật khẩu xem trình duyệt (VNC) do chủ máy tự đặt (NV305).
++#
++# Chỉ test mô-đun thuần `src.mat_khau_vnc` (không import app FastAPI nặng):
++# kiểm định dạng, ghi tệp nguyên tử 0600, tệp đánh dấu «đã đặt», nạp lại x11vnc
++# qua supervisorctl, và không để mật khẩu lọt vào log. Mật khẩu trong test đều tự
++# tạo, không phải mật khẩu thật.
++from __future__ import annotations
++
++import logging
++import os
++import stat
++from pathlib import Path
++
++import pytest
++
++from src.mat_khau_vnc import (
++    TEN_TEP_DANH_DAU,
++    TEN_TEP_MAT_KHAU,
++    ghi_mat_khau_vnc,
++    kiem_mat_khau_vnc,
++    trang_thai_da_dat,
++)
++
++MK = "Nv305-T1"  # 8 ký tự test, không phải mật khẩu thật
++
++
++class ChayGia:
++    """Giả supervisorctl: ghi lại lệnh, trả mã thoát đã định."""
++
++    def __init__(self, ma=0, loi=None):
++        self.ma = ma
++        self.loi = loi
++        self.lenh = []
++
++    def __call__(self, lenh, **kwargs):
++        self.lenh.append(list(lenh))
++        if self.loi is not None:
++            raise self.loi
++        return self.ma
++
++
++@pytest.mark.parametrize("mk", ["a", "Ab3!x9zQ", "12345678", "z"])
++def test_mat_khau_hop_le(mk):
++    assert kiem_mat_khau_vnc(mk) is None
++
++
++@pytest.mark.parametrize("mk", ["", "123456789", "ab cd", "mậtkhẩu1", "ab\ncd", "ab\tcd", 123, None, "a b"])
++def test_mat_khau_sai_dinh_dang(mk):
++    assert kiem_mat_khau_vnc(mk) is not None
++
++
++def test_ghi_tep_0600_va_danh_dau_va_nap_lai(tmp_path):
++    chay = ChayGia(ma=0)
++    kq = ghi_mat_khau_vnc(MK, thu_muc_khoa=tmp_path, chay_lenh=chay)
++    assert kq == {"ok": True, "da_nap_lai": True}
++    tep = tmp_path / TEN_TEP_MAT_KHAU
++    assert tep.read_text(encoding="utf-8") == MK
++    assert stat.S_IMODE(tep.stat().st_mode) == 0o600
++    danh_dau = tmp_path / TEN_TEP_DANH_DAU
++    assert danh_dau.exists()
++    assert stat.S_IMODE(danh_dau.stat().st_mode) == 0o600
++    assert trang_thai_da_dat(tmp_path) is True
++    assert chay.lenh and chay.lenh[0][0] == "supervisorctl" and "x11vnc" in chay.lenh[0]
++    assert "restart" in chay.lenh[0]
++
++
++def test_ghi_de_thay_noi_dung_cu(tmp_path):
++    (tmp_path / TEN_TEP_MAT_KHAU).write_text("mat-khau-cu-000", encoding="utf-8")
++    ghi_mat_khau_vnc(MK, thu_muc_khoa=tmp_path, chay_lenh=ChayGia(ma=0))
++    assert (tmp_path / TEN_TEP_MAT_KHAU).read_text(encoding="utf-8") == MK
++
++
++def test_nap_lai_hong_van_ghi_tep_nhung_bao_chua_nap_lai(tmp_path):
++    kq = ghi_mat_khau_vnc(MK, thu_muc_khoa=tmp_path, chay_lenh=ChayGia(ma=1))
++    assert kq == {"ok": True, "da_nap_lai": False}
++    assert (tmp_path / TEN_TEP_MAT_KHAU).read_text(encoding="utf-8") == MK
++    kq2 = ghi_mat_khau_vnc(MK, thu_muc_khoa=tmp_path,
++                           chay_lenh=ChayGia(loi=FileNotFoundError("khong co supervisorctl")))
++    assert kq2 == {"ok": True, "da_nap_lai": False}
++
++
++def test_chua_dat_thi_trang_thai_false(tmp_path):
++    assert trang_thai_da_dat(tmp_path) is False
++
++
++def test_mat_khau_sai_khong_ghi_tep(tmp_path):
++    with pytest.raises(ValueError):
++        ghi_mat_khau_vnc("qua-dai-123456", thu_muc_khoa=tmp_path, chay_lenh=ChayGia(ma=0))
++    assert not (tmp_path / TEN_TEP_MAT_KHAU).exists()
++
++
++def test_log_khong_chua_mat_khau(tmp_path, caplog):
++    with caplog.at_level(logging.INFO, logger="may-dang-nhap.mat-khau-vnc"):
++        ghi_mat_khau_vnc(MK, thu_muc_khoa=tmp_path, chay_lenh=ChayGia(ma=0))
++    assert all(MK not in (rec.getMessage()) for rec in caplog.records)
++
++
++def test_main_co_duong_mat_khau_vnc():
++    """Đấu nối tĩnh: main.py phải có đủ hai đường (PUT đặt + GET trạng thái), gắn nhóm dang_nhap."""
++    src = (Path(__file__).resolve().parent / "src" / "main.py").read_text(encoding="utf-8")
++    assert '"/v1/novnc/mat-khau"' in src
++    assert '"/v1/novnc/mat-khau/trang-thai"' in src
++    assert 'can_tinh_nang("dang_nhap")' in src
+diff --git a/modules/may-dang-nhap/module.py b/modules/may-dang-nhap/module.py
+index 8ca0249..3c5fd55 100644
+--- a/modules/may-dang-nhap/module.py
++++ b/modules/may-dang-nhap/module.py
+@@ -2180,6 +2180,23 @@ class Module:
+             raise RuntimeError("Chưa cấu hình địa chỉ dịch vụ đăng nhập tự động")
+         return {"dich": f"http://{host}:6080"}
+ 
++    async def dat_mat_khau_vnc(self, mat_khau: str) -> dict:
++        """NV305: đặt mật khẩu xem trình duyệt (VNC) qua dịch vụ (PUT /v1/novnc/mat-khau, khoá dịch vụ
++        đã cấu hình). Chỉ trả {ok, da_nap_lai} — dịch vụ không trả mật khẩu, module không tự thêm vào."""
++        kq = await self._goi("PUT", "/v1/novnc/mat-khau", json_body={"mat_khau": mat_khau})
++        if not isinstance(kq, dict) or not kq.get("ok"):
++            return kq if isinstance(kq, dict) else {"ok": False, "ma_loi": "loi_dich_vu",
++                                                    "loi": "Dịch vụ báo lỗi không rõ"}
++        return {"ok": True, "da_nap_lai": bool(kq.get("da_nap_lai"))}
++
++    async def trang_thai_mat_khau_vnc(self) -> dict:
++        """NV305: hỏi dịch vụ đã từng đặt mật khẩu qua giao diện hay chưa. Chỉ trả bool, không mật khẩu."""
++        kq = await self._goi("GET", "/v1/novnc/mat-khau/trang-thai")
++        if not isinstance(kq, dict) or not kq.get("ok"):
++            return kq if isinstance(kq, dict) else {"ok": False, "ma_loi": "loi_dich_vu",
++                                                    "loi": "Dịch vụ báo lỗi không rõ"}
++        return {"ok": True, "da_dat": bool(kq.get("da_dat"))}
++
+     async def tien_do(self, ho_so: str, module_cua_tai_khoan: str = "") -> dict:
+         """Trạng thái lượt đăng nhập nền cho giao diện hỏi (NV145b + NV210).
+ 
+diff --git a/test/test_nv305_mat_khau_vnc.py b/test/test_nv305_mat_khau_vnc.py
+new file mode 100644
+index 0000000..f4532d3
+--- /dev/null
++++ b/test/test_nv305_mat_khau_vnc.py
+@@ -0,0 +1,190 @@
++"""NV305 — Mật khẩu xem trình duyệt (VNC) do chủ máy tự đặt trong «Bảo mật & người dùng».
++
++Đường mới của lõi (quản trị, step-up, giới hạn tần suất):
++- PUT /api/trinh-duyet/mat-khau-vnc — đặt mật khẩu qua module may-dang-nhap (module gọi
++  dịch vụ bằng khoá dịch vụ đã cấu hình); 1–8 ký tự ASCII in được, không khoảng trắng;
++  không bao giờ trả mật khẩu qua API.
++- GET /api/trinh-duyet/mat-khau-vnc/trang-thai — chỉ trả {"da_dat": bool} (đã từng đặt qua
++  giao diện hay chưa), không trả mật khẩu.
++
++Test qua module GIẢ, không gọi dịch vụ thật, không mật khẩu thật.
++"""
++
++from __future__ import annotations
++
++import asyncio
++import json
++from pathlib import Path
++
++import pytest
++from fastapi.testclient import TestClient
++
++from app import gioi_han, novnc
++from app.main import app
++
++GOC = Path(__file__).resolve().parents[1]
++HTML_BAO_MAT = (GOC / "web" / "He-thong-Bao-mat.dc.html").read_text(encoding="utf-8")
++KHOA_QT = "khoa-quan-tri-nv305-mat-khau-vnc-123456"
++MODULE = "may-dang-nhap"
++MK_HOP_LE = "Nv305-T1"  # 8 ký tự, chỉ để test, không phải mật khẩu thật
++MK_NGAN = "x"
++
++
++class ModMkVncGia:
++    """Module giả: ghi lại mật khẩu nhận được, không gọi mạng, không lưu gì."""
++
++    def __init__(self, loi=None, da_dat=False, da_nap_lai=True):
++        self.loi = loi
++        self.da_dat = da_dat
++        self.da_nap_lai = da_nap_lai
++        self.nhan = []
++        self.so_lan_trang_thai = 0
++
++    async def dat_mat_khau_vnc(self, mat_khau: str) -> dict:
++        self.nhan.append(mat_khau)
++        if self.loi is not None:
++            return self.loi
++        return {"ok": True, "da_nap_lai": self.da_nap_lai}
++
++    async def trang_thai_mat_khau_vnc(self) -> dict:
++        self.so_lan_trang_thai += 1
++        return {"ok": True, "da_dat": self.da_dat}
++
++
++@pytest.fixture
++def moi_truong(tmp_path, monkeypatch):
++    monkeypatch.setenv("WEB2API_DATA", str(tmp_path))
++    monkeypatch.setenv("WEB2API_ADMIN_KEY", KHOA_QT)
++    monkeypatch.setenv("WEB2API_RL_LOI_XAC_THUC", "1000")
++    monkeypatch.delenv("WEB2API_TIN_PROXY", raising=False)
++    gioi_han.khoi_dong()
++    novnc._GIOI_HAN_MK_VNC.clear()
++    yield
++    with TestClient(app) as c:
++        c.app.state.so.dang_chay.pop(MODULE, None)
++    novnc._GIOI_HAN_MK_VNC.clear()
++
++
++def _qt():
++    return {"Authorization": f"Bearer {KHOA_QT}"}
++
++
++def _dat(c, mk, headers=None):
++    return c.put("/api/trinh-duyet/mat-khau-vnc", json={"mat_khau": mk},
++                 headers=headers if headers is not None else _qt())
++
++
++def test_khong_khoa_bi_401(moi_truong):
++    with TestClient(app) as c:
++        c.app.state.so.dang_chay[MODULE] = ModMkVncGia()
++        r = c.put("/api/trinh-duyet/mat-khau-vnc", json={"mat_khau": MK_HOP_LE})
++        assert r.status_code == 401, r.text
++
++
++def test_chua_cai_module_bi_404_va_khong_goi_module(moi_truong):
++    with TestClient(app) as c:
++        r = _dat(c, MK_HOP_LE)
++        assert r.status_code == 404, r.text
++
++
++@pytest.mark.parametrize("mk_xau", ["", "123456789", "ab cd", "mậtkhẩu1", "ab\ncd", 123, None])
++def test_mat_khau_sai_dinh_dang_bi_400_va_khong_goi_module(moi_truong, mk_xau):
++    with TestClient(app) as c:
++        mod = ModMkVncGia()
++        c.app.state.so.dang_chay[MODULE] = mod
++        r = _dat(c, mk_xau)
++        assert r.status_code == 400, f"{mk_xau!r} phải 400, được {r.status_code}: {r.text}"
++        assert mod.nhan == []
++
++
++def test_dat_thanh_cong_khong_lo_mat_khau(moi_truong):
++    with TestClient(app) as c:
++        mod = ModMkVncGia()
++        c.app.state.so.dang_chay[MODULE] = mod
++        r = _dat(c, MK_HOP_LE)
++        assert r.status_code == 200, r.text
++        j = r.json()
++        assert j["ok"] is True and j["da_nap_lai"] is True
++        assert mod.nhan == [MK_HOP_LE]
++        assert MK_HOP_LE not in r.text and "mat_khau" not in r.text
++
++
++def test_dat_1_ky_tu_cung_duoc(moi_truong):
++    with TestClient(app) as c:
++        mod = ModMkVncGia()
++        c.app.state.so.dang_chay[MODULE] = mod
++        r = _dat(c, MK_NGAN)
++        assert r.status_code == 200, r.text
++        assert mod.nhan == [MK_NGAN]
++
++
++def test_dich_vu_loi_thanh_502(moi_truong):
++    with TestClient(app) as c:
++        mod = ModMkVncGia(loi={"ok": False, "ma_loi": "sai_khoa_dich_vu",
++                               "loi": "Khoá dịch vụ không đúng hoặc hết hạn"})
++        c.app.state.so.dang_chay[MODULE] = mod
++        r = _dat(c, MK_HOP_LE)
++        assert r.status_code == 502, r.text
++        assert MK_HOP_LE not in r.text
++
++
++def test_phien_web_chua_xac_nhan_lai_bi_403_step_up(moi_truong):
++    """Phiên web (cookie) chưa xác nhận lại phải bị 403 step_up_required; module không được gọi."""
++    from app import nguoi_dung
++
++    with TestClient(app) as c:
++        mod = ModMkVncGia()
++        c.app.state.so.dang_chay[MODULE] = mod
++        asyncio.run(nguoi_dung.tao_nguoi_dung(vai="admin", ten_dang_nhap="qt-nv305",
++                                              mat_khau="MatKhauGia-nv305-000"))
++        r = c.post("/api/dang-nhap", json={"ten_dang_nhap": "qt-nv305",
++                                           "mat_khau": "MatKhauGia-nv305-000"})
++        assert r.status_code == 200, r.text
++        r2 = c.put("/api/trinh-duyet/mat-khau-vnc", json={"mat_khau": MK_HOP_LE},
++                   cookies={"w2a_phien": r.cookies.get("w2a_phien")},
++                   headers={"X-CSRF-Token": r.json()["csrf"]})
++        assert r2.status_code == 403, f"phiên web chưa step-up phải 403, được {r2.status_code}: {r2.text}"
++        assert r2.json()["error"]["code"] == "step_up_required"
++        assert mod.nhan == []
++
++
++def test_vuot_gioi_han_tan_suat_bi_429(moi_truong):
++    with TestClient(app) as c:
++        mod = ModMkVncGia()
++        c.app.state.so.dang_chay[MODULE] = mod
++        for _ in range(10):
++            r = _dat(c, MK_HOP_LE)
++            assert r.status_code == 200, r.text
++        r = _dat(c, MK_HOP_LE)
++        assert r.status_code == 429, f"lần thứ 11 phải 429, được {r.status_code}: {r.text}"
++
++
++def test_trang_thai_chi_tra_bool_khong_tra_mat_khau(moi_truong):
++    with TestClient(app) as c:
++        mod = ModMkVncGia(da_dat=True)
++        c.app.state.so.dang_chay[MODULE] = mod
++        r = c.get("/api/trinh-duyet/mat-khau-vnc/trang-thai", headers=_qt())
++        assert r.status_code == 200, r.text
++        assert r.json() == {"da_dat": True}
++        mod.da_dat = False
++        r = c.get("/api/trinh-duyet/mat-khau-vnc/trang-thai", headers=_qt())
++        assert r.json() == {"da_dat": False}
++
++
++def test_trang_thai_khong_khoa_bi_401_va_chua_cai_bi_404(moi_truong):
++    with TestClient(app) as c:
++        r = c.get("/api/trinh-duyet/mat-khau-vnc/trang-thai")
++        assert r.status_code == 401, r.text
++        r = c.get("/api/trinh-duyet/mat-khau-vnc/trang-thai", headers=_qt())
++        assert r.status_code == 404, r.text
++
++
++def test_giao_dien_co_o_mat_khau_dung_vi_tri():
++    """Ô mật khẩu nằm trong trang Bảo mật & người dùng, khu vực chỉ quản trị, kèm ghi chú giới hạn 8 ký tự."""
++    i = HTML_BAO_MAT.index('id="mat-khau-xem-trinh-duyet"')
++    khoi = HTML_BAO_MAT[max(0, i - 600):i + 2000]
++    assert "laAdmin" in khoi
++    assert "Mật khẩu xem trình duyệt" in khoi
++    assert "8 ký tự" in khoi
++    assert "api/trinh-duyet/mat-khau-vnc" in HTML_BAO_MAT
++    assert "••••• đã đặt" in khoi
+diff --git a/web/He-thong-Bao-mat.dc.html b/web/He-thong-Bao-mat.dc.html
+index 5fcb509..40397ca 100644
+--- a/web/He-thong-Bao-mat.dc.html
++++ b/web/He-thong-Bao-mat.dc.html
+@@ -418,6 +418,27 @@ main.pg{padding:12px 24px 24px 16px}
+ </div></sc-if>
+ </section>
+ 
++<sc-if value="{{laAdmin}}">
++<!-- ═══ NV305: MẬT KHẨU XEM TRÌNH DUYỆT (VNC) DO CHỦ MÁY TỰ ĐẶT — vị trí theo đặc tả NV305 + quy tắc 2
++     (bí mật do web2api quản để mở màn hình xem của chính nó, không phải kết nối ra ngoài nên không nằm
++     trong chip «Cài đặt» của module) ═══ -->
++<section class="the" aria-labelledby="h-mat-khau-xem" id="mat-khau-xem-trinh-duyet">
++<h2 id="h-mat-khau-xem" class="nhan-muc">Mật khẩu xem trình duyệt đăng nhập</h2>
++<p class="phu">Mật khẩu nhập một lần ở hộp nhập của màn hình xem khi xem màn hình trình duyệt đang đăng nhập tự động — đây là mật khẩu để MỞ MÀN HÌNH XEM, không phải mật khẩu tài khoản AI. Chỉ có 1–8 ký tự hiệu lực: giao thức xem màn hình (VNC) chỉ dùng 8 ký tự đầu, gõ dài hơn cũng không có tác dụng. Mật khẩu chỉ ghi đè, không xem lại được.</p>
++<sc-if value="{{vncDaDat}}"><p class="phu" id="vnc-da-dat">••••• đã đặt — người đang xem phải nhập mật khẩu này ở hộp nhập của màn hình xem. Muốn đổi thì gõ mật khẩu mới rồi bấm «Đổi».</p></sc-if>
++<sc-if value="{{vncChuaDat}}"><p class="phu" id="vnc-chua-dat">Chưa đặt qua giao diện này — màn hình xem đang dùng mật khẩu do máy tự sinh (đọc trong máy đăng nhập mới thấy). Đặt một mật khẩu mới ở dưới để khỏi phải đọc trong máy nữa.</p></sc-if>
++<form class="form-mat-khau-vnc" novalidate onSubmit="{{vncDatSubmit}}" style="display:flex;flex-direction:column;gap:12px">
++<div class="truong">
++<label for="o-mat-khau-vnc">Mật khẩu xem trình duyệt (1–8 ký tự)</label>
++<input id="o-mat-khau-vnc" class="o" type="password" autocomplete="off" spellcheck="false" maxlength="8" placeholder="Ví dụ: xemnha1" value="{{vncMk}}" onInput="{{vncGoMk}}">
++</div>
++<sc-if value="{{vncLoi}}"><p role="alert" class="bao bao-loi" id="loi-mat-khau-vnc">{{vncLoi}}</p></sc-if>
++<sc-if value="{{vncTin}}"><p class="bao bao-tot" id="tin-mat-khau-vnc">{{vncTin}}</p></sc-if>
++<div class="dong-nut"><button type="submit" class="nut nut-chinh" id="nut-dat-mat-khau-vnc" disabled="{{vncDangDat}}">{{vncNhanNut}}</button></div>
++</form>
++</section>
++</sc-if>
++
+ <sc-if value="{{laAdmin}}">
+ <!-- ═══ KHOÁ ĐĂNG NHẬP (ADMIN): bỏ chặn khi người dùng quên mật khẩu ═══ -->
+ <section class="bang-tb muc-gap" aria-labelledby="h-khoa-dn" id="khoa-dang-nhap">
+@@ -723,6 +744,13 @@ class Component extends DCLogic {
+       dvnDangXoa: null,
+       dvnDangDoi: null,
+ 
++      // NV305: Mật khẩu xem trình duyệt (VNC) do chủ máy tự đặt (admin; null = chưa tải trạng thái)
++      vncMk: '',
++      vncDaDat: null,
++      vncDangDat: false,
++      vncLoi: '',
++      vncTin: '',
++
+       // Khoá API của tôi (mọi người dùng)
+       dsKhoaToi: [],
+       nhanKhoaToiNhap: '',
+@@ -828,7 +856,7 @@ class Component extends DCLogic {
+     await this.taiKhoaToi();
+     await this.tai2fa();
+     if (laAdmin) {
+-      await Promise.allSettled([this.taiDsNguoiDung(), this.taiDsKhoa(), this.taiKhoaDn()]);
++      await Promise.allSettled([this.taiDsNguoiDung(), this.taiDsKhoa(), this.taiKhoaDn(), this.taiVncTrangThai()]);
+       setTimeout(() => this.cuonToiNeoDvn(), 0);
+     }
+   }
+@@ -1250,6 +1278,50 @@ class Component extends DCLogic {
+     }
+   }
+ 
++  // ═══════════════════════════════════════════════════════════════
++  // NV305: MẬT KHẨU XEM TRÌNH DUYỆT (VNC) DO CHỦ MÁY TỰ ĐẶT (ADMIN)
++  // Ghi đè, không đọc lại: giao diện chỉ biết «đã đặt hay chưa» qua GET trạng thái,
++  // không bao giờ nhận mật khẩu về. PUT có step-up: K.goi tự hỏi mật khẩu xác nhận lại
++  // khi máy chủ trả 403 step_up_required rồi thử lại một lần.
++  // ═══════════════════════════════════════════════════════════════
++
++  async taiVncTrangThai() {
++    try {
++      const { j } = await K.goi('api/trinh-duyet/mat-khau-vnc/trang-thai');
++      this.setState({ vncDaDat: !!(j && j.da_dat) });
++    } catch (e) {
++      // Module chưa cài / dịch vụ chưa hỗ trợ: không chặn trang, chỉ để trạng thái «chưa biết»;
++      // bấm Đặt vẫn báo đúng lỗi của máy chủ.
++      this.setState({ vncDaDat: null });
++    }
++  }
++
++  vncGoMk(e) { this.setState({ vncMk: e.target.value, vncLoi: '', vncTin: '' }); }
++
++  async vncDatSubmit(e) {
++    if (e && e.preventDefault) e.preventDefault();
++    if (this.state.vncDangDat) return;
++    const mk = this.state.vncMk || '';
++    if (!/^[!-~]{1,8}$/.test(mk)) {
++      this.setState({ vncLoi: 'Mật khẩu xem trình duyệt chỉ dùng 1–8 ký tự (chữ, số, ký tự thường; không khoảng trắng, không dấu).' });
++      return;
++    }
++    this.setState({ vncDangDat: true, vncLoi: '', vncTin: '' });
++    try {
++      const { j } = await K.goi('api/trinh-duyet/mat-khau-vnc', { method: 'PUT', json: { mat_khau: mk } });
++      this.setState({
++        vncDangDat: false,
++        vncMk: '',
++        vncDaDat: true,
++        vncTin: (j && j.da_nap_lai)
++          ? 'Đã đặt mật khẩu xem trình duyệt. Người đang xem phải nhập lại mật khẩu mới ở hộp nhập của màn hình xem.'
++          : 'Đã ghi mật khẩu xem trình duyệt, nhưng chưa nạp lại được trình duyệt xem — mật khẩu sẽ có hiệu lực khi bật lại màn hình xem.',
++      });
++    } catch (err) {
++      this.setState({ vncDangDat: false, vncLoi: err.message || 'Lỗi khi đặt mật khẩu.' });
++    }
++  }
++
+   // ═══════════════════════════════════════════════════════════════
+   // KHOÁ API CỦA TÔI (MỌI NGƯỜI DÙNG)
+   // ═══════════════════════════════════════════════════════════════
+@@ -1985,6 +2057,17 @@ class Component extends DCLogic {
+       dsKhoaHienThi,
+ 
+ 
++      // NV305: Mật khẩu xem trình duyệt (VNC) do chủ máy tự đặt
++      vncDaDat: s.vncDaDat === true,
++      vncChuaDat: s.vncDaDat === false,
++      vncMk: s.vncMk,
++      vncGoMk: (e) => this.vncGoMk(e),
++      vncDatSubmit: (e) => this.vncDatSubmit(e),
++      vncDangDat: s.vncDangDat,
++      vncNhanNut: s.vncDangDat ? 'Đang đặt…' : (s.vncDaDat ? 'Đổi' : 'Đặt'),
++      vncLoi: s.vncLoi,
++      vncTin: s.vncTin,
++
+       // NV289: Khoá cho dịch vụ ngoài gọi vào
+       dvn: this.vmDichVuNgoai(s),
+ 
