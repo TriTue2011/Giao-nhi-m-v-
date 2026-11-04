@@ -1,0 +1,13 @@
+# VM-ONLY override — KHÔNG dùng cho server thật.
+# Lý do: VM sandbox này không có CAP_NET_ADMIN nên dockerd không tạo
+# được bridge docker0 (xem chay-tren-vm.md). Daemon chạy với
+# --bridge=none nên container chỉ dùng được host network.
+# Override này giữ nguyên ý định LAN-only của compose gốc bằng cách
+# bắt app tự bind 127.0.0.1 (GATEWAY_HOST) thay vì bind qua ports.
+# Trên server thật: dùng thẳng docker-compose.yml, KHÔNG dùng file này.
+services:
+  telegram-gateway:
+    network_mode: host
+    ports: !reset []
+    environment:
+      GATEWAY_HOST: "127.0.0.1"

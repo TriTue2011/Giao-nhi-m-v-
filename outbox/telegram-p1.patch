@@ -1,0 +1,2729 @@
+diff --git a/modules/telegram-user/README.md b/modules/telegram-user/README.md
+index af256de..7586da6 100644
+--- a/modules/telegram-user/README.md
++++ b/modules/telegram-user/README.md
+@@ -83,3 +83,70 @@ bool thật. Trần lõi: 20 tin/phút/khoá, nội dung ≤ 16 KiB (module ki
+   `cho_phep_ha_goi_di`, `tu_dong_nghe_may`:** thuộc chip Cài đặt §7.1, phác
+   manifest lược bớt; P0 thêm đủ (công tắc dạng `chuoi` «bat»/«tat» vì lõi chỉ
+   có kiểu `chuoi`/`bi_mat`/`danh_sach_bi_mat`, không có kiểu bool).
++
++## P1 + P2 (delta trên P0 — manifest giữ nguyên 0.1.0)
++
++Manifest KHÔNG đổi (không thêm trường nào: mọi trường P1/P2 cần đã có từ
++P0) nên `phien_ban` không nâng. Không sửa một dòng nào của `telegram-bot`.
++
++### P1 — đăng nhập + gửi thật qua TDLib (tab module, không qua /m)
++
++- Luồng tab: `bat_dau_dang_nhap(phone)` → OTP (`nhap_otp`) → 2FA nếu server
++  yêu cầu (`nhap_2fa`) → QR tùy chọn (`bat_dau_qr`/`kiem_tra_qr`). Không có
++  đường đăng nhập nào qua `/m` (dispatch trả 404 cho `login`).
++- Chống flood: 3 mã sai → khóa login 15 phút (`LOGIN_LOCKED`, kèm
++  `retry_after_seconds`); log chỉ đếm lần thử, không ghi mã/OTP/2FA.
++- Session bền: sổ tài khoản `tai_khoan.json` + `khoa` (0600) + `files/`
++  (0700) dưới `<WEB2API_DATA>/telegram-user/tdlib/<id>/`; luồng chờ dưới
++  `tdlib/_dang_nhap/<login_id>/` (xóa khi xong). Restart lõi không mất.
++- Gửi thật: `send_message`/`send_media`/`send_voice` qua client TDLib khi
++  tài khoản đã gắn client; chưa có client thì giữ đường mock của P0 (để
++  P0 còn chạy khi chưa đăng nhập thật). Client thật `KhachTdlib` dùng
++  tdjson 1.8.69: mọi request JSON encode sang bytes trước `td_send`
++  (binding nhận bytes, không nhận str — caveat T0-B); trường bytes trong
++  JSON TDLib là base64.
++- Events: poll `events?since=` (cursor đơn điệu, tối đa 10000) + đẩy webhook
++  HA (`ha_webhook_url`, header `X-Gateway-Token`, retry backoff tối đa 3
++  lần; webhook hỏng không chặn luồng chính, spool vẫn giữ để HA poll).
++- Mã lỗi đủ bộ: 400 tham số sai, 403 `HA_GOI_DI_TAT`, 404
++  `ACCOUNT_KHONG_CO`/`DUONG_KHONG_CO`, 409 `ACCOUNT_BUSY`/`CALL_NOT_ACTIVE`/
++  `ENDPOINT_BUSY`, 429 `FLOOD_WAIT` (kèm `retry_after_seconds` lấy từ
++  Telegram, không bịa) / `LOGIN_LOCKED` / `AUDIO_QUA_TAI`, 502
++  `MEDIA_ENGINE_ERROR`, 503 `ACCOUNT_OFFLINE`.
++
++### P2 — gọi đi + đàm thoại 2 chiều
++
++- State machine: `dialing → active → ended`. Tài khoản bận → hàng đợi FIFO
++  (sâu 10, timeout 120 s, ưu tiên `alarm` > `normal`); thăng hạng khi cuộc
++  trước kết thúc. Endpoint đã thuộc cuộc khác → 409 `ENDPOINT_BUSY`
++  (kiểm trước hàng đợi, áp dụng cả khác tài khoản).
++- Công tắc «Cho phép HA gọi đi» mặc định TẮT: lệnh gọi từ HA qua `/m` bị
++  403 khi tắt; gọi tương tác trong tab (`goi_tu_tab`) không chịu công tắc.
++- Glue TDLib ↔ NTgCalls (`glue_call_ready`, theo map T0-B):
++  `servers` → `connect_p2p` (spec RTCServer, wrapper thật đổi sang đối tượng
++  `RTCServer`), `protocol.library_versions` → versions,
++  `udp_p2p + allow_p2p` → `p2p_allowed`, `encryption_key` →
++  `skip_exchange`, `custom_parameters` → `connect_p2p(custom_parameters)`
++  (giữ nguyên chuỗi JSON), `emojis` → fingerprint hiển thị. Signaling 2
++  chiều: TDLib `sendCallSignalingData` ↔ NTgCalls `send_signaling_data` /
++  `on_signaling_data`, dữ liệu luôn là bytes (không str).
++- TTS vào cuộc gọi: mặc định Edge TTS (`EdgeTtsSynthesizer`, interface
++  inject được; `edge_tts` nạp lười qua importlib nên module vẫn nạp được
++  khi chưa cài gói — thiếu gói thì TTS lỗi 502, không sập module) + file
++  TTS của HA qua `audio/upload` (khối base64 ≤ 300 KB, ráp file, trả
++  `tts_audio_id`, xóa sau cuộc gọi dùng nó hoặc sau 1 giờ).
++- Đàm thoại qua `/m`: `audio/in` nhận khối `{call_id, seq, pcm_b64,
++  sample_rate, channels}` — mất khối chèn im lặng + đếm, trùng khối bỏ,
++  hàng đợi mic quá 2 s PCM → 429, khối base64 > 400 KB → 400;
++  `audio/stream-url` trả vé loa gắn 1 `call_id` (ký bằng lõi qua
++  `app.duong_module.tao_duong_luong()` khi import được lõi; khi chạy tách
++  rời chỉ trả URL chưa ký cho test — lõi thật sẽ từ chối URL chưa ký);
++  `luong()` trả 404 cho vé của cuộc đã kết thúc, hỗ trợ header `Range`.
++- PCM engine: s16le 48 kHz mono, tập trung ở `PCM_ENGINE` trong module.py.
++  TODO T1: định dạng gọi riêng tư CHƯA xác minh (chỉ có tiền lệ group
++  call), glue chạy thật với server chưa kiểm, decode mp3/wav → PCM và
++  resample chưa làm (module.py không được gọi tiến trình con theo
++  `scripts/kiem_module.py`).
++- KHÔNG làm ở P1/P2: nhận cuộc gọi (`answer_call` vẫn 501 P3), lịch sử/
++  danh bạ/nhóm (501 P4), Wyoming (không triển khai server Wyoming trong
++  module — mic đi qua khối JSON `/m` như thiết kế).
+diff --git a/modules/telegram-user/module.py b/modules/telegram-user/module.py
+index 45cb47f..b4889dc 100644
+--- a/modules/telegram-user/module.py
++++ b/modules/telegram-user/module.py
+@@ -1,28 +1,70 @@
+-"""Module telegram-user — P0 khung + mock (theo thiết kế sửa đổi telegram-w2a-module).
+-
+-P0 CHƯA làm: đăng nhập thật (OTP/2FA/QR), gửi tin thật, gọi thật, webhook
+-đẩy event thật, luồng audio thật. Mọi đường gọi/nhận/audio trả 501 với giai
+-đoạn tương ứng; gửi tin qua /m và /api/gui chỉ ghi vào hộp thư mock trong bộ
+-nhớ để kiểm dispatch; tài khoản mock chỉ để kiểm phiên bền qua restart.
+-
+-Phiên TDLib (mục 7.5 thiết kế): thư mục files + khóa mã hóa local cho mỗi tài
+-khoản, dưới <WEB2API_DATA>/telegram-user/tdlib/<id>/ — cùng quy ước gốc dữ
+-liệu của lõi (kho.py: WEB2API_DATA, mặc định /data). Đây là lựa chọn của P0,
+-cần chốt với lõi lúc triển khai (thiết kế ghi rõ đường dẫn này chưa xác minh).
+-
+-Bí mật (api_id, api_hash, token webhook, khóa phiên) không bao giờ vào log,
+-phản hồi hay nhật ký: bộ lọc _LocBiMat che giá trị đã biết, và mã tránh log
+-bí mật ngay từ đầu. Tài khoản qua /m chỉ trả trường công khai (id, phone,
+-display_name, status) — không api_id/api_hash/khóa.
+-
+-Gói tdjson/ntgcalls chỉ nạp lười trong _nap_tdjson/_nap_ntgcalls (P1 mới dùng
+-để tạo client thật); P0 chỉ kiểm import được. Cả hai đều khai trong
+-yeu_cau_goi nên lõi từ chối nạp sạch (LoiNap «thiếu gói») trên máy chưa cài
+-wheel — đó là hợp đồng của lõi, không phải lỗi module.
++"""Module telegram-user — P1 + P2 (DELTA trên P0, theo thiết kế sửa đổi
++telegram-w2a-module, phương án B đã qua cổng T0-B).
++
++P1: đăng nhập THẬT bằng TDLib qua tab module (KHÔNG qua đường /m, KHÔNG qua
++cai()): số điện thoại → OTP → 2FA (nếu server yêu cầu) → QR tùy chọn; session
++TDLib bền trên đĩa (thư mục files + file khóa, thư mục 0700, file 0600, không
++qua API, không vào log); gửi tin/media/voice qua client TDLib (fake ở test);
++events: poll fallback (cursor đơn điệu) + đẩy webhook HA có retry backoff;
++chống flood: 3 mã sai khóa login 15 phút, log chỉ đếm lần thử, KHÔNG ghi
++mã/OTP/2FA.
++
++P2: gọi đi (state machine dialing → active → ended; bận → hàng đợi FIFO sâu
++10, timeout 120s, ưu tiên alarm > normal; ENDPOINT_BUSY khi endpoint đã thuộc
++cuộc khác); glue TDLib ↔ NTgCalls theo map T0-B (code glue thật, fake client
++ở test); TTS vào cuộc gọi: mặc định Edge TTS (interface inject được, test
++dùng fake; không gọi mạng ở test) + file TTS của HA qua audio/upload; đàm
++thoại 2 chiều qua /m: audio/in (khối JSON) + audio/stream-url (vé luồng lõi).
++
++TODO T1 (CHƯA xác minh, KHÔNG claim đã xác minh):
++- Định dạng PCM gọi riêng tư: tiền lệ group call là s16le 48 kHz mono, nhưng
++  định dạng gọi riêng tư CHƯA xác minh. Mọi hằng PCM tập trung ở PCM_ENGINE
++  dưới đây (s16le 48 kHz mono); T1 gọi thật bằng tài khoản phụ mới chốt.
++- Glue callStateReady → NTgCalls chạy thật với server (T0-B chỉ chứng minh
++  API tồn tại + đủ trường, chưa chạy thật).
++- Đưa PCM vào/ra NTgCalls ở chế độ live: wrapper NtGcallsThuc dùng nguồn FILE
++  cho TTS (đã có trong API NTgCalls); đường mic live qua nguồn EXTERNAL vẫn
++  chờ T1 chốt cơ chế frame. Test dùng engine fake nên không claim đường live
++  thật đã chạy.
++- Giải mã file TTS của HA (mp3/wav → PCM) và resample PCM khác tần số/kênh:
++  module.py không được gọi tiến trình con (scripts/kiem_module.py coi
++  subprocess là vi phạm), nên P2 chỉ ráp + lưu file và đưa bytes vào engine
++  fake; bước decode/resample bằng ffmpeg là việc của T1 / phía lõi, chưa có
++  trong code này. Integration HA phải gửi đúng 48 kHz mono cho tới khi T1
++  chốt, nếu không module chỉ lưu nguyên bytes và ghi rõ tham số đã nhận.
++
++Bí mật (api_id, api_hash, token webhook, khóa phiên, OTP, 2FA) không bao giờ
++vào log, phản hồi hay nhật ký: bộ lọc _LocBiMat che giá trị đã biết, và mã
++tránh log bí mật ngay từ đầu. Tài khoản qua /m chỉ trả trường công khai.
++
++Điểm lệch so với thiết kế (xem BAO-CAO.md đầy đủ):
++- D-P1-1: vé luồng: lõi ký URL bằng HMAC (app/url_ky.py) và kiểm chữ ký
++  TRƯỚC khi gọi module.luong(). Module tạo vé bằng app.duong_module.
++  tao_duong_luong() khi import được lõi; khi chạy tách rời (harness test
++  nạp module.py độc lập) thì trả URL chưa ký cùng đường dẫn — lõi thật sẽ
++  từ chối URL chưa ký, nên đường fallback này CHỈ dùng cho test, không dùng
++  để phát loa thật.
++- D-P1-2: manifest giữ nguyên 0.1.0 (không thêm trường nào — mọi trường P1/P2
++  cần đã có từ P0) nên không nâng phien_ban; edge_tts KHÔNG thêm vào
++  yeu_cau_goi mà nạp lười qua importlib (xem EdgeTtsSynthesizer) để module
++  vẫn nạp được trên máy chưa cài edge-tts, và lỗi TTS lúc gọi trả 502 chứ
++  không sập module.
++- D-P1-3: giới hạn 120 req/phút/khoá trong tich_hop vẫn KHÔNG thực thi được
++  (lõi không truyền danh tính khoá vào tich_hop) — kế thừa D-P0-1.
++- D-P1-4: suc_khoe().che_do giữ "p0-mock" vì test P0 pin giá trị này; trạng
++  thái giai đoạn thật đọc ở khóa "giai_doan" mới ("p1-p2").
++
++Gói tdjson/ntgcalls chỉ nạp lười trong _nap_tdjson/_nap_ntgcalls; client thật
++KhachTdlib/NtGcallsThuc chỉ tạo khi có tài khoản đã đăng nhập hoặc luồng
++đăng nhập đang chạy. Test dùng fake client/engine/synthesizer qua các móc
++_gan_client/_gan_engine/_gan_tts.
+ """
+ 
+ from __future__ import annotations
+ 
++import asyncio
++import base64
++import importlib
+ import json
+ import logging
+ import os
+@@ -30,6 +72,8 @@ import re
+ import secrets
+ import shutil
+ import time
++import urllib.error
++import urllib.request
+ import uuid
+ from pathlib import Path
+ 
+@@ -57,20 +101,28 @@ _AUDIO_ENDPOINT = {"ha", "r1", "usb", "file"}
+ _GIOI_HAN_SU_KIEN = 10000
+ _GIOI_HAN_NOI_DUNG = 16 * 1024  # khớp trần lõi cho /api/gui
+ _TUYEN_501 = {
+-    "call": ("POST", "P1"),
+     "answer_call": ("POST", "P3"),
+-    "hangup_call": ("POST", "P1"),
+-    "calls": ("GET", "P1"),
+     "history": ("GET", "P4"),
+     "contacts": ("GET", "P4"),
+     "groups": ("GET", "P4"),
+-    "send_media": ("POST", "P4"),
+-    "send_voice": ("POST", "P4"),
+-    "audio/in": ("POST", "P2"),
+-    "audio/stream-url": ("POST", "P2"),
+-    "audio/upload": ("POST", "P2"),
+ }
+ 
++# ── PCM engine (TODO T1: định dạng gọi riêng tư CHƯA xác minh) ──────────
++# Tiền lệ group call: s16le 48 kHz mono. Mọi chỗ dùng PCM trong module đều
++# lấy từ 4 hằng này, không hardcode rải rác, để T1 chỉ sửa một chỗ.
++PCM_ENGINE = {
++    "dinh_dang": "s16le",
++    "sample_rate": 48000,
++    "channels": 1,
++    "bytes_per_second": 48000 * 1 * 2,
++}
++_KHOI_AUDIO_IN_TOI_DA = 400_000  # ký tự base64 trong một khối audio/in
++_KHOI_TTS_TOI_DA = 300_000  # ký tự base64 trong một khối audio/upload
++_MIC_BO_DEM_TOI_DA = 2 * PCM_ENGINE["bytes_per_second"]  # 2 giây PCM
++_TTS_TON_TAI_GIAY = 3600  # file TTS của HA: xóa sau cuộc gọi hoặc 1 giờ
++_DANG_NHAP_SAI_TOI_DA = 3
++_DANG_NHAP_KHOA_GIAY = 900  # 15 phút
++
+ 
+ class _LocBiMat(logging.Filter):
+     """Che giá trị bí mật đã biết khỏi bản ghi log (phòng thủ sâu)."""
+@@ -102,21 +154,39 @@ log.addFilter(_LOC)
+ 
+ 
+ def _nap_tdjson():
+-    """Nạp tdjson (báo hiệu TDLib, phương án B). P1 dùng để tạo client thật;
+-    P0 chỉ kiểm import được. Gói khai trong yeu_cau_goi."""
++    """Nạp tdjson (báo hiệu TDLib, phương án B)."""
+     import tdjson
+ 
+     return tdjson
+ 
+ 
+ def _nap_ntgcalls():
+-    """Nạp ntgcalls (media cho gọi 1-1). P1 dùng cho gọi thật; P0 chỉ kiểm
+-    import được. Gói khai trong yeu_cau_goi."""
++    """Nạp ntgcalls (media cho gọi 1-1)."""
+     import ntgcalls
+ 
+     return ntgcalls
+ 
+ 
++class LoiTelegram(Exception):
++    """Lỗi từ Telegram/client, mang mã + HTTP status để tich_hop map thẳng.
++
++    retry_after_seconds chỉ đặt khi Telegram trả flood-wait thật (không bịa).
++    """
++
++    def __init__(self, code, http_status=400, retry_after_seconds=None):
++        super().__init__(code)
++        self.code = code
++        self.http_status = http_status
++        self.retry_after_seconds = retry_after_seconds
++
++
++def _loi_body(code, message, retry_after_seconds=None):
++    body = {"error": {"code": code, "message": message}}
++    if retry_after_seconds is not None:
++        body["error"]["retry_after_seconds"] = retry_after_seconds
++    return body
++
++
+ def _kiem_dich(gia_tri):
+     """Thẩm định danh sách đích gửi nhanh. Trả danh sách chuẩn hóa
+     [{id, ten, peer}]; sai khuôn → ValueError với thông điệp rõ ràng."""
+@@ -179,11 +249,7 @@ def _ghi_nguyen_tu(tep: Path, du_lieu: bytes, quyen: int = 0o600) -> None:
+ 
+ 
+ def _ban_ghi_cong_khai(ban_ghi: dict) -> dict:
+-    """Dạng công khai của một tài khoản cho đường /m (không bí mật).
+-
+-    P0 mock: trường «phone» mang giá trị peer đã khai (tên người dùng/số/id)
+-    theo đúng hình dạng thiết kế; tài khoản TDLib thật ở P1 mới có số thật.
+-    """
++    """Dạng công khai của một tài khoản cho đường /m (không bí mật)."""
+     return {
+         "id": ban_ghi.get("id"),
+         "phone": ban_ghi.get("peer"),
+@@ -192,14 +258,409 @@ def _ban_ghi_cong_khai(ban_ghi: dict) -> dict:
+     }
+ 
+ 
++def _giai_ma_bytes(gia_tri):
++    """Bytes trong JSON TDLib: base64 str → bytes; bytes giữ nguyên.
++
++    TDLib JSON mã hóa trường bytes thành base64 (probe T0-B: data "AAAA" =
++    3 byte 0). Glue phải decode ở biên TDLib, không đưa str vào NTgCalls
++    (binding NTgCalls nhận bytes, không nhận str).
++    """
++    if gia_tri is None:
++        return None
++    if isinstance(gia_tri, (bytes, bytearray)):
++        return bytes(gia_tri)
++    if isinstance(gia_tri, str):
++        try:
++            return base64.b64decode(gia_tri, validate=True)
++        except (ValueError, base64.binascii.Error):
++            return gia_tri.encode("utf-8")
++    return None
++
++
++def _ma_hoa_bytes(du_lieu: bytes) -> str:
++    """bytes → base64 str để đưa vào request JSON cho tdjson."""
++    return base64.b64encode(bytes(du_lieu)).decode("ascii")
++
++
++# ── Glue TDLib callStateReady → NTgCalls (code thật, theo map T0-B) ───────
++def glue_call_ready(ready: dict, engine, user_id, is_outgoing: bool) -> dict:
++    """Chuyển callStateReady (TDLib) thành lệnh cho engine NTgCalls.
++
++    Map T0-B (td_api.tl:7672 → NTgCalls 3.0.6):
++      servers → connect_p2p (RTCServer specs, wrapper thật mới đổi sang
++        đối tượng RTCServer; engine fake nhận spec dict để test được)
++      protocol.library_versions → versions; udp_p2p + allow_p2p → p2p_allowed
++      encryption_key → skip_exchange (TDLib đã thỏa thuận khóa, không tự DH)
++      custom_parameters → connect_p2p(custom_parameters) (str JSON, giữ nguyên)
++      emojis → trả về để hiển thị fingerprint (engine.get_emojis_fingerprint
++        là lệnh riêng, không gọi ở đây để glue giữ thuần túy)
++    Trả dict tham số đã dùng (để test + log, không chứa khóa).
++    """
++    ready = ready or {}
++    protocol = ready.get("protocol") or {}
++    specs = []
++    for srv in ready.get("servers") or []:
++        if not isinstance(srv, dict):
++            continue
++        loai = srv.get("type") or {}
++        kieu = loai.get("@type", "")
++        if kieu == "callServerTypeWebrtc":
++            specs.append({
++                "id": srv.get("id"),
++                "ipv4": srv.get("ip_address") or "",
++                "ipv6": srv.get("ipv6_address") or "",
++                "port": srv.get("port"),
++                "username": loai.get("username"),
++                "password": loai.get("password"),
++                "turn": bool(loai.get("supports_turn")),
++                "stun": bool(loai.get("supports_stun")),
++                "tcp": False,
++                "peer_tag": None,
++            })
++        else:  # callServerTypeTelegramReflector (mặc định)
++            specs.append({
++                "id": srv.get("id"),
++                "ipv4": srv.get("ip_address") or "",
++                "ipv6": srv.get("ipv6_address") or "",
++                "port": srv.get("port"),
++                "username": None,
++                "password": None,
++                "turn": False,
++                "stun": False,
++                "tcp": bool(loai.get("is_tcp")),
++                "peer_tag": _giai_ma_bytes(loai.get("peer_tag")),
++            })
++    versions = list(protocol.get("library_versions") or [])
++    p2p_allowed = bool(ready.get("allow_p2p")) and bool(protocol.get("udp_p2p"))
++    custom = ready.get("custom_parameters")
++    if custom is not None and not isinstance(custom, str):
++        custom = json.dumps(custom, ensure_ascii=False)
++    khoa = _giai_ma_bytes(ready.get("encryption_key"))
++    if khoa:
++        engine.bo_qua_trao_doi_khoa(user_id, khoa, bool(is_outgoing))
++    engine.ket_noi_p2p(user_id, specs, versions, p2p_allowed, custom)
++    return {
++        "servers": specs,
++        "versions": versions,
++        "p2p_allowed": p2p_allowed,
++        "custom_parameters": custom,
++        "emojis": list(ready.get("emojis") or []),
++        "co_khoa": khoa is not None,
++    }
++
++
++def _tach_range(khoang, tong: int):
++    """Parse header Range «bytes=a-b» → (start, end, 206) hoặc (None, None, 200).
++    Range không thỏa → (None, None, 416)."""
++    if not khoang or not isinstance(khoang, str):
++        return None, None, 200
++    m = re.match(r"^\s*bytes=(\d*)-(\d*)\s*$", khoang)
++    if not m:
++        return None, None, 200
++    a, b = m.group(1), m.group(2)
++    if a == "" and b == "":
++        return None, None, 200
++    if a == "":
++        n = int(b)
++        if n <= 0:
++            return None, None, 416
++        bat_dau = max(0, tong - n)
++        return bat_dau, tong - 1, 206
++    bat_dau = int(a)
++    ket_thuc = int(b) if b != "" else tong - 1
++    if bat_dau >= tong or ket_thuc < bat_dau:
++        return None, None, 416
++    return bat_dau, min(ket_thuc, tong - 1), 206
++
++
++# ── Client TDLib thật (tdjson, binding nhận BYTES) ────────────────────────
++class KhachTdlib:
++    """Client TDLib qua tdjson 1.8.69 (phương án B).
++
++    Mọi request JSON đều encode sang bytes trước khi td_send (binding nhận
++    bytes, không nhận str — caveat T0-B). Trường bytes trong JSON TDLib là
++    base64 (xem _giai_ma_bytes/_ma_hoa_bytes). Vòng nhận dùng td_receive
++    trong thread (tránh chặn event loop); T1 phải kiểm chứng luồng này với
++    tài khoản phụ thật trước khi coi là chạy được.
++    """
++
++    def __init__(self, api_id, api_hash, thu_muc_files, khoa_hex):
++        self.api_id = int(api_id)
++        self.api_hash = api_hash
++        self.thu_muc_files = str(thu_muc_files)
++        self.khoa_hex = khoa_hex
++        self._client_id = None
++        self._tdjson = None
++
++    def _gui(self, req: dict):
++        # td_send nhận bytes: JSON-encode toàn bộ request.
++        self._tdjson.td_send(
++            self._client_id, json.dumps(req, ensure_ascii=False).encode("utf-8")
++        )
++
++    async def _cho_kieu(self, kieu_mong, timeout=30.0):
++        """Chờ update/request trả về có @type nằm trong kieu_mong."""
++        het = time.monotonic() + timeout
++        while time.monotonic() < het:
++            tho = await asyncio.to_thread(self._tdjson.td_receive, 0.5)
++            if not tho:
++                continue
++            try:
++                obj = json.loads(tho.decode("utf-8"))
++            except (ValueError, UnicodeDecodeError):
++                continue
++            if obj.get("@type") in kieu_mong:
++                return obj
++            if obj.get("@type") == "error":
++                raise LoiTelegram(
++                    str(obj.get("message", "TD_ERROR")), obj.get("code", 400)
++                )
++        raise LoiTelegram("TD_TIMEOUT", 502)
++
++    async def khoi_tao(self):
++        self._tdjson = _nap_tdjson()
++        self._client_id = self._tdjson.td_create_client_id()
++        await self._cho_kieu({"updateAuthorizationState"}, timeout=10.0)
++        self._gui({
++            "@type": "setTdlibParameters",
++            "parameters": {
++                "use_test_dc": False,
++                "database_directory": self.thu_muc_files,
++                "files_directory": self.thu_muc_files,
++                "use_file_database": True,
++                "use_chat_info_database": True,
++                "use_message_database": True,
++                "use_secret_chats": False,
++                "api_id": self.api_id,
++                "api_hash": self.api_hash,
++                "system_language_code": "vi",
++                "device_model": "web2api",
++                "system_version": "Linux",
++                "application_version": PHIEN_BAN,
++                "enable_storage_optimizer": True,
++                "ignore_background_updates": False,
++            },
++        })
++        if len(self.khoa_hex) == 64:
++            self._gui({
++                "@type": "setDatabaseEncryptionKey",
++                "encryption_key": _ma_hoa_bytes(bytes.fromhex(self.khoa_hex)),
++            })
++
++    async def _trang_thai_hien_tai(self, timeout=30.0):
++        obj = await self._cho_kieu({"updateAuthorizationState"}, timeout=timeout)
++        state = (obj.get("authorization_state") or {}).get("@type", "")
++        if state == "authorizationStateWaitPhoneNumber":
++            return "cho_so"
++        if state == "authorizationStateWaitCode":
++            return "cho_otp"
++        if state == "authorizationStateWaitPassword":
++            return "can_2fa"
++        if state == "authorizationStateWaitOtherDeviceConfirmation":
++            return "cho_qr"
++        if state == "authorizationStateReady":
++            return "da_dang_nhap"
++        return state
++
++    async def dat_so(self, phone):
++        self._gui({
++            "@type": "setPhoneNumber",
++            "phone_number": phone,
++            "settings": {"allow_flash_call": False, "allow_sms_receiver": False},
++        })
++        return await self._trang_thai_hien_tai()
++
++    async def kiem_tra_ma(self, code):
++        # code KHÔNG bao giờ vào log: chỉ truyền thẳng cho TDLib.
++        self._gui({"@type": "checkAuthenticationCode", "code": code})
++        try:
++            return await self._trang_thai_hien_tai()
++        except LoiTelegram as e:
++            if "PHONE_CODE_INVALID" in e.code or "CODE_INVALID" in e.code:
++                raise LoiTelegram("MA_SAI", 400) from None
++            if e.http_status == 429:
++                raise LoiTelegram("FLOOD_WAIT", 429, 60) from None
++            raise
++
++    async def kiem_tra_mat_khau(self, password):
++        self._gui({"@type": "checkAuthenticationPassword", "password": password})
++        try:
++            return await self._trang_thai_hien_tai()
++        except LoiTelegram as e:
++            if "PASSWORD_HASH_INVALID" in e.code:
++                raise LoiTelegram("MAT_KHAU_SAI", 400) from None
++            raise
++
++    async def lay_qr_link(self):
++        self._gui({"@type": "requestQrCodeAuthentication", "other_user_ids": []})
++        obj = await self._cho_kieu({"updateAuthorizationState"}, timeout=30.0)
++        state = obj.get("authorization_state") or {}
++        return state.get("link", "")
++
++    async def kiem_tra_qr(self):
++        return await self._trang_thai_hien_tai(timeout=10.0)
++
++    async def lay_thong_tin(self):
++        self._gui({"@type": "getMe"})
++        obj = await self._cho_kieu({"user"}, timeout=15.0)
++        ten = " ".join(
++            p for p in (obj.get("first_name", ""), obj.get("last_name", ""))
++            if p
++        )
++        return {"display_name": ten or obj.get("username", ""), "user_id": obj.get("id")}
++
++    async def tao_cuoc_goi(self, peer):
++        # Cần user_id đã phân giải từ peer (searchPublicChat/createPrivateChat
++        # qua vòng nhận update) — chưa triển khai ở P1/P2 offline; T1 kiểm
++        # chứng với tài khoản phụ. Test dùng fake client có cùng chữ ký.
++        raise NotImplementedError(
++            "tao_cuoc_goi thật cần phân giải peer → user_id, chờ T1."
++        )
++
++    async def huy_cuoc_goi(self, tdlib_call_id):
++        self._gui({"@type": "discardCall", "call_id": int(tdlib_call_id),
++                   "is_disconnected": False, "duration": 0, "is_video": False,
++                   "connection_id": 0})
++
++    async def gui_bao_hieu(self, tdlib_call_id, data_bytes):
++        """TDLib sendCallSignalingData: data là bytes (JSON base64 ở biên)."""
++        self._gui({
++            "@type": "sendCallSignalingData",
++            "call_id": int(tdlib_call_id),
++            "data": _ma_hoa_bytes(data_bytes),
++        })
++
++    async def gui_tin_nhan(self, peer, text):
++        raise NotImplementedError(
++            "gui_tin_nhan thật cần phân giải peer → chat_id, chờ T1."
++        )
++
++    async def gui_media(self, peer, data_bytes, filename, caption):
++        raise NotImplementedError("gui_media thật chờ T1 (như gui_tin_nhan).")
++
++    async def gui_voice(self, peer, data_bytes):
++        raise NotImplementedError("gui_voice thật chờ T1 (như gui_tin_nhan).")
++
++    async def dong(self):
++        if self._tdjson is not None and self._client_id is not None:
++            try:
++                self._gui({"@type": "close"})
++            except Exception:
++                pass
++        self._tdjson = None
++        self._client_id = None
++
++
++# ── Engine NTgCalls thật (wrapper mỏng, chữ ký đã xác minh ở T0) ──────────
++class NtGcallsThuc:
++    """Wrapper mỏng quanh ntgcalls.NTgCalls 3.0.6.
++
++    Chữ ký dùng ở đây đã xác minh bằng help() trên wheel thật:
++    connect_p2p(user_id, servers, versions, p2p_allowed, custom_parameters),
++    skip_exchange(user_id, encryption_key, is_outgoing),
++    send_signaling_data(chat_id, msg_key: bytes),
++    on_signaling_data(callback(chat_id, bytes)),
++    get_emojis_fingerprint(chat_id), set_stream_sources(chat_id, mode, media).
++    PCM TTS đưa vào bằng nguồn FILE (MediaSource.FILE); mic live qua EXTERNAL
++    vẫn chờ T1 (xem TODO đầu file).
++    """
++
++    def __init__(self):
++        self._ntg = None
++        self._mod = None
++
++    def _dam_bao(self):
++        if self._ntg is None:
++            self._mod = _nap_ntgcalls()
++            self._ntg = self._mod.NTgCalls()
++        return self._ntg
++
++    def _doi_servers(self, specs):
++        rtc = []
++        for s in specs:
++            rtc.append(self._mod.RTCServer(
++                int(s.get("id") or 0), s.get("ipv4") or "", s.get("ipv6") or "",
++                int(s.get("port") or 0), s.get("username"), s.get("password"),
++                bool(s.get("turn")), bool(s.get("stun")), bool(s.get("tcp")),
++                s.get("peer_tag"),
++            ))
++        return rtc
++
++    def ket_noi_p2p(self, user_id, specs, versions, p2p_allowed, custom):
++        ntg = self._dam_bao()
++        return ntg.connect_p2p(int(user_id), self._doi_servers(specs),
++                               list(versions), bool(p2p_allowed), custom)
++
++    def bo_qua_trao_doi_khoa(self, user_id, key_bytes, is_outgoing):
++        return self._dam_bao().skip_exchange(int(user_id), bytes(key_bytes),
++                                             bool(is_outgoing))
++
++    def gui_bao_hieu(self, user_id, data_bytes):
++        return self._dam_bao().send_signaling_data(int(user_id), bytes(data_bytes))
++
++    def dang_ky_nhan_bao_hieu(self, callback):
++        return self._dam_bao().on_signaling_data(callback)
++
++    def lay_dau_van_tay_emojis(self, user_id):
++        return self._dam_bao().get_emojis_fingerprint(int(user_id))
++
++    def nap_pcm_out(self, user_id, pcm_bytes, tep_tam):
++        """Đưa PCM TTS vào cuộc gọi bằng nguồn FILE (T1 kiểm chứng live)."""
++        ntg = self._dam_bao()
++        Path(tep_tam).write_bytes(bytes(pcm_bytes))
++        media = self._mod.MediaDescription(
++            self._mod.AudioDescription(
++                self._mod.MediaSource.FILE, PCM_ENGINE["sample_rate"],
++                PCM_ENGINE["channels"], str(tep_tam), False),
++            None, None, None)
++        return ntg.set_stream_sources(int(user_id), self._mod.StreamMode.PLAYBACK,
++                                      media)
++
++    def nap_pcm_mic(self, user_id, pcm_bytes):
++        raise NotImplementedError(
++            "Mic live qua nguồn EXTERNAL chờ T1 chốt cơ chế frame; "
++            "test dùng engine fake."
++        )
++
++    def dung(self, user_id):
++        if self._ntg is not None:
++            return self._ntg.stop(int(user_id))
++        return None
++
++
++# ── TTS: Edge TTS mặc định, interface inject được ─────────────────────────
++class EdgeTtsSynthesizer:
++    """TTS mặc định bằng Edge TTS (giọng vi-VN-*, xem cấu hình module).
++
++    edge_tts nạp LƯỜI qua importlib để module vẫn nạp được khi máy chưa cài
++    gói (xem D-P1-2); thiếu gói → LoiTelegram MEDIA_ENGINE_ERROR 502, không
++    sập module. Không gọi mạng ở test vì test luôn inject fake synthesizer.
++    Audio trả về là bytes do Edge TTS sinh (mp3); decode về PCM_ENGINE là
++    việc T1 (xem TODO đầu file).
++    """
++
++    async def tong_hop(self, text, voice, rate):
++        try:
++            edge_tts = importlib.import_module("edge_tts")
++        except ImportError:
++            raise LoiTelegram("MEDIA_ENGINE_ERROR", 502) from None
++        comm = edge_tts.Communicate(text, voice, rate=rate)
++        chunks = []
++        async for chunk in comm.stream():
++            if chunk.get("type") == "audio":
++                chunks.append(chunk["data"])
++        return b"".join(chunks)
++
++
+ class KhoPhien:
+-    """Phiên TDLib trên đĩa cho module (P0: cấu trúc + khóa + sổ mock).
++    """Phiên TDLib trên đĩa cho module.
+ 
+     Bố cục dưới <gốc>/tdlib/<id-tài-khoản>/:
+       khoa           — khóa mã hóa local TDLib, 32 byte hex, 0600
+-      files/         — thư mục files của TDLib, 0700 (P0 để trống)
+-      tai_khoan.json — sổ tài khoản mock, 0600 (P1 thay bằng trạng thái thật)
+-    P0 chưa tạo client TDLib thật nên chưa có dữ liệu phiên thật trong files/.
++      files/         — thư mục files của TDLib, 0700
++      tai_khoan.json — sổ tài khoản, 0600
++    Luồng đăng nhập chờ xử lý dưới <gốc>/tdlib/_dang_nhap/<login_id>/:
++      khoa, dang_nhap.json (0600) — xóa khi đăng nhập xong.
+     """
+ 
+     def __init__(self, goc):
+@@ -228,12 +689,11 @@ class KhoPhien:
+         return khoa
+ 
+     def duong_files(self, tk_id: str) -> Path:
+-        """Thư mục files của TDLib cho tài khoản (P1 truyền vào tdjson)."""
++        """Thư mục files của TDLib cho tài khoản (truyền vào tdjson)."""
+         return self._thu_muc(self._thu_muc_tk(tk_id) / "files")
+ 
+     def them_tai_khoan(self, ten: str, peer: str) -> dict:
+-        """Thêm tài khoản MOCK (P0): tạo thư mục + khóa + sổ. P1 thay bằng
+-        luồng đăng nhập OTP/2FA/QR thật ở tab module."""
++        """Thêm tài khoản MOCK (P0): tạo thư mục + khóa + sổ."""
+         tk_id = "tk-" + uuid.uuid4().hex[:12]
+         thu_muc = self._thu_muc_tk(tk_id)
+         self.tao_khoa(tk_id)
+@@ -252,6 +712,38 @@ class KhoPhien:
+         )
+         return ban_ghi
+ 
++    def them_tai_khoan_that(self, phone: str, ten: str) -> dict:
++        """Tài khoản đã đăng nhập thật qua TDLib (P1): sổ bền, online."""
++        tk_id = "tk-" + uuid.uuid4().hex[:12]
++        thu_muc = self._thu_muc_tk(tk_id)
++        self.tao_khoa(tk_id)
++        self.duong_files(tk_id)
++        ban_ghi = {
++            "id": tk_id,
++            "ten": ten or phone,
++            "peer": phone,
++            "trang_thai": "online",
++            "da_dang_nhap": True,
++            "tao_luc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
++        }
++        _ghi_nguyen_tu(
++            thu_muc / "tai_khoan.json",
++            json.dumps(ban_ghi, ensure_ascii=False, indent=2).encode("utf-8"),
++        )
++        return ban_ghi
++
++    def cap_nhat_tai_khoan(self, tk_id: str, **thay_doi) -> dict | None:
++        ban_ghi = self.lay(tk_id)
++        if ban_ghi is None:
++            return None
++        ban_ghi.update(thay_doi)
++        thu_muc = self._thu_muc_tk(tk_id)
++        _ghi_nguyen_tu(
++            thu_muc / "tai_khoan.json",
++            json.dumps(ban_ghi, ensure_ascii=False, indent=2).encode("utf-8"),
++        )
++        return ban_ghi
++
+     def danh_sach(self) -> list:
+         """Mọi tài khoản còn sổ trên đĩa (bền qua restart lõi)."""
+         if not self.thu_muc_tdlib.is_dir():
+@@ -290,13 +782,85 @@ class KhoPhien:
+         shutil.rmtree(thu_muc)
+         return True
+ 
++    # ── luồng đăng nhập chờ (pending) ────────────────────────────────
++    def _thu_muc_dang_nhap(self, login_id: str) -> Path:
++        if not _MA_TK.match(login_id or ""):
++            raise ValueError(f"id đăng nhập không hợp lệ: {login_id}")
++        return self._thu_muc(self.thu_muc_tdlib / "_dang_nhap" / login_id)
++
++    def tao_dang_nhap_cho(self, phone: str) -> dict:
++        login_id = "lg-" + uuid.uuid4().hex[:12]
++        thu_muc = self._thu_muc_dang_nhap(login_id)
++        khoa = secrets.token_hex(32)
++        _ghi_nguyen_tu(thu_muc / "khoa", khoa.encode("utf-8"))
++        self._thu_muc(thu_muc / "files")
++        ban_ghi = {
++            "id": login_id,
++            "phone": phone,
++            "trang_thai": "cho_so",
++            "so_lan_sai": 0,
++            "khoa_den": 0.0,
++            "tao_luc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
++        }
++        _ghi_nguyen_tu(
++            thu_muc / "dang_nhap.json",
++            json.dumps(ban_ghi, ensure_ascii=False, indent=2).encode("utf-8"),
++        )
++        _LOC.them(khoa)
++        return ban_ghi
++
++    def lay_dang_nhap(self, login_id: str):
++        try:
++            thu_muc = self._thu_muc_dang_nhap(login_id)
++        except ValueError:
++            return None
++        try:
++            ban_ghi = json.loads((thu_muc / "dang_nhap.json").read_text(encoding="utf-8"))
++        except (ValueError, OSError):
++            return None
++        return ban_ghi if isinstance(ban_ghi, dict) else None
++
++    def cap_nhat_dang_nhap(self, login_id: str, **thay_doi):
++        ban_ghi = self.lay_dang_nhap(login_id)
++        if ban_ghi is None:
++            return None
++        ban_ghi.update(thay_doi)
++        thu_muc = self._thu_muc_dang_nhap(login_id)
++        _ghi_nguyen_tu(
++            thu_muc / "dang_nhap.json",
++            json.dumps(ban_ghi, ensure_ascii=False, indent=2).encode("utf-8"),
++        )
++        return ban_ghi
++
++    def xoa_dang_nhap(self, login_id: str) -> bool:
++        try:
++            thu_muc = self._thu_muc_dang_nhap(login_id)
++        except ValueError:
++            return False
++        if not thu_muc.is_dir():
++            return False
++        shutil.rmtree(thu_muc)
++        return True
++
++    def khoa_dang_nhap(self, login_id: str) -> str:
++        thu_muc = self._thu_muc_dang_nhap(login_id)
++        tep = thu_muc / "khoa"
++        if tep.exists():
++            return tep.read_text(encoding="utf-8").strip()
++        khoa = secrets.token_hex(32)
++        _ghi_nguyen_tu(tep, khoa.encode("utf-8"))
++        return khoa
++
++    def duong_files_dang_nhap(self, login_id: str) -> Path:
++        return self._thu_muc(self._thu_muc_dang_nhap(login_id) / "files")
++
+ 
+ class Module:
+-    """Module telegram-user (P0 khung + mock)."""
++    """Module telegram-user (P1 + P2)."""
+ 
+     def __init__(self, manifest):
+         self.manifest = manifest if isinstance(manifest, dict) else {}
+-        self.kho = None  # lõi gán sau khi tạo (kho riêng của module) — P0 chưa dùng
++        self.kho = None  # lõi gán sau khi tạo (kho riêng của module)
+         self._api_id = ""
+         self._api_hash = ""
+         self._dich = {}
+@@ -310,10 +874,24 @@ class Module:
+         self._tu_dong_nghe_may = False
+         self._da_nap = False
+         self._da_dung = False
+-        self._hop_thu_di = []  # tin mock đã «gửi» (ghi nhận dispatch, không gửi thật)
++        self._hop_thu_di = []  # tin đã gửi (mock khi không có client thật)
+         self._hop_thu_den = []  # tin mock chờ hoi_vong kéo
+-        self._su_kien = []  # spool event mock (id đơn điệu tăng, tối đa 10000)
++        self._su_kien = []  # spool event (id đơn điệu tăng, tối đa 10000)
+         self._su_kien_tiep = 1
++        # P1/P2: client/engine/synthesizer inject được (test dùng fake).
++        self._clients = {}  # account_id -> client TDLib
++        self._client_dang_nhap = {}  # login_id -> client TDLib
++        self._tdlib_factory = None  # callable(api_id, api_hash, files, khoa)
++        self._engine = None  # engine NTgCalls (một thể hiện cho mọi cuộc)
++        self._tts = None  # synthesizer; None = EdgeTtsSynthesizer mặc định
++        self._cuoc_goi = {}  # call_id -> bản ghi cuộc gọi
++        self._hang_doi = []  # các cuộc đang chờ (bản ghi trong _cuoc_goi)
++        self._endpoint_dang_dung = {}  # endpoint -> call_id đang dialing/active
++        self._ve_luong = {}  # ve -> call_id
++        self._audio_uploads = {}  # upload_id -> {"khoi": bytearray}
++        self._tts_files = {}  # tts_audio_id -> {"tep": Path, "tao_luc": float}
++        self._webhook_backoff = [1.0, 2.0]  # giây, giữa các lần retry (test đặt 0)
++        self._goc_goc = "http://localhost"
+ 
+     def _phien(self) -> KhoPhien:
+         goc = Path(os.environ.get("WEB2API_DATA", "/data")) / "telegram-user"
+@@ -358,9 +936,10 @@ class Module:
+         self._da_dung = False
+ 
+     async def cai(self, cau_hinh: dict) -> dict:
+-        """Kiểm định dạng cấu hình rồi mới lưu (P0: chỉ kiểm định dạng, KHÔNG
+-        kiểm DCs qua mạng, KHÔNG đăng nhập — kiểm DCs đi cùng client thật ở P1).
+-        Trả khuôn như telegram-bot: {ok, ket_qua_tung_khoa, loi, cau_hinh_luu}.
++        """Kiểm định dạng cấu hình rồi mới lưu (giữ nguyên khuôn P0).
++
++        cai() KHÔNG đăng nhập: đăng nhập MTProto (OTP/2FA/QR) là luồng riêng
++        ở tab module (bat_dau_dang_nhap/nhap_otp/nhap_2fa/bat_dau_qr).
+         """
+         cau_hinh = cau_hinh or {}
+ 
+@@ -437,12 +1016,22 @@ class Module:
+             "ok": da_cau_hinh,
+             "so_tai_khoan": len(self._phien().danh_sach()),
+             "so_dich": len(self._dich),
+-            "che_do": "p0-mock",
++            "che_do": "p0-mock",  # pin bởi test P0; giai đoạn thật ở "giai_doan"
++            "giai_doan": "p1-p2",
++            "so_cuoc_goi_dang_chay": sum(
++                1 for c in self._cuoc_goi.values()
++                if c["trang_thai"] in ("dialing", "active")
++            ),
+         }
+ 
+     async def dung(self) -> None:
+         """Dừng module. KHÔNG xóa phiên trên đĩa (restart lõi không mất session)."""
+         self._da_dung = True
++        for client in list(self._clients.values()) + list(self._client_dang_nhap.values()):
++            try:
++                await client.dong()
++            except Exception:
++                pass
+         log.info("telegram-user: đã dừng (phiên trên đĩa giữ nguyên)")
+ 
+     # ── kenh_ra (/api/gui) ─────────────────────────────────────────────
+@@ -451,7 +1040,7 @@ class Module:
+         return [{"id": d["id"], "ten": d["ten"]} for d in self._dich.values()]
+ 
+     async def gui_tin(self, dich: dict, noi_dung: dict) -> dict:
+-        """Gửi văn bản tới đích đã khai (P0: ghi hộp thư mock, không gửi thật).
++        """Gửi văn bản tới đích đã khai (client thật nếu có, không thì mock).
+         Trả {"ok": bool thật, "ma"?: mã ngắn} theo khuôn lõi bắt buộc."""
+         if not self._api_id or not self._api_hash or not self._dich:
+             return {"ok": False, "ma": "chua_cau_hinh"}
+@@ -486,10 +1075,7 @@ class Module:
+ 
+     # ── hoi_vong (tin vào) ─────────────────────────────────────────────
+     async def hoi_vong(self) -> list:
+-        """Kéo tin vào theo chuẩn lõi (P0: xả hộp thư mock do test nạp).
+-        Tin trả về đủ 4 trường bắt buộc: id_tin, nguoi_gui, noi_gui, van_ban.
+-        Lõi gọi kèm timeout = min(max(chu_ky_giay*2, 30), 60); lỗi không lan
+-        module khác (lõi tự lùi chu kỳ)."""
++        """Kéo tin vào theo chuẩn lõi (P0: xả hộp thư mock do test nạp)."""
+         ds = self._hop_thu_den
+         self._hop_thu_den = []
+         hop_le = []
+@@ -512,63 +1098,550 @@ class Module:
+             )
+         return hop_le
+ 
++    # ── móc inject cho test (không qua /m) ─────────────────────────────
++    def _gan_client(self, account_id, client):
++        """Gắn client TDLib (thật hoặc fake) cho một tài khoản đã đăng nhập."""
++        self._clients[str(account_id)] = client
++
++    def _gan_engine(self, engine):
++        self._engine = engine
++
++    def _gan_tts(self, synthesizer):
++        self._tts = synthesizer
++
++    def _lay_tts(self):
++        if self._tts is not None:
++            return self._tts
++        self._tts = EdgeTtsSynthesizer()
++        return self._tts
++
++    def _lay_engine(self):
++        if self._engine is None:
++            self._engine = NtGcallsThuc()
++        return self._engine
++
++    def _tao_client_tdlib(self, thu_muc_files, khoa_hex):
++        if self._tdlib_factory is not None:
++            return self._tdlib_factory(
++                self._api_id, self._api_hash, str(thu_muc_files), khoa_hex
++            )
++        return KhachTdlib(self._api_id, self._api_hash, str(thu_muc_files), khoa_hex)
++
++    # ── P1: đăng nhập TDLib qua TAB module (KHÔNG qua /m, KHÔNG qua cai()) ─
++    async def bat_dau_dang_nhap(self, phone, client=None):
++        """Bắt đầu luồng số điện thoại → OTP. Trả {ok, login_id, trang_thai}.
++
++        phone chỉ lưu vào sổ pending trên đĩa (0600); log không ghi số đầy đủ.
++        client: inject fake ở test; None thì tạo KhachTdlib thật.
++        """
++        phone = str(phone or "").strip()
++        if not phone:
++            return {"ok": False, "ma": "PHONE_THIEU"}
++        if not self._api_id or not self._api_hash:
++            return {"ok": False, "ma": "chua_cau_hinh"}
++        kho_phien = self._phien()
++        cho = kho_phien.tao_dang_nhap_cho(phone)
++        login_id = cho["id"]
++        if client is None:
++            client = self._tao_client_tdlib(
++                kho_phien.duong_files_dang_nhap(login_id),
++                kho_phien.khoa_dang_nhap(login_id),
++            )
++        self._client_dang_nhap[login_id] = client
++        try:
++            if hasattr(client, "khoi_tao"):
++                await client.khoi_tao()
++            trang_thai = await client.dat_so(phone)
++        except LoiTelegram as e:
++            log.warning("telegram-user: bắt đầu đăng nhập %s lỗi %s", login_id, e.code)
++            return {"ok": False, "login_id": login_id, "ma": e.code,
++                    "retry_after_seconds": e.retry_after_seconds}
++        kho_phien.cap_nhat_dang_nhap(login_id, trang_thai=trang_thai)
++        log.info("telegram-user: bắt đầu đăng nhập %s → %s", login_id, trang_thai)
++        if trang_thai == "da_dang_nhap":
++            return await self._hoan_tat_dang_nhap(login_id)
++        return {"ok": True, "login_id": login_id, "trang_thai": trang_thai}
++
++    async def _hoan_tat_dang_nhap(self, login_id):
++        """Đăng nhập xong: tạo sổ tài khoản bền + gắn client, xóa pending."""
++        kho_phien = self._phien()
++        cho = kho_phien.lay_dang_nhap(login_id)
++        if cho is None:
++            return {"ok": False, "ma": "LOGIN_KHONG_CO"}
++        client = self._client_dang_nhap.get(login_id)
++        ten = cho["phone"]
++        if client is not None and hasattr(client, "lay_thong_tin"):
++            try:
++                thong_tin = await client.lay_thong_tin()
++                ten = thong_tin.get("display_name") or ten
++            except Exception:
++                pass
++        ban_ghi = kho_phien.them_tai_khoan_that(cho["phone"], ten)
++        if client is not None:
++            self._clients[ban_ghi["id"]] = client
++        kho_phien.xoa_dang_nhap(login_id)
++        self._client_dang_nhap.pop(login_id, None)
++        await self._phat_su_kien("account_status", ban_ghi["id"],
++                                 {"status": "online"})
++        log.info("telegram-user: đăng nhập xong → tài khoản %s", ban_ghi["id"])
++        return {"ok": True, "login_id": login_id, "trang_thai": "da_dang_nhap",
++                "tai_khoan": _ban_ghi_cong_khai(ban_ghi)}
++
++    def _kiem_tra_khoa_dang_nhap(self, login_id):
++        """Trả (ban_ghi, dict_lỗi) — dict_lỗi None khi chưa khóa."""
++        kho_phien = self._phien()
++        cho = kho_phien.lay_dang_nhap(login_id)
++        if cho is None:
++            return None, {"ok": False, "ma": "LOGIN_KHONG_CO"}
++        khoa_den = float(cho.get("khoa_den") or 0)
++        if khoa_den > time.time():
++            return cho, {"ok": False, "login_id": login_id, "ma": "LOGIN_LOCKED",
++                         "retry_after_seconds": int(khoa_den - time.time()) + 1}
++        return cho, None
++
++    def _ghi_sai_dang_nhap(self, login_id, cho):
++        """Tăng đếm sai (log CHỈ đếm, không mã); đủ 3 lần → khóa 15 phút."""
++        lan_sai = int(cho.get("so_lan_sai") or 0) + 1
++        cap_nhat = {"so_lan_sai": lan_sai}
++        if lan_sai >= _DANG_NHAP_SAI_TOI_DA:
++            cap_nhat["khoa_den"] = time.time() + _DANG_NHAP_KHOA_GIAY
++        self._phien().cap_nhat_dang_nhap(login_id, **cap_nhat)
++        log.warning("telegram-user: đăng nhập %s sai lần %d", login_id, lan_sai)
++        if lan_sai >= _DANG_NHAP_SAI_TOI_DA:
++            return {"ok": False, "login_id": login_id, "ma": "LOGIN_LOCKED",
++                    "retry_after_seconds": _DANG_NHAP_KHOA_GIAY}
++        return {"ok": False, "login_id": login_id, "ma": "MA_SAI",
++                "so_lan_sai": lan_sai}
++
++    async def nhap_otp(self, login_id, code, client=None):
++        """Nhập OTP. code KHÔNG vào log, KHÔNG vào phản hồi, KHÔNG vào sổ."""
++        cho, loi = self._kiem_tra_khoa_dang_nhap(login_id)
++        if loi is not None:
++            return loi
++        cl = client if client is not None else self._client_dang_nhap.get(login_id)
++        if cl is None:
++            return {"ok": False, "ma": "LOGIN_KHONG_CO"}
++        try:
++            trang_thai = await cl.kiem_tra_ma(code)
++        except LoiTelegram as e:
++            if e.code in ("MA_SAI", "PHONE_CODE_INVALID", "CODE_INVALID"):
++                return self._ghi_sai_dang_nhap(login_id, cho)
++            if e.code == "FLOOD_WAIT":
++                return {"ok": False, "login_id": login_id, "ma": "FLOOD_WAIT",
++                        "retry_after_seconds": e.retry_after_seconds}
++            return {"ok": False, "login_id": login_id, "ma": e.code}
++        self._phien().cap_nhat_dang_nhap(
++            login_id, trang_thai=trang_thai, so_lan_sai=0)
++        if trang_thai == "da_dang_nhap":
++            return await self._hoan_tat_dang_nhap(login_id)
++        return {"ok": True, "login_id": login_id, "trang_thai": trang_thai}
++
++    async def nhap_2fa(self, login_id, password, client=None):
++        """Nhập mật khẩu 2FA. password KHÔNG vào log/phản hồi/sổ (như OTP)."""
++        cho, loi = self._kiem_tra_khoa_dang_nhap(login_id)
++        if loi is not None:
++            return loi
++        cl = client if client is not None else self._client_dang_nhap.get(login_id)
++        if cl is None:
++            return {"ok": False, "ma": "LOGIN_KHONG_CO"}
++        try:
++            trang_thai = await cl.kiem_tra_mat_khau(password)
++        except LoiTelegram as e:
++            if e.code in ("MAT_KHAU_SAI", "PASSWORD_HASH_INVALID"):
++                ket = self._ghi_sai_dang_nhap(login_id, cho)
++                if ket["ma"] == "MA_SAI":
++                    ket["ma"] = "MAT_KHAU_SAI"
++                return ket
++            return {"ok": False, "login_id": login_id, "ma": e.code}
++        self._phien().cap_nhat_dang_nhap(
++            login_id, trang_thai=trang_thai, so_lan_sai=0)
++        if trang_thai == "da_dang_nhap":
++            return await self._hoan_tat_dang_nhap(login_id)
++        return {"ok": True, "login_id": login_id, "trang_thai": trang_thai}
++
++    async def bat_dau_qr(self, client=None):
++        """Bắt đầu đăng nhập QR tùy chọn. Trả {ok, login_id, qr_link}."""
++        if not self._api_id or not self._api_hash:
++            return {"ok": False, "ma": "chua_cau_hinh"}
++        kho_phien = self._phien()
++        cho = kho_phien.tao_dang_nhap_cho("")
++        login_id = cho["id"]
++        if client is None:
++            client = self._tao_client_tdlib(
++                kho_phien.duong_files_dang_nhap(login_id),
++                kho_phien.khoa_dang_nhap(login_id),
++            )
++        self._client_dang_nhap[login_id] = client
++        try:
++            if hasattr(client, "khoi_tao"):
++                await client.khoi_tao()
++            link = await client.lay_qr_link()
++        except LoiTelegram as e:
++            return {"ok": False, "login_id": login_id, "ma": e.code}
++        kho_phien.cap_nhat_dang_nhap(login_id, trang_thai="cho_qr")
++        # qr_link là mã dùng một lần cho tab quét — không log, chỉ trả tab.
++        return {"ok": True, "login_id": login_id, "trang_thai": "cho_qr",
++                "qr_link": link}
++
++    async def kiem_tra_qr(self, login_id, client=None):
++        """Kiểm tra QR đã quét chưa; quét xong → hoàn tất như OTP."""
++        cho, loi = self._kiem_tra_khoa_dang_nhap(login_id)
++        if loi is not None:
++            return loi
++        cl = client if client is not None else self._client_dang_nhap.get(login_id)
++        if cl is None:
++            return {"ok": False, "ma": "LOGIN_KHONG_CO"}
++        trang_thai = await cl.kiem_tra_qr()
++        self._phien().cap_nhat_dang_nhap(login_id, trang_thai=trang_thai)
++        if trang_thai == "da_dang_nhap":
++            return await self._hoan_tat_dang_nhap(login_id)
++        return {"ok": True, "login_id": login_id, "trang_thai": trang_thai}
++
++    def xoa_tai_khoan_tab(self, tk_id):
++        """Xóa tài khoản + session (chỉ tab module, không bao giờ qua /m)."""
++        self._clients.pop(str(tk_id), None)
++        return self._phien().xoa(str(tk_id))
++
++    # ── events: spool + webhook HA ──────────────────────────────────────
++    def _ghi_su_kien(self, loai: str, tai_khoan: str, du_lieu: dict) -> dict:
++        su_kien = {
++            "id": self._su_kien_tiep,
++            "type": loai,
++            "account": tai_khoan,
++            "timestamp": int(time.time()),
++            "data": du_lieu if isinstance(du_lieu, dict) else {},
++        }
++        self._su_kien_tiep += 1
++        self._su_kien.append(su_kien)
++        if len(self._su_kien) > _GIOI_HAN_SU_KIEN:
++            del self._su_kien[: len(self._su_kien) - _GIOI_HAN_SU_KIEN]
++        return su_kien
++
++    def _gui_webhook_dong_bo(self, su_kien: dict) -> bool:
++        """POST event tới ha_webhook_url kèm header X-Gateway-Token.
++
++        Trả True khi HA nhận (2xx); False khi mọi lần thử đều lỗi (spool giữ
++        lại để HA poll — không raise, không chặn luồng gọi).
++        """
++        if not self._webhook_url:
++            return False
++        payload = json.dumps(su_kien, ensure_ascii=False).encode("utf-8")
++        yeu_cau = urllib.request.Request(
++            self._webhook_url, data=payload, method="POST",
++            headers={"Content-Type": "application/json",
++                     "X-Gateway-Token": self._webhook_token},
++        )
++        try:
++            with urllib.request.urlopen(yeu_cau, timeout=5) as resp:
++                return 200 <= resp.status < 300
++        except Exception:
++            return False
++
++    async def _day_webhook(self, su_kien: dict) -> bool:
++        """Đẩy webhook với retry backoff (tối đa 3 lần thử)."""
++        if not self._webhook_url:
++            return False
++        for lan in range(3):
++            ok = await asyncio.to_thread(self._gui_webhook_dong_bo, su_kien)
++            if ok:
++                return True
++            if lan < 2:
++                cho = self._webhook_backoff[lan] if lan < len(self._webhook_backoff) else 1.0
++                if cho:
++                    await asyncio.sleep(cho)
++        log.warning("telegram-user: webhook HA không nhận event %s sau 3 lần",
++                    su_kien.get("id"))
++        return False
++
++    async def _phat_su_kien(self, loai, tai_khoan, du_lieu):
++        """Ghi spool + đẩy webhook (lỗi webhook không chặn luồng chính)."""
++        su_kien = self._ghi_su_kien(loai, tai_khoan, du_lieu)
++        await self._day_webhook(su_kien)
++        return su_kien
++
++    # ── P2: quản lý cuộc gọi ────────────────────────────────────────────
++    def _ban_ghi_cuoc_goi_cong_khai(self, c: dict) -> dict:
++        bat_dau = c.get("bat_dau_luc")
++        ket_thuc = c.get("ket_thuc_luc")
++        if c["trang_thai"] == "active" and bat_dau:
++            thoi_luong = int(time.time() - bat_dau)
++        elif bat_dau and ket_thuc:
++            thoi_luong = int(ket_thuc - bat_dau)
++        else:
++            thoi_luong = 0
++        return {
++            "call_id": c["call_id"],
++            "account": c["account"],
++            "peer": c["peer"],
++            "direction": c.get("direction", "outgoing"),
++            "mode": c["mode"],
++            "state": c["trang_thai"],
++            "started_at": bat_dau,
++            "duration_seconds": thoi_luong,
++        }
++
++    def _don_dep_hang_doi(self):
++        """Hết timeout 120s trong hàng đợi → ended (queue_timeout)."""
++        gio = time.time()
++        for c in list(self._hang_doi):
++            if gio - c.get("cho_tu_luc", gio) > self._so["queue_timeout"]:
++                self._hang_doi.remove(c)
++                c["trang_thai"] = "ended"
++                c["ket_thuc_luc"] = gio
++                c["ly_do_ket_thuc"] = "queue_timeout"
++                self._ghi_su_kien("call_ended", c["account"],
++                                  {"call_id": c["call_id"], "reason": "queue_timeout",
++                                   "duration_seconds": 0})
++
++    def _don_dep_tts(self):
++        """Xóa file TTS của HA quá 1 giờ (khi chưa gắn cuộc gọi nào)."""
++        gio = time.time()
++        for tts_id, muc in list(self._tts_files.items()):
++            if gio - muc["tao_luc"] > _TTS_TON_TAI_GIAY:
++                try:
++                    muc["tep"].unlink(missing_ok=True)
++                except OSError:
++                    pass
++                del self._tts_files[tts_id]
++
++    async def _ket_thuc_cuoc_goi(self, c: dict, ly_do: str):
++        """Kết thúc một cuộc: nhả endpoint, hủy vé, xóa file TTS, event."""
++        if c["trang_thai"] == "ended":
++            return None
++        c["trang_thai"] = "ended"
++        c["ket_thuc_luc"] = time.time()
++        c["ly_do_ket_thuc"] = ly_do
++        if c.get("tdlib_call_id") is not None:
++            client = self._clients.get(c["account"])
++            if client is not None and hasattr(client, "huy_cuoc_goi"):
++                try:
++                    await client.huy_cuoc_goi(c["tdlib_call_id"])
++                except Exception:
++                    pass
++        engine = self._engine
++        if engine is not None and c.get("peer_user_id") is not None:
++            try:
++                engine.dung(c["peer_user_id"])
++            except Exception:
++                pass
++        ep = c.get("audio_endpoint")
++        if ep and self._endpoint_dang_dung.get(ep) == c["call_id"]:
++            del self._endpoint_dang_dung[ep]
++        for ve in [v for v, cid in self._ve_luong.items() if cid == c["call_id"]]:
++            del self._ve_luong[ve]
++        tts_id = c.get("tts_audio_id")
++        if tts_id and tts_id in self._tts_files:
++            try:
++                self._tts_files[tts_id]["tep"].unlink(missing_ok=True)
++            except OSError:
++                pass
++            del self._tts_files[tts_id]
++        thoi_luong = 0
++        if c.get("bat_dau_luc"):
++            thoi_luong = int(c["ket_thuc_luc"] - c["bat_dau_luc"])
++        await self._phat_su_kien("call_ended", c["account"],
++                                 {"call_id": c["call_id"], "reason": ly_do,
++                                  "duration_seconds": thoi_luong})
++        return await self._thang_hang_cuoc_goi()
++
++    async def _thang_hang_cuoc_goi(self):
++        """Thăng hạng lượt chờ đầu tiên đủ điều kiện → dialing.
++
++        Thứ tự: alarm trước, rồi FIFO theo thời gian chờ. Lượt được thăng hạng
++        phải có tài khoản rảnh và endpoint rảnh; lượt không đủ điều kiện thì
++        bỏ qua (không chặn lượt sau dùng endpoint khác).
++        """
++        self._don_dep_hang_doi()
++        sap = sorted(
++            self._hang_doi,
++            key=lambda c: (0 if c.get("uu_tien") == "alarm" else 1,
++                           c.get("cho_tu_luc", 0)),
++        )
++        for c in sap:
++            dang_chay = any(
++                x["account"] == c["account"]
++                and x["trang_thai"] in ("dialing", "active")
++                and x["call_id"] != c["call_id"]
++                for x in self._cuoc_goi.values()
++            )
++            if dang_chay:
++                continue
++            ep = c.get("audio_endpoint")
++            if ep and ep in self._endpoint_dang_dung:
++                continue
++            self._hang_doi.remove(c)
++            c["trang_thai"] = "dialing"
++            c["cho_tu_luc"] = None
++            if ep:
++                self._endpoint_dang_dung[ep] = c["call_id"]
++            client = self._clients.get(c["account"])
++            if client is not None and hasattr(client, "tao_cuoc_goi"):
++                try:
++                    ket = await client.tao_cuoc_goi(c["peer"])
++                    if isinstance(ket, dict):
++                        c["tdlib_call_id"] = ket.get("call_id")
++                        c["peer_user_id"] = ket.get("user_id")
++                except Exception:
++                    pass
++            log.info("telegram-user: thăng hạng cuộc chờ %s → dialing", c["call_id"])
++            return c
++        return None
++
++    async def _xu_ly_call_ready(self, call_id, ready: dict):
++        """TDLib updateCall → callStateReady: glue sang NTgCalls + active.
++
++        ready là dict callStateReady (fixture ở test, update thật ở T1).
++        Nếu mode tts: tổng hợp TTS rồi đưa PCM vào engine; mode live: chỉ
++        glue, mic/loa chạy qua audio/in + stream.
++        """
++        c = self._cuoc_goi.get(call_id)
++        if c is None or c["trang_thai"] not in ("dialing", "active"):
++            return None
++        engine = self._lay_engine()
++        glue = glue_call_ready(ready, engine, c.get("peer_user_id"),
++                               is_outgoing=True)
++        c["glue"] = {k: v for k, v in glue.items() if k != "servers"}
++        c["glue_servers"] = glue["servers"]
++        c["emojis"] = glue["emojis"]
++        # Đăng ký nhận signaling từ engine → xếp hàng để chuyển sang TDLib.
++        # (Chiều engine→TDLib cần vòng lặp update của module; ở P2, callback
++        # chỉ xếp hàng và _chuyen_bao_hieu_engine_sang_tdlib() xả hàng.)
++        def _nhan_tu_engine(user_id, data_bytes):
++            c.setdefault("bao_hieu_cho_tdlib", []).append(bytes(data_bytes))
++        try:
++            engine.dang_ky_nhan_bao_hieu(_nhan_tu_engine)
++        except Exception:
++            pass
++        c["trang_thai"] = "active"
++        c["bat_dau_luc"] = time.time()
++        if c["mode"] == "tts":
++            pcm = None
++            if c.get("tts_text"):
++                synth = self._lay_tts()
++                try:
++                    pcm = await synth.tong_hop(c["tts_text"], c.get("tts_voice")
++                                               or self._tts_voice, self._tts_rate)
++                except LoiTelegram as e:
++                    log.warning("telegram-user: TTS lỗi %s", e.code)
++                    pcm = None
++            elif c.get("tts_audio_id") and c["tts_audio_id"] in self._tts_files:
++                try:
++                    pcm = self._tts_files[c["tts_audio_id"]]["tep"].read_bytes()
++                except OSError:
++                    pcm = None
++            if pcm is not None:
++                c["pcm_out"] = bytes(pcm)
++                try:
++                    tep_tam = self._phien().goc / ("tts-" + call_id + ".pcm")
++                    engine.nap_pcm_out(c.get("peer_user_id"), bytes(pcm),
++                                       str(tep_tam))
++                except Exception:
++                    pass
++        await self._phat_su_kien("call_active", c["account"],
++                                 {"call_id": call_id, "peer": c["peer"],
++                                  "mode": c["mode"]})
++        return c
++
++    async def _chuyen_bao_hieu_engine_sang_tdlib(self, call_id):
++        """Xả hàng signaling engine→TDLib (chiều NTgCalls on_signaling_data →
++        TDLib sendCallSignalingData). Trả số gói đã chuyển."""
++        c = self._cuoc_goi.get(call_id)
++        if c is None:
++            return 0
++        client = self._clients.get(c["account"])
++        if client is None or c.get("tdlib_call_id") is None:
++            return 0
++        dem = 0
++        for data in c.pop("bao_hieu_cho_tdlib", []):
++            try:
++                await client.gui_bao_hieu(c["tdlib_call_id"], bytes(data))
++                dem += 1
++            except Exception:
++                pass
++        return dem
++
++    def _nhan_bao_hieu_tu_tdlib(self, call_id, data_bytes):
++        """Chiều TDLib updateNewCallSignalingData → NTgCalls send_signaling_data.
++
++        data_bytes là bytes (đã decode base64 ở biên TDLib); engine nhận bytes
++        trực tiếp — không đưa str vào binding NTgCalls.
++        """
++        c = self._cuoc_goi.get(call_id)
++        if c is None or c.get("peer_user_id") is None:
++            return False
++        engine = self._engine
++        if engine is None:
++            return False
++        try:
++            engine.gui_bao_hieu(c["peer_user_id"], bytes(data_bytes))
++        except Exception:
++            return False
++        return True
++
++    def _nhan_frame_loa(self, call_id, pcm_bytes):
++        """Ghi frame loa (OUT) vào bộ đệm để luong() phục vụ (test + P2)."""
++        c = self._cuoc_goi.get(call_id)
++        if c is None:
++            return False
++        buf = c.setdefault("loa_pcm", bytearray())
++        buf.extend(bytes(pcm_bytes))
++        return True
++
+     # ── duong_module (/m) ──────────────────────────────────────────────
+     async def tich_hop(self, duong, phuong_thuc, query, than, goc):
+         """Dispatch đường /m/telegram-user/api/<duong>.
+ 
+         Lõi đã làm trước khi tới đây: xác thực khoá khách (phạm vi
+         tich_hop@telegram-user), LAN-only, thân POST ≤ 400.000 byte và phải là
+-        dict JSON. Module chỉ còn dispatch + kiểm tham số. Giới hạn tốc độ
+-        120 req/phút/khoá trong thiết kế KHÔNG thực thi được ở tầng module vì
+-        lõi không truyền danh tính khoá vào tich_hop (xem báo cáo P0, D-P0-1);
+-        đường /api/gui vẫn chịu trần 20 tin/phút/khoá của lõi.
++        dict JSON. Giới hạn 120 req/phút/khoá trong thiết kế KHÔNG thực thi
++        được ở tầng module vì lõi không truyền danh tính khoá vào tich_hop
++        (D-P0-1/D-P1-3); đường /api/gui vẫn chịu trần 20 tin/phút/khoá của lõi.
++        Mọi lệnh gọi từ HA qua đường này chịu công tắc «Cho phép HA gọi đi»
++        (mặc định TẮT); gọi tương tác trong tab module không qua đây.
+         """
+         duong = (duong or "").strip().strip("/")
+         phuong_thuc = (phuong_thuc or "GET").upper()
++        self._goc_goc = goc or self._goc_goc
+         bang = {
+             "health": {"GET": self._duong_health},
+             "accounts": {"GET": self._duong_accounts},
+             "send_message": {"POST": self._duong_send_message},
++            "send_media": {"POST": self._duong_send_media},
++            "send_voice": {"POST": self._duong_send_voice},
++            "call": {"POST": self._duong_call},
++            "hangup_call": {"POST": self._duong_hangup_call},
++            "calls": {"GET": self._duong_calls},
+             "events": {"GET": self._duong_events},
++            "audio/in": {"POST": self._duong_audio_in},
++            "audio/stream-url": {"POST": self._duong_audio_stream_url},
++            "audio/upload": {"POST": self._duong_audio_upload},
+         }
+         if duong in _TUYEN_501:
+             phuong_thuc_cho, giai_doan = _TUYEN_501[duong]
+             if phuong_thuc != phuong_thuc_cho:
+-                return 405, {}, {
+-                    "error": {
+-                        "code": "PHUONG_THUC_KHONG_HO_TRO",
+-                        "message": f"Đường {duong} chỉ nhận {phuong_thuc_cho}.",
+-                    }
+-                }
++                return 405, {}, _loi_body(
++                    "PHUONG_THUC_KHONG_HO_TRO",
++                    f"Đường {duong} chỉ nhận {phuong_thuc_cho}.")
+             return 501, {}, {
+                 "error": {
+                     "code": "CHUA_CO",
+-                    "message": f"Đường này thuộc giai đoạn {giai_doan}, chưa có ở P0.",
++                    "message": f"Đường này thuộc giai đoạn {giai_doan}, chưa có.",
+                     "giai_doan": giai_doan,
+                 }
+             }
+         if duong not in bang:
+-            return 404, {}, {
+-                "error": {
+-                    "code": "DUONG_KHONG_CO",
+-                    "message": f"Không có đường {duong}.",
+-                }
+-            }
++            return 404, {}, _loi_body("DUONG_KHONG_CO", f"Không có đường {duong}.")
+         if phuong_thuc not in bang[duong]:
+-            return 405, {}, {
+-                "error": {
+-                    "code": "PHUONG_THUC_KHONG_HO_TRO",
+-                    "message": f"Đường {duong} không nhận {phuong_thuc}.",
+-                }
+-            }
++            return 405, {}, _loi_body(
++                "PHUONG_THUC_KHONG_HO_TRO",
++                f"Đường {duong} không nhận {phuong_thuc}.")
+         if phuong_thuc == "POST" and not isinstance(than, dict):
+-            return 400, {}, {
+-                "error": {
+-                    "code": "THAN_SAI_KHUON",
+-                    "message": "Thân POST phải là đối tượng JSON.",
+-                }
+-            }
+-        return await bang[duong][phuong_thuc](query or {}, than or {})
++            return 400, {}, _loi_body("THAN_SAI_KHUON", "Thân POST phải là đối tượng JSON.")
++        try:
++            return await bang[duong][phuong_thuc](query or {}, than or {})
++        except LoiTelegram as e:
++            return e.http_status, {}, _loi_body(
++                e.code, e.code, e.retry_after_seconds)
+ 
+     async def _duong_health(self, query, than):
+         tai_khoan = self._phien().danh_sach()
+@@ -590,52 +1663,49 @@ class Module:
+             ]
+         }
+ 
++    def _chon_tai_khoan(self, account):
++        """Trả (ban_ghi, phản_hồi_lỗi) cho send/call; lỗi None khi chọn được."""
++        tai_khoan = self._phien().danh_sach()
++        if account is not None:
++            ban_ghi = self._phien().lay(str(account))
++            if ban_ghi is None:
++                return None, (404, {}, _loi_body(
++                    "ACCOUNT_KHONG_CO", "Không có tài khoản này."))
++            return ban_ghi, None
++        if tai_khoan:
++            return tai_khoan[0], None
++        return None, (503, {}, _loi_body(
++            "ACCOUNT_OFFLINE", "Chưa có tài khoản nào."))
++
+     async def _duong_send_message(self, query, than):
+-        """Thân {account?, peer, message, quote_message_id?, ttl?} (thiết kế
+-        4.2). P0: ghi hộp thư mock, không gửi thật."""
++        """Thân {account?, peer, message, quote_message_id?, ttl?}.
++
++        Có client TDLib → gửi thật qua client (fake ở test); không client →
++        ghi hộp thư mock như P0 (để P0 còn chạy khi chưa đăng nhập thật).
++        """
+         peer = than.get("peer")
+         if not isinstance(peer, str) or not peer.strip():
+-            return 400, {}, {
+-                "error": {
+-                    "code": "PEER_THIEU",
+-                    "message": "Thân cần «peer» khác rỗng.",
+-                }
+-            }
++            return 400, {}, _loi_body("PEER_THIEU", "Thân cần «peer» khác rỗng.")
+         message = than.get("message")
+         if not isinstance(message, str) or not message.strip():
+-            return 400, {}, {
+-                "error": {
+-                    "code": "MESSAGE_THIEU",
+-                    "message": "Thân cần «message» khác rỗng.",
+-                }
+-            }
++            return 400, {}, _loi_body("MESSAGE_THIEU", "Thân cần «message» khác rỗng.")
+         if len(message.encode("utf-8")) > _GIOI_HAN_NOI_DUNG:
+-            return 400, {}, {
+-                "error": {
+-                    "code": "MESSAGE_QUA_DAI",
+-                    "message": "Nội dung vượt 16 KiB.",
+-                }
+-            }
+-        tai_khoan = self._phien().danh_sach()
+-        account = than.get("account")
+-        if account is not None:
+-            if self._phien().lay(str(account)) is None:
+-                return 404, {}, {
+-                    "error": {
+-                        "code": "ACCOUNT_KHONG_CO",
+-                        "message": "Không có tài khoản này.",
+-                    }
+-                }
+-            account_id = str(account)
+-        elif tai_khoan:
+-            account_id = tai_khoan[0]["id"]
+-        else:
+-            return 503, {}, {
+-                "error": {
+-                    "code": "ACCOUNT_OFFLINE",
+-                    "message": "Chưa có tài khoản nào.",
+-                }
+-            }
++            return 400, {}, _loi_body("MESSAGE_QUA_DAI", "Nội dung vượt 16 KiB.")
++        ban_ghi, loi = self._chon_tai_khoan(than.get("account"))
++        if loi is not None:
++            return loi
++        account_id = ban_ghi["id"]
++        client = self._clients.get(account_id)
++        if client is not None:
++            if not ban_ghi.get("da_dang_nhap"):
++                return 503, {}, _loi_body("ACCOUNT_OFFLINE", "Tài khoản chưa online.")
++            try:
++                tin_id = await client.gui_tin_nhan(peer.strip(), message)
++            except LoiTelegram as e:
++                return e.http_status, {}, _loi_body(
++                    e.code, e.code, e.retry_after_seconds)
++            return 200, {}, {"ok": True, "tin_id": tin_id,
++                             "account": account_id, "peer": peer.strip()}
+         tin_id = uuid.uuid4().hex
+         self._hop_thu_di.append(
+             {
+@@ -655,6 +1725,211 @@ class Module:
+             "peer": peer.strip(),
+         }
+ 
++    async def _duong_send_media(self, query, than):
++        peer = than.get("peer")
++        if not isinstance(peer, str) or not peer.strip():
++            return 400, {}, _loi_body("PEER_THIEU", "Thân cần «peer» khác rỗng.")
++        media_b64 = than.get("media_b64")
++        if media_b64 is not None and not isinstance(media_b64, str):
++            return 400, {}, _loi_body("MEDIA_SAI_KHUON", "«media_b64» phải là chuỗi base64.")
++        if media_b64 is not None and len(media_b64) > _KHOI_AUDIO_IN_TOI_DA:
++            return 400, {}, _loi_body("MEDIA_QUA_LON", "Khối media vượt trần thân 400 KB.")
++        if media_b64 is None and not than.get("url"):
++            return 400, {}, _loi_body("MEDIA_THIEU", "Cần «media_b64» (URL tự tải chưa làm ở P1).")
++        if than.get("url"):
++            return 400, {}, _loi_body("MEDIA_URL_CHUA_HO_TRO", "Tải media từ URL chưa làm ở P1.")
++        try:
++            du_lieu = base64.b64decode(media_b64, validate=True)
++        except (ValueError, base64.binascii.Error):
++            return 400, {}, _loi_body("BASE64_SAI", "«media_b64» không phải base64 hợp lệ.")
++        ban_ghi, loi = self._chon_tai_khoan(than.get("account"))
++        if loi is not None:
++            return loi
++        account_id = ban_ghi["id"]
++        client = self._clients.get(account_id)
++        if client is not None:
++            if not ban_ghi.get("da_dang_nhap"):
++                return 503, {}, _loi_body("ACCOUNT_OFFLINE", "Tài khoản chưa online.")
++            try:
++                tin_id = await client.gui_media(
++                    peer.strip(), du_lieu, than.get("ten_tep") or "media",
++                    than.get("caption") or "")
++            except LoiTelegram as e:
++                return e.http_status, {}, _loi_body(
++                    e.code, e.code, e.retry_after_seconds)
++            return 200, {}, {"ok": True, "tin_id": tin_id,
++                             "account": account_id, "peer": peer.strip()}
++        tin_id = uuid.uuid4().hex
++        self._hop_thu_di.append({"tin_id": tin_id, "kenh_id": None,
++                                 "account": account_id, "peer": peer.strip(),
++                                 "loai": "media", "luc": time.time()})
++        return 200, {}, {"ok": True, "tin_id": tin_id,
++                         "account": account_id, "peer": peer.strip()}
++
++    async def _duong_send_voice(self, query, than):
++        peer = than.get("peer")
++        if not isinstance(peer, str) or not peer.strip():
++            return 400, {}, _loi_body("PEER_THIEU", "Thân cần «peer» khác rỗng.")
++        voice_b64 = than.get("voice_b64")
++        if not isinstance(voice_b64, str) or not voice_b64:
++            return 400, {}, _loi_body("VOICE_THIEU", "Thân cần «voice_b64».")
++        if len(voice_b64) > _KHOI_AUDIO_IN_TOI_DA:
++            return 400, {}, _loi_body("VOICE_QUA_LON", "Khối voice vượt trần thân 400 KB.")
++        try:
++            du_lieu = base64.b64decode(voice_b64, validate=True)
++        except (ValueError, base64.binascii.Error):
++            return 400, {}, _loi_body("BASE64_SAI", "«voice_b64» không phải base64 hợp lệ.")
++        ban_ghi, loi = self._chon_tai_khoan(than.get("account"))
++        if loi is not None:
++            return loi
++        account_id = ban_ghi["id"]
++        client = self._clients.get(account_id)
++        if client is not None:
++            if not ban_ghi.get("da_dang_nhap"):
++                return 503, {}, _loi_body("ACCOUNT_OFFLINE", "Tài khoản chưa online.")
++            try:
++                tin_id = await client.gui_voice(peer.strip(), du_lieu)
++            except LoiTelegram as e:
++                return e.http_status, {}, _loi_body(
++                    e.code, e.code, e.retry_after_seconds)
++            return 200, {}, {"ok": True, "tin_id": tin_id,
++                             "account": account_id, "peer": peer.strip()}
++        tin_id = uuid.uuid4().hex
++        self._hop_thu_di.append({"tin_id": tin_id, "kenh_id": None,
++                                 "account": account_id, "peer": peer.strip(),
++                                 "loai": "voice", "luc": time.time()})
++        return 200, {}, {"ok": True, "tin_id": tin_id,
++                         "account": account_id, "peer": peer.strip()}
++
++    async def _duong_call(self, query, than):
++        """POST /call: trả ngay {call_id, status: dialing|queued}.
++
++        Đây là đường HA nên chịu công tắc «Cho phép HA gọi đi» (mặc định TẮT).
++        Gọi tương tác trong tab module dùng goi_tu_tab() (không qua đây).
++        """
++        return await self._tao_cuoc_goi(than, nguon="ha")
++
++    async def goi_tu_tab(self, than):
++        """Gọi tương tác trong tab module: giống /call nhưng không chịu công
++        tắc HA (xác nhận một lần lúc gọi là việc của tab UI, theo NV298)."""
++        return await self._tao_cuoc_goi(than, nguon="tab")
++
++    async def _tao_cuoc_goi(self, than, nguon="ha"):
++        self._don_dep_hang_doi()
++        self._don_dep_tts()
++        peer = than.get("peer")
++        if not isinstance(peer, str) or not peer.strip():
++            return 400, {}, _loi_body("PEER_THIEU", "Thân cần «peer» khác rỗng.")
++        mode = than.get("mode", "tts")
++        if mode not in ("tts", "live"):
++            return 400, {}, _loi_body("MODE_SAI", "«mode» phải là tts hoặc live.")
++        if mode == "tts" and not than.get("tts_text") and not than.get("tts_audio_id"):
++            return 400, {}, _loi_body("TTS_THIEU", "Mode tts cần «tts_text» hoặc «tts_audio_id».")
++        tts_audio_id = than.get("tts_audio_id")
++        if tts_audio_id and tts_audio_id not in self._tts_files:
++            return 400, {}, _loi_body("TTS_AUDIO_KHONG_CO", "Không có file TTS này.")
++        ban_ghi, loi = self._chon_tai_khoan(than.get("account"))
++        if loi is not None:
++            return loi
++        account_id = ban_ghi["id"]
++        if not ban_ghi.get("da_dang_nhap"):
++            return 503, {}, _loi_body("ACCOUNT_OFFLINE", "Tài khoản chưa online.")
++        if nguon == "ha" and not self._cho_phep_ha_goi_di:
++            return 403, {}, _loi_body(
++                "HA_GOI_DI_TAT", "Công tắc «Cho phép HA gọi đi» đang tắt.")
++        endpoint = than.get("audio_endpoint") or self._audio_endpoint
++        if endpoint not in _AUDIO_ENDPOINT:
++            return 400, {}, _loi_body(
++                "ENDPOINT_SAI", "Mic/loa phải là ha, r1, usb hoặc file.")
++        if endpoint in self._endpoint_dang_dung:
++            return 409, {}, _loi_body(
++                "ENDPOINT_BUSY", "Endpoint đã thuộc một cuộc gọi khác.")
++        dang_chay = any(
++            x["account"] == account_id and x["trang_thai"] in ("dialing", "active")
++            for x in self._cuoc_goi.values()
++        )
++        call_id = "call-" + uuid.uuid4().hex[:12]
++        ban = {
++            "call_id": call_id,
++            "account": account_id,
++            "peer": peer.strip(),
++            "direction": "outgoing",
++            "mode": mode,
++            "trang_thai": "dialing",
++            "audio_endpoint": endpoint,
++            "uu_tien": "alarm" if than.get("uu_tien") == "alarm" else "normal",
++            "tts_text": than.get("tts_text"),
++            "tts_voice": than.get("tts_voice") or self._tts_voice,
++            "tts_audio_id": tts_audio_id,
++            "tdlib_call_id": None,
++            "peer_user_id": None,
++            "bat_dau_luc": None,
++            "ket_thuc_luc": None,
++            "cho_tu_luc": None,
++            "seq_tiep_theo": 0,
++            "khoi_nhan": 0,
++            "khoi_mat": 0,
++            "mic_pcm": bytearray(),
++            "loa_pcm": bytearray(),
++            "pcm_out": b"",
++            "bao_hieu_cho_tdlib": [],
++            "ring_timeout": than.get("ring_timeout") or self._so["ring_timeout"],
++            "max_call_seconds": than.get("max_call_seconds") or self._so["max_call_seconds"],
++        }
++        if dang_chay:
++            cho_hien_tai = [x for x in self._hang_doi if x["account"] == account_id]
++            if len(cho_hien_tai) >= self._so["queue_depth"]:
++                return 409, {}, _loi_body(
++                    "ACCOUNT_BUSY", "Tài khoản bận và hàng đợi đã đầy.")
++            ban["trang_thai"] = "queued"
++            ban["cho_tu_luc"] = time.time()
++            self._cuoc_goi[call_id] = ban
++            self._hang_doi.append(ban)
++            return 200, {}, {"call_id": call_id, "status": "queued",
++                             "vi_tri": len(cho_hien_tai) + 1}
++        self._cuoc_goi[call_id] = ban
++        self._endpoint_dang_dung[endpoint] = call_id
++        client = self._clients.get(account_id)
++        if client is not None and hasattr(client, "tao_cuoc_goi"):
++            try:
++                ket = await client.tao_cuoc_goi(peer.strip())
++                if isinstance(ket, dict):
++                    ban["tdlib_call_id"] = ket.get("call_id")
++                    ban["peer_user_id"] = ket.get("user_id")
++            except LoiTelegram as e:
++                del self._cuoc_goi[call_id]
++                del self._endpoint_dang_dung[endpoint]
++                return e.http_status, {}, _loi_body(
++                    e.code, e.code, e.retry_after_seconds)
++            except NotImplementedError:
++                pass
++        return 200, {}, {"call_id": call_id, "status": "dialing"}
++
++    async def _duong_hangup_call(self, query, than):
++        call_id = than.get("call_id")
++        if not isinstance(call_id, str) or not call_id:
++            return 400, {}, _loi_body("CALL_ID_THIEU", "Thân cần «call_id».")
++        c = self._cuoc_goi.get(call_id)
++        if c is None or c["trang_thai"] == "ended":
++            return 409, {}, _loi_body("CALL_NOT_ACTIVE", "Cuộc gọi không còn hoạt động.")
++        if c["trang_thai"] == "queued":
++            self._hang_doi.remove(c)
++            c["trang_thai"] = "ended"
++            c["ket_thuc_luc"] = time.time()
++            c["ly_do_ket_thuc"] = "cancelled"
++            return 200, {}, {"ok": True, "call_id": call_id, "status": "ended"}
++        thang = await self._ket_thuc_cuoc_goi(c, "hangup")
++        tra = {"ok": True, "call_id": call_id, "status": "ended"}
++        if thang is not None:
++            tra["promoted_call_id"] = thang["call_id"]
++        return 200, {}, tra
++
++    async def _duong_calls(self, query, than):
++        return 200, {}, {
++            "calls": [self._ban_ghi_cuoc_goi_cong_khai(c)
++                      for c in self._cuoc_goi.values()]
++        }
++
+     async def _duong_events(self, query, than):
+         """Poll fallback: {events, cursor}. since lọc id > since (đơn điệu)."""
+         since_raw = query.get("since") if isinstance(query, dict) else None
+@@ -663,21 +1938,162 @@ class Module:
+         try:
+             since = int(str(since_raw).strip()) if since_raw is not None else 0
+         except (TypeError, ValueError):
+-            return 400, {}, {
+-                "error": {
+-                    "code": "SINCE_SAI",
+-                    "message": "Tham số «since» phải là số nguyên.",
+-                }
+-            }
++            return 400, {}, _loi_body("SINCE_SAI", "Tham số «since» phải là số nguyên.")
+         su_kien = [e for e in self._su_kien if e["id"] > since]
+         cursor = self._su_kien[-1]["id"] if self._su_kien else 0
+         return 200, {}, {"events": su_kien, "cursor": cursor}
+ 
++    async def _duong_audio_in(self, query, than):
++        """Mic từ HA lên: {call_id, seq, pcm_b64, sample_rate, channels}.
++
++        Mất khối → chèn im lặng + đếm (không dừng cuộc gọi). Hàng đợi mic
++        quá 2 giây PCM chưa tiêu thụ → 429 (HA chậm lại theo đó).
++        """
++        call_id = than.get("call_id")
++        seq = than.get("seq")
++        pcm_b64 = than.get("pcm_b64")
++        if not isinstance(call_id, str) or not call_id:
++            return 400, {}, _loi_body("CALL_ID_THIEU", "Thân cần «call_id».")
++        if not isinstance(seq, int) or seq < 0:
++            return 400, {}, _loi_body("SEQ_SAI", "«seq» phải là số nguyên ≥ 0.")
++        if not isinstance(pcm_b64, str) or not pcm_b64:
++            return 400, {}, _loi_body("PCM_THIEU", "Thân cần «pcm_b64».")
++        if len(pcm_b64) > _KHOI_AUDIO_IN_TOI_DA:
++            return 400, {}, _loi_body("KHOI_QUA_LON", "Khối audio vượt trần thân 400 KB.")
++        try:
++            pcm = base64.b64decode(pcm_b64, validate=True)
++        except (ValueError, base64.binascii.Error):
++            return 400, {}, _loi_body("BASE64_SAI", "«pcm_b64» không phải base64 hợp lệ.")
++        c = self._cuoc_goi.get(call_id)
++        if c is None or c["trang_thai"] != "active":
++            return 409, {}, _loi_body("CALL_NOT_ACTIVE", "Cuộc gọi không còn hoạt động.")
++        if len(c["mic_pcm"]) > _MIC_BO_DEM_TOI_DA:
++            return 429, {}, _loi_body("AUDIO_QUA_TAI", "Hàng đợi mic đầy, HA chậm lại.")
++        cho = c["seq_tiep_theo"]
++        if seq < cho:
++            # Khối trùng/lỗi thời: đếm rồi bỏ, không đưa vào luồng.
++            c["khoi_mat"] += 0
++            return 200, {}, {"ok": True, "call_id": call_id, "seq": seq,
++                             "khoi_nhan": c["khoi_nhan"], "khoi_mat": c["khoi_mat"],
++                             "trung": True}
++        nap = b""
++        if seq > cho:
++            mat = seq - cho
++            c["khoi_mat"] += mat
++            im_lang = b"\x00" * (mat * len(pcm))
++            c["mic_pcm"].extend(im_lang)
++            nap += im_lang
++        c["mic_pcm"].extend(pcm)
++        nap += pcm
++        c["seq_tiep_theo"] = seq + 1
++        c["khoi_nhan"] += 1
++        engine = self._engine
++        if engine is not None and c.get("peer_user_id") is not None:
++            try:
++                engine.nap_pcm_mic(c["peer_user_id"], nap)
++            except Exception:
++                pass
++        return 200, {}, {"ok": True, "call_id": call_id, "seq": seq,
++                         "khoi_nhan": c["khoi_nhan"], "khoi_mat": c["khoi_mat"]}
++
++    async def _duong_audio_stream_url(self, query, than):
++        """Xin vé loa: {call_id} → {stream_url}.
++
++        Vé gắn 1 call_id (self._ve_luong), hết hiệu lực khi cuộc kết thúc
++        (luong() trả 404). URL ký bằng lõi khi import được app.duong_module;
++        khi chạy tách rời (test) trả URL chưa ký cùng đường dẫn (D-P1-1).
++        """
++        call_id = than.get("call_id")
++        if not isinstance(call_id, str) or not call_id:
++            return 400, {}, _loi_body("CALL_ID_THIEU", "Thân cần «call_id».")
++        c = self._cuoc_goi.get(call_id)
++        if c is None or c["trang_thai"] not in ("dialing", "active"):
++            return 409, {}, _loi_body("CALL_NOT_ACTIVE", "Cuộc gọi không còn hoạt động.")
++        ve = secrets.token_urlsafe(24)
++        self._ve_luong[ve] = call_id
++        try:
++            from app.duong_module import tao_duong_luong
++            url = tao_duong_luong("telegram-user", ve, self._goc_goc)
++        except Exception:
++            url = (self._goc_goc.rstrip("/") +
++                   f"/m/telegram-user/api/stream/{ve}")
++        return 200, {}, {"stream_url": url, "call_id": call_id}
++
++    async def _duong_audio_upload(self, query, than):
++        """Nạp audio TTS của HA theo khối base64 (mỗi khối ≤ 300 KB).
++
++        Lần đầu không có upload_id → module sinh và trả lại; lần cuối
++        {done: true} → ráp file, trả tts_audio_id. File xóa sau cuộc gọi
++        dùng nó hoặc sau 1 giờ.
++        """
++        self._don_dep_tts()
++        upload_id = than.get("upload_id")
++        if upload_id is not None and not isinstance(upload_id, str):
++            return 400, {}, _loi_body("UPLOAD_ID_SAI", "«upload_id» phải là chuỗi.")
++        khoi_b64 = than.get("khoi_b64")
++        if khoi_b64 is not None:
++            if not isinstance(khoi_b64, str):
++                return 400, {}, _loi_body("KHOI_SAI_KHUON", "«khoi_b64» phải là chuỗi base64.")
++            if len(khoi_b64) > _KHOI_TTS_TOI_DA:
++                return 400, {}, _loi_body("KHOI_QUA_LON", "Khối upload vượt 300 KB.")
++            try:
++                khoi = base64.b64decode(khoi_b64, validate=True)
++            except (ValueError, base64.binascii.Error):
++                return 400, {}, _loi_body("BASE64_SAI", "«khoi_b64» không phải base64 hợp lệ.")
++        else:
++            khoi = b""
++        if upload_id is None:
++            upload_id = "up-" + uuid.uuid4().hex[:12]
++        muc = self._audio_uploads.setdefault(upload_id, {"khoi": bytearray()})
++        muc["khoi"].extend(khoi)
++        if not than.get("done"):
++            return 200, {}, {"upload_id": upload_id, "da_nhan": len(muc["khoi"])}
++        du_lieu = bytes(muc["khoi"])
++        del self._audio_uploads[upload_id]
++        tts_audio_id = "tts-" + uuid.uuid4().hex[:12]
++        thu_muc = Path(os.environ.get("WEB2API_DATA", "/data")) / "telegram-user" / "tts"
++        thu_muc.mkdir(parents=True, exist_ok=True)
++        try:
++            os.chmod(thu_muc, 0o700)
++        except OSError:
++            pass
++        tep = thu_muc / (tts_audio_id + ".bin")
++        _ghi_nguyen_tu(tep, du_lieu)
++        self._tts_files[tts_audio_id] = {"tep": tep, "tao_luc": time.time()}
++        return 200, {}, {"tts_audio_id": tts_audio_id, "kich_thuoc": len(du_lieu)}
++
+     async def luong(self, ve, khoang, phuong_thuc):
+-        """Stub luồng (P2 mới có audio thật): mọi vé đều 404."""
+-        return 404, {}, b""
++        """Phục vụ luồng loa: vé gắn 1 call_id; cuộc đã kết thúc → 404.
+ 
+-    # ── móc mock cho P0 (test + tab demo; P1 thay bằng TDLib thật) ─────
++        Lõi đã kiểm chữ ký HMAC + nguồn LAN trước khi gọi tới đây (vé giả/
++        hết hạn → 404 trống ở tầng lõi). Module chỉ kiểm vé ↔ call_id và
++        trạng thái cuộc gọi. Hỗ trợ Range (loa nối lại từ đúng byte).
++        """
++        call_id = self._ve_luong.get(ve)
++        if call_id is None:
++            return 404, {}, b""
++        c = self._cuoc_goi.get(call_id)
++        if c is None or c["trang_thai"] == "ended":
++            self._ve_luong.pop(ve, None)
++            return 404, {}, b""
++        du_lieu = bytes(c.get("pcm_out") or b"") + bytes(c.get("loa_pcm") or b"")
++        tong = len(du_lieu)
++        bat_dau, ket_thuc, ma = _tach_range(khoang, tong)
++        headers = {
++            "Content-Type": "audio/L16; rate=48000; channels=1",
++            "Accept-Ranges": "bytes",
++        }
++        if ma == 416:
++            headers["Content-Range"] = f"bytes */{tong}"
++            return 416, headers, b""
++        if ma == 206:
++            headers["Content-Range"] = f"bytes {bat_dau}-{ket_thuc}/{tong}"
++            headers["Content-Length"] = str(ket_thuc - bat_dau + 1)
++            return 206, headers, du_lieu[bat_dau: ket_thuc + 1]
++        headers["Content-Length"] = str(tong)
++        return 200, headers, du_lieu
++
++    # ── móc mock cho P0 (test + tab demo; P1 thay dần bằng TDLib thật) ───
+     def _them_tai_khoan_mock(self, ten: str, peer: str) -> dict:
+         """Thêm tài khoản mock qua tab (P0). Trả bản ghi công khai."""
+         ban_ghi = self._phien().them_tai_khoan(ten, peer)
+@@ -696,15 +2112,4 @@ class Module:
+         return tin
+ 
+     def _them_su_kien_mock(self, loai: str, tai_khoan: str, du_lieu: dict) -> dict:
+-        su_kien = {
+-            "id": self._su_kien_tiep,
+-            "type": loai,
+-            "account": tai_khoan,
+-            "timestamp": int(time.time()),
+-            "data": du_lieu if isinstance(du_lieu, dict) else {},
+-        }
+-        self._su_kien_tiep += 1
+-        self._su_kien.append(su_kien)
+-        if len(self._su_kien) > _GIOI_HAN_SU_KIEN:
+-            del self._su_kien[: len(self._su_kien) - _GIOI_HAN_SU_KIEN]
+-        return su_kien
++        return self._ghi_su_kien(loai, tai_khoan, du_lieu)
+diff --git a/modules/telegram-user/web/index.html b/modules/telegram-user/web/index.html
+index 81463ee..fbd8516 100644
+--- a/modules/telegram-user/web/index.html
++++ b/modules/telegram-user/web/index.html
+@@ -17,26 +17,25 @@
+ <h1>Telegram (tài khoản người dùng)</h1>
+ 
+ <div class="the">
+-  <h2>Trạng thái P0</h2>
+-  <p class="mock">P0 chỉ là khung + mock: chưa đăng nhập thật, chưa gửi tin thật, chưa gọi thật.
+-  Tài khoản, cuộc gọi và nhật ký dưới đây sẽ có dữ liệu thật từ P1 trở đi.</p>
++  <h2>Trạng thái P1 + P2</h2>
++  <p class="mock">P1 + P2: đăng nhập TDLib (OTP/2FA/QR) ở tab này, gửi tin/media/voice, gọi đi TTS/đàm thoại qua đường /m. Nhận cuộc gọi (P3) và lịch sử/danh bạ/nhóm (P4) chưa có.</p>
+   <p>Đường kiểm tra sức khỏe cho HA: <code>GET /m/telegram-user/api/health</code> (cần khoá khách phạm vi <code>tich_hop@telegram-user</code>).</p>
+ </div>
+ 
+ <div class="the">
+   <h2>Tài khoản</h2>
+-  <p>P0: danh sách tài khoản đọc qua <code>GET /m/telegram-user/api/accounts</code> (chỉ đọc, không bí mật).
+-  Thêm tài khoản bằng OTP/2FA/QR là việc của P1, chỉ làm ở tab này — không bao giờ qua đường HA.</p>
++  <p>Danh sách tài khoản đọc qua <code>GET /m/telegram-user/api/accounts</code> (chỉ đọc, không bí mật).
++  Thêm tài khoản bằng OTP/2FA/QR chỉ làm ở tab này — không bao giờ qua đường HA.</p>
+ </div>
+ 
+ <div class="the">
+   <h2>Cuộc gọi đang chạy</h2>
+-  <p>P0: chưa có cuộc gọi thật. Đường <code>GET /m/telegram-user/api/calls</code> trả 501 cho tới P1.</p>
++  <p>Cuộc gọi đi/đang chạy đọc qua <code>GET /m/telegram-user/api/calls</code>; gọi đi qua <code>POST /m/telegram-user/api/call</code> (cần công tắc «Cho phép HA gọi đi» bật khi gọi từ HA).</p>
+ </div>
+ 
+ <div class="the">
+   <h2>Nhật ký (đã lược bí mật)</h2>
+-  <p>P0: nhật ký module không chứa api_id, api_hash, token webhook hay khóa phiên.
++  <p>Nhật ký module không chứa api_id, api_hash, token webhook hay khóa phiên.
+   Event cho HA đọc qua <code>GET /m/telegram-user/api/events?since=</code> (poll fallback).</p>
+ </div>
+ 
+diff --git a/test/test_web2api_telegram_user_p0.py b/test/test_web2api_telegram_user_p0.py
+index 5ad5a2c..e7821bc 100644
+--- a/test/test_web2api_telegram_user_p0.py
++++ b/test/test_web2api_telegram_user_p0.py
+@@ -223,11 +223,14 @@ def test_tich_hop_404_405_501_va_luong_stub():
+     ma, _, nd = asyncio.run(mod.tich_hop("send_message", "POST", {}, "khong-phai-dict", "http://localhost"))
+     assert ma == 400 and nd["error"]["code"] == "THAN_SAI_KHUON"
+     ma, _, nd = asyncio.run(mod.tich_hop("call", "POST", {}, {"peer": "p"}, "http://localhost"))
+-    assert ma == 501 and nd["error"]["giai_doan"] == "P1"
++    # P1 đã thay placeholder 501: call tts thiếu tts_text/tts_audio_id → 400.
++    assert ma == 400 and nd["error"]["code"] == "TTS_THIEU"
+     ma, _, nd = asyncio.run(mod.tich_hop("answer_call", "POST", {}, {"call_id": "c"}, "http://localhost"))
+     assert ma == 501 and nd["error"]["giai_doan"] == "P3"
+     ma, _, nd = asyncio.run(mod.tich_hop("audio/in", "POST", {}, {"call_id": "c"}, "http://localhost"))
+-    assert ma == 501 and nd["error"]["giai_doan"] == "P2"
++    # P2 đã thay placeholder 501: audio/in thiếu seq/pcm_b64 → 400 (kiểm
++    # khuôn thân chạy trước khi tra cứu cuộc gọi).
++    assert ma == 400 and nd["error"]["code"] == "SEQ_SAI"
+     ma, _, nd = asyncio.run(mod.tich_hop("history", "GET", {}, None, "http://localhost"))
+     assert ma == 501 and nd["error"]["giai_doan"] == "P4"
+     assert asyncio.run(mod.luong("ve-gia", None, "GET")) == (404, {}, b"")
+diff --git a/test/test_web2api_telegram_user_p1.py b/test/test_web2api_telegram_user_p1.py
+new file mode 100644
+index 0000000..89b22b5
+--- /dev/null
++++ b/test/test_web2api_telegram_user_p1.py
+@@ -0,0 +1,677 @@
++"""Test P1+P2 cho module telegram-user (DELTA trên P0, offline/mock).
++
++- Theo đúng khuôn harness của test P0: nạp module.py qua importlib,
++  WEB2API_DATA riêng qua tmp_path, không mạng, không tài khoản thật.
++- Mọi bí mật trong test đều GIẢ rõ ràng (api_id/api_hash/token/OTP/2FA).
++- FakeTdlibClient / FakeEngine / FakeSynth thay cho TDLib/NTgCalls/Edge TTS
++  thật; code glue, state machine, hàng đợi, vé luồng trong module là thật.
++- Test P0 cũ KHÔNG sửa: 2 assertion 501 của nó cho "call" và "audio/in" là
++  placeholder của giai đoạn P0 và theo định nghĩa bị P1/P2 thay thế (xem
++  BAO-CAO.md); mọi assertion P0 còn lại vẫn phải xanh.
++"""
++
++from __future__ import annotations
++
++import asyncio
++import base64
++import importlib.util
++import json
++import logging
++import sys
++import types
++from pathlib import Path
++
++import pytest
++
++GOC = Path(__file__).resolve().parents[1]
++THU_MUC = GOC / "modules" / "telegram-user"
++TEN_GOI = "telegram_user_p1_mod_test"
++
++API_ID_GIA = "123456"
++API_HASH_GIA = "a" * 32
++TOKEN_WH_GIA = "wh-gia-telegram-user-token-cho-test-0000"
++OTP_DUNG = "11111"
++OTP_SAI = "00000"
++MK_DUNG = "mat-khau-gia-2fa"
++MK_SAI = "sai-gia-2fa"
++
++
++@pytest.fixture(autouse=True)
++def _web2api_data(tmp_path, monkeypatch):
++    monkeypatch.setenv("WEB2API_DATA", str(tmp_path))
++    yield tmp_path
++
++
++def _tai_goi():
++    for ten in [t for t in list(sys.modules) if t == TEN_GOI or t.startswith(TEN_GOI + ".")]:
++        del sys.modules[ten]
++    goi = types.ModuleType(TEN_GOI)
++    goi.__path__ = [str(THU_MUC)]
++    sys.modules[TEN_GOI] = goi
++    spec = importlib.util.spec_from_file_location(f"{TEN_GOI}.module", THU_MUC / "module.py")
++    mod = importlib.util.module_from_spec(spec)
++    sys.modules[f"{TEN_GOI}.module"] = mod
++    spec.loader.exec_module(mod)
++    return mod
++
++
++mod_module = _tai_goi()
++Module = mod_module.Module
++LoiTelegram = mod_module.LoiTelegram
++glue_call_ready = mod_module.glue_call_ready
++MANIFEST = json.loads((THU_MUC / "manifest.json").read_text(encoding="utf-8"))
++
++
++class FakeTdlibClient:
++    """Fake TDLib: cùng chữ ký client thật, hành vi theo che_do."""
++
++    def __init__(self, che_do="otp"):
++        self.che_do = che_do  # otp | 2fa | qr
++        self.da_gui_tin = []
++        self.da_gui_media = []
++        self.da_gui_voice = []
++        self.da_gui_bao_hieu = []
++        self.da_huy_cuoc = []
++        self.cuoc_tiep = 100
++        self.flood_gui_tin = False
++        self.qr_da_quet = False
++
++    async def khoi_tao(self):
++        return None
++
++    async def dat_so(self, phone):
++        return "cho_otp"
++
++    async def kiem_tra_ma(self, code):
++        if code != OTP_DUNG:
++            raise LoiTelegram("MA_SAI", 400)
++        if self.che_do == "2fa":
++            return "can_2fa"
++        return "da_dang_nhap"
++
++    async def kiem_tra_mat_khau(self, password):
++        if password != MK_DUNG:
++            raise LoiTelegram("MAT_KHAU_SAI", 400)
++        return "da_dang_nhap"
++
++    async def lay_qr_link(self):
++        return "qr-gia-cho-test"
++
++    async def kiem_tra_qr(self):
++        if self.qr_da_quet:
++            return "da_dang_nhap"
++        self.qr_da_quet = True
++        return "cho_qr"
++
++    async def lay_thong_tin(self):
++        return {"display_name": "Tai khoan gia", "user_id": 4242}
++
++    async def tao_cuoc_goi(self, peer):
++        self.cuoc_tiep += 1
++        return {"call_id": self.cuoc_tiep, "user_id": 4242}
++
++    async def huy_cuoc_goi(self, tdlib_call_id):
++        self.da_huy_cuoc.append(tdlib_call_id)
++
++    async def gui_bao_hieu(self, tdlib_call_id, data_bytes):
++        self.da_gui_bao_hieu.append((tdlib_call_id, bytes(data_bytes)))
++
++    async def gui_tin_nhan(self, peer, text):
++        if self.flood_gui_tin:
++            raise LoiTelegram("FLOOD_WAIT", 429, 30)
++        tin_id = f"tin-gia-{len(self.da_gui_tin)}"
++        self.da_gui_tin.append((peer, text))
++        return tin_id
++
++    async def gui_media(self, peer, data_bytes, filename, caption):
++        tin_id = f"media-gia-{len(self.da_gui_media)}"
++        self.da_gui_media.append((peer, bytes(data_bytes), filename, caption))
++        return tin_id
++
++    async def gui_voice(self, peer, data_bytes):
++        tin_id = f"voice-gia-{len(self.da_gui_voice)}"
++        self.da_gui_voice.append((peer, bytes(data_bytes)))
++        return tin_id
++
++    async def dong(self):
++        return None
++
++
++class FakeEngine:
++    """Fake NTgCalls: ghi lại mọi lệnh glue/signaling/audio."""
++
++    def __init__(self):
++        self.ket_noi = []
++        self.khoa = []
++        self.bao_hieu_gui = []
++        self.callback = None
++        self.pcm_out = []
++        self.pcm_mic = []
++        self.dung_calls = []
++
++    def ket_noi_p2p(self, user_id, specs, versions, p2p_allowed, custom):
++        self.ket_noi.append((user_id, specs, versions, p2p_allowed, custom))
++
++    def bo_qua_trao_doi_khoa(self, user_id, key_bytes, is_outgoing):
++        self.khoa.append((user_id, bytes(key_bytes), is_outgoing))
++
++    def gui_bao_hieu(self, user_id, data_bytes):
++        self.bao_hieu_gui.append((user_id, bytes(data_bytes)))
++
++    def dang_ky_nhan_bao_hieu(self, callback):
++        self.callback = callback
++
++    def phat_bao_hieu(self, user_id, data_bytes):
++        if self.callback is not None:
++            self.callback(user_id, bytes(data_bytes))
++
++    def lay_dau_van_tay_emojis(self, user_id):
++        return ["e1", "e2", "e3", "e4"]
++
++    def nap_pcm_out(self, user_id, pcm_bytes, tep_tam):
++        self.pcm_out.append((user_id, bytes(pcm_bytes)))
++
++    def nap_pcm_mic(self, user_id, pcm_bytes):
++        self.pcm_mic.append((user_id, bytes(pcm_bytes)))
++
++    def dung(self, user_id):
++        self.dung_calls.append(user_id)
++
++
++class FakeSynth:
++    def __init__(self, pcm=b"\x07" * 4800):
++        self.pcm = pcm
++        self.goi = []
++
++    async def tong_hop(self, text, voice, rate):
++        self.goi.append((text, voice, rate))
++        return self.pcm
++
++
++def _cau_hinh_hop_le(**them):
++    cfg = {"api_id": API_ID_GIA, "api_hash": API_HASH_GIA}
++    cfg.update(them)
++    return cfg
++
++
++def _module_da_cai(**them):
++    mod = Module(MANIFEST)
++    kq = asyncio.run(mod.cai(_cau_hinh_hop_le(**them)))
++    assert kq["ok"] is True
++    return mod
++
++
++async def _dang_nhap_xong(mod, fake=None, phone="+840000000001"):
++    fake = fake or FakeTdlibClient("otp")
++    bat = await mod.bat_dau_dang_nhap(phone, client=fake)
++    assert bat["trang_thai"] == "cho_otp"
++    xong = await mod.nhap_otp(bat["login_id"], OTP_DUNG, client=fake)
++    assert xong["trang_thai"] == "da_dang_nhap"
++    return xong["tai_khoan"], fake
++
++
++def _goi(mod, **than):
++    return asyncio.run(mod.tich_hop("call", "POST", {}, than, "http://localhost"))
++
++
++def _fixture_ready():
++    return {
++        "protocol": {
++            "udp_p2p": True,
++            "udp_reflector": True,
++            "min_layer": 65,
++            "max_layer": 92,
++            "library_versions": ["1.0", "2.0"],
++        },
++        "servers": [
++            {"id": 1, "ip_address": "203.0.113.1", "ipv6_address": "",
++             "port": 1234,
++             "type": {"@type": "callServerTypeWebrtc", "username": "u-gia",
++                      "password": "p-gia", "supports_turn": True,
++                      "supports_stun": True}},
++            {"id": 2, "ip_address": "203.0.113.2", "ipv6_address": "",
++             "port": 5678,
++             "type": {"@type": "callServerTypeTelegramReflector",
++                      "peer_tag": base64.b64encode(b"\x00\x01\x02").decode("ascii"),
++                      "is_tcp": True}},
++        ],
++        "config": "{}",
++        "encryption_key": base64.b64encode(b"\xaa" * 32).decode("ascii"),
++        "emojis": ["e1", "e2", "e3", "e4"],
++        "allow_p2p": True,
++        "custom_parameters": '{"x":1}',
++    }
++
++
++# ── manifest giữ nguyên (P1/P2 không cần thêm trường) ────────────────────
++def test_manifest_giu_nguyen_nhu_p0():
++    assert MANIFEST["phien_ban"] == "0.1.0"
++    assert MANIFEST["yeu_cau_goi"] == ["tdjson", "ntgcalls"]
++    assert MANIFEST["id"] == "telegram-user"
++    assert set(MANIFEST["cung_cap"]) == {"kenh_ra", "hoi_vong", "duong_module"}
++
++
++# ── P1: đăng nhập ────────────────────────────────────────────────────────
++def test_login_otp_ok_va_session_ben_qua_restart_va_quyen():
++    mod = _module_da_cai()
++    tk, fake = asyncio.run(_dang_nhap_xong(mod))
++    assert tk["status"] == "online"
++    goc = Path(mod._phien().goc) / "tdlib" / tk["id"]
++    assert (goc / "tai_khoan.json").is_file()
++    assert oct((goc / "khoa").stat().st_mode & 0o777) == "0o600"
++    assert oct(goc.stat().st_mode & 0o777) == "0o700"
++    assert oct((goc / "files").stat().st_mode & 0o777) == "0o700"
++    khoa = (goc / "khoa").read_text(encoding="utf-8").strip()
++    ma, _, nd = asyncio.run(mod.tich_hop("accounts", "GET", {}, None, "http://localhost"))
++    assert len(nd["tai_khoan"]) == 1
++    assert API_HASH_GIA not in json.dumps(nd)
++    # restart: module mới trên cùng WEB2API_DATA vẫn thấy tài khoản + khóa
++    mod2 = _module_da_cai()
++    ds = mod2._phien().danh_sach()
++    assert len(ds) == 1 and ds[0]["id"] == tk["id"]
++    assert mod2._phien().tao_khoa(tk["id"]) == khoa
++    assert asyncio.run(mod2.dung()) is None
++
++
++def test_login_otp_sai_3_lan_khoa_15_phut_va_khong_log_ma(caplog):
++    mod = _module_da_cai()
++    fake = FakeTdlibClient("otp")
++    bat = asyncio.run(mod.bat_dau_dang_nhap("+840000000002", client=fake))
++    lid = bat["login_id"]
++    logger = logging.getLogger("telegram-user")
++    with caplog.at_level(logging.WARNING, logger="telegram-user"):
++        r1 = asyncio.run(mod.nhap_otp(lid, OTP_SAI, client=fake))
++        r2 = asyncio.run(mod.nhap_otp(lid, OTP_SAI, client=fake))
++        r3 = asyncio.run(mod.nhap_otp(lid, OTP_SAI, client=fake))
++        r4 = asyncio.run(mod.nhap_otp(lid, OTP_DUNG, client=fake))
++    assert r1["ma"] == "MA_SAI" and r1["so_lan_sai"] == 1
++    assert r2["ma"] == "MA_SAI" and r2["so_lan_sai"] == 2
++    assert r3["ma"] == "LOGIN_LOCKED" and r3["retry_after_seconds"] == 900
++    assert r4["ma"] == "LOGIN_LOCKED"
++    assert OTP_SAI not in caplog.text
++    assert OTP_DUNG not in caplog.text
++
++
++def test_login_2fa():
++    mod = _module_da_cai()
++    fake = FakeTdlibClient("2fa")
++    bat = asyncio.run(mod.bat_dau_dang_nhap("+840000000003", client=fake))
++    giua = asyncio.run(mod.nhap_otp(bat["login_id"], OTP_DUNG, client=fake))
++    assert giua["trang_thai"] == "can_2fa"
++    sai = asyncio.run(mod.nhap_2fa(bat["login_id"], MK_SAI, client=fake))
++    assert sai["ma"] == "MAT_KHAU_SAI"
++    assert MK_SAI not in json.dumps(sai)
++    xong = asyncio.run(mod.nhap_2fa(bat["login_id"], MK_DUNG, client=fake))
++    assert xong["trang_thai"] == "da_dang_nhap"
++
++
++def test_login_qr_tuy_chon():
++    mod = _module_da_cai()
++    fake = FakeTdlibClient("qr")
++    bat = asyncio.run(mod.bat_dau_qr(client=fake))
++    assert bat["trang_thai"] == "cho_qr" and bat["qr_link"]
++    cho = asyncio.run(mod.kiem_tra_qr(bat["login_id"], client=fake))
++    assert cho["trang_thai"] == "cho_qr"
++    xong = asyncio.run(mod.kiem_tra_qr(bat["login_id"], client=fake))
++    assert xong["trang_thai"] == "da_dang_nhap"
++
++
++def test_login_khong_qua_duong_m_va_cai_khong_tu_dang_nhap():
++    mod = _module_da_cai()
++    ma, _, nd = asyncio.run(mod.tich_hop("login", "POST", {}, {"phone": "x"}, "http://localhost"))
++    assert ma == 404
++    ma, _, nd = asyncio.run(mod.tich_hop("accounts", "GET", {}, None, "http://localhost"))
++    assert nd == {"tai_khoan": []}
++
++
++# ── P1: dispatch + mã lỗi ────────────────────────────────────────────────
++def test_dispatch_p1_p2_du_duong():
++    mod = _module_da_cai(cho_phep_ha_goi_di="bat")
++    tk, fake = asyncio.run(_dang_nhap_xong(mod))
++    ma, _, nd = asyncio.run(mod.tich_hop(
++        "send_message", "POST", {}, {"peer": "p-gia", "message": "chao"}, "http://localhost"))
++    assert ma == 200 and nd["tin_id"] == "tin-gia-0"
++    assert fake.da_gui_tin == [("p-gia", "chao")]
++    ma, _, nd = asyncio.run(mod.tich_hop(
++        "send_media", "POST", {},
++        {"peer": "p-gia", "media_b64": base64.b64encode(b"media-gia").decode("ascii"),
++         "ten_tep": "anh-gia", "caption": "cap-gia"}, "http://localhost"))
++    assert ma == 200 and nd["tin_id"] == "media-gia-0"
++    assert fake.da_gui_media[0][1] == b"media-gia"
++    ma, _, nd = asyncio.run(mod.tich_hop(
++        "send_voice", "POST", {},
++        {"peer": "p-gia", "voice_b64": base64.b64encode(b"voice-gia").decode("ascii")},
++        "http://localhost"))
++    assert ma == 200 and nd["tin_id"] == "voice-gia-0"
++    ma, _, nd = asyncio.run(mod.tich_hop("calls", "GET", {}, None, "http://localhost"))
++    assert ma == 200 and nd == {"calls": []}
++    ma, _, nd = asyncio.run(mod.tich_hop(
++        "hangup_call", "POST", {}, {"call_id": "call-khong-co"}, "http://localhost"))
++    assert ma == 409 and nd["error"]["code"] == "CALL_NOT_ACTIVE"
++    ma, _, nd = asyncio.run(mod.tich_hop(
++        "answer_call", "POST", {}, {"call_id": "c"}, "http://localhost"))
++    assert ma == 501 and nd["error"]["giai_doan"] == "P3"
++    ma, _, nd = asyncio.run(mod.tich_hop("history", "GET", {}, None, "http://localhost"))
++    assert ma == 501 and nd["error"]["giai_doan"] == "P4"
++    ma, _, nd = asyncio.run(mod.tich_hop("khong-co", "GET", {}, None, "http://localhost"))
++    assert ma == 404
++    ma, _, nd = asyncio.run(mod.tich_hop("health", "POST", {}, {}, "http://localhost"))
++    assert ma == 405
++
++
++def test_ma_loi_flood_wait_account_offline_va_cong_tac_ha():
++    mod = _module_da_cai()  # công tắc HA mặc định TẮT
++    ma, _, nd = asyncio.run(mod.tich_hop(
++        "send_message", "POST", {}, {"peer": "p", "message": "m"}, "http://localhost"))
++    assert ma == 503 and nd["error"]["code"] == "ACCOUNT_OFFLINE"
++    tk, fake = asyncio.run(_dang_nhap_xong(mod))
++    # HA gọi đi khi công tắc tắt → 403 (tab vẫn gọi được)
++    ma, _, nd = _goi(mod, peer="p-gia", mode="live")
++    assert ma == 403 and nd["error"]["code"] == "HA_GOI_DI_TAT"
++    ma, _, nd = asyncio.run(mod.goi_tu_tab({"peer": "p-gia", "mode": "live"}))
++    assert ma == 200 and nd["status"] == "dialing"
++    asyncio.run(mod.tich_hop("hangup_call", "POST", {}, {"call_id": nd["call_id"]}, "http://localhost"))
++    # flood-wait từ Telegram: retry_after lấy từ fake, không bịa
++    fake.flood_gui_tin = True
++    ma, _, nd = asyncio.run(mod.tich_hop(
++        "send_message", "POST", {}, {"peer": "p", "message": "m"}, "http://localhost"))
++    assert ma == 429 and nd["error"]["code"] == "FLOOD_WAIT"
++    assert nd["error"]["retry_after_seconds"] == 30
++
++
++def test_cong_tac_ha_bat_thi_goi_duoc():
++    mod = _module_da_cai(cho_phep_ha_goi_di="bat")
++    asyncio.run(_dang_nhap_xong(mod))
++    ma, _, nd = _goi(mod, peer="p-gia", mode="live")
++    assert ma == 200 and nd["status"] == "dialing"
++
++
++# ── P2: hàng đợi + ENDPOINT_BUSY ─────────────────────────────────────────
++def test_goi_ban_hang_doi_va_thang_hang_uu_tien_alarm():
++    mod = _module_da_cai(cho_phep_ha_goi_di="bat")
++    mod._gan_engine(FakeEngine())
++    asyncio.run(_dang_nhap_xong(mod))
++    _, _, c1 = _goi(mod, peer="p1", mode="live", audio_endpoint="ha")
++    _, _, c2 = _goi(mod, peer="p2", mode="live", audio_endpoint="r1")
++    _, _, c3 = _goi(mod, peer="p3", mode="live", audio_endpoint="usb", uu_tien="alarm")
++    assert c1["status"] == "dialing"
++    assert c2["status"] == "queued"
++    assert c3["status"] == "queued"
++    ma, _, nd = asyncio.run(mod.tich_hop(
++        "hangup_call", "POST", {}, {"call_id": c1["call_id"]}, "http://localhost"))
++    assert ma == 200 and nd["promoted_call_id"] == c3["call_id"]  # alarm trước
++    ma, _, nd = asyncio.run(mod.tich_hop("calls", "GET", {}, None, "http://localhost"))
++    trang = {c["call_id"]: c["state"] for c in nd["calls"]}
++    assert trang[c3["call_id"]] == "dialing"
++    assert trang[c2["call_id"]] == "queued"
++    assert trang[c1["call_id"]] == "ended"
++    asyncio.run(mod.tich_hop(
++        "hangup_call", "POST", {}, {"call_id": c3["call_id"]}, "http://localhost"))
++    ma, _, nd = asyncio.run(mod.tich_hop("calls", "GET", {}, None, "http://localhost"))
++    trang = {c["call_id"]: c["state"] for c in nd["calls"]}
++    assert trang[c2["call_id"]] == "dialing"
++
++
++def test_endpoint_busy_khac_tai_khoan():
++    mod = _module_da_cai(cho_phep_ha_goi_di="bat")
++    mod._gan_engine(FakeEngine())
++    asyncio.run(_dang_nhap_xong(mod, phone="+840000000011"))
++    tk2, _ = asyncio.run(_dang_nhap_xong(mod, FakeTdlibClient("otp"), phone="+840000000012"))
++    ma, _, nd = _goi(mod, peer="p1", mode="live", audio_endpoint="ha")
++    assert ma == 200
++    ma, _, nd = _goi(mod, peer="p2", mode="live", audio_endpoint="ha", account=tk2["id"])
++    assert ma == 409 and nd["error"]["code"] == "ENDPOINT_BUSY"
++
++
++def test_hang_doi_day_tra_account_busy():
++    mod = _module_da_cai(cho_phep_ha_goi_di="bat", queue_depth="1")
++    mod._gan_engine(FakeEngine())
++    asyncio.run(_dang_nhap_xong(mod))
++    assert _goi(mod, peer="p1", mode="live", audio_endpoint="ha")[0] == 200
++    assert _goi(mod, peer="p2", mode="live", audio_endpoint="r1")[2]["status"] == "queued"
++    ma, _, nd = _goi(mod, peer="p3", mode="live", audio_endpoint="usb")
++    assert ma == 409 and nd["error"]["code"] == "ACCOUNT_BUSY"
++
++
++# ── P2: glue T0-B ────────────────────────────────────────────────────────
++def test_glue_call_ready_mapping():
++    engine = FakeEngine()
++    ket = glue_call_ready(_fixture_ready(), engine, 4242, True)
++    assert engine.khoa == [(4242, b"\xaa" * 32, True)]
++    assert len(engine.ket_noi) == 1
++    uid, specs, versions, p2p, custom = engine.ket_noi[0]
++    assert uid == 4242 and versions == ["1.0", "2.0"] and p2p is True
++    assert custom == '{"x":1}'
++    assert specs[0]["username"] == "u-gia" and specs[0]["turn"] is True
++    assert specs[0]["stun"] is True
++    assert specs[1]["peer_tag"] == b"\x00\x01\x02" and specs[1]["tcp"] is True
++    assert ket["emojis"] == ["e1", "e2", "e3", "e4"] and ket["co_khoa"] is True
++
++
++def test_glue_signaling_hai_chieu_bang_bytes():
++    mod = _module_da_cai(cho_phep_ha_goi_di="bat")
++    engine = FakeEngine()
++    mod._gan_engine(engine)
++    mod._gan_tts(FakeSynth())
++    tk, fake = asyncio.run(_dang_nhap_xong(mod))
++    _, _, c = _goi(mod, peer="p-gia", mode="live")
++    asyncio.run(mod._xu_ly_call_ready(c["call_id"], _fixture_ready()))
++    assert mod._cuoc_goi[c["call_id"]]["trang_thai"] == "active"
++    # engine → TDLib: callback xếp hàng, drain chuyển bytes nguyên vẹn
++    engine.phat_bao_hieu(4242, b"\xde\xad")
++    dem = asyncio.run(mod._chuyen_bao_hieu_engine_sang_tdlib(c["call_id"]))
++    assert dem == 1
++    assert fake.da_gui_bao_hieu == [(101, b"\xde\xad")]
++    # TDLib → engine: bytes thẳng vào binding NTgCalls (không qua str)
++    assert mod._nhan_bao_hieu_tu_tdlib(c["call_id"], b"\xbe\xef") is True
++    assert engine.bao_hieu_gui == [(4242, b"\xbe\xef")]
++
++
++def test_tts_text_vao_cuoc_goi_qua_synthesizer_gia():
++    mod = _module_da_cai(cho_phep_ha_goi_di="bat")
++    engine = FakeEngine()
++    synth = FakeSynth(pcm=b"\x07" * 4800)
++    mod._gan_engine(engine)
++    mod._gan_tts(synth)
++    asyncio.run(_dang_nhap_xong(mod))
++    _, _, c = _goi(mod, peer="p-gia", mode="tts", tts_text="xin chao")
++    asyncio.run(mod._xu_ly_call_ready(c["call_id"], _fixture_ready()))
++    assert synth.goi and synth.goi[0][0] == "xin chao"
++    assert engine.pcm_out == [(4242, b"\x07" * 4800)]
++    assert mod._cuoc_goi[c["call_id"]]["pcm_out"] == b"\x07" * 4800
++
++
++# ── P2: audio/in framing + stream ticket ─────────────────────────────────
++def _cuoc_active(mod, engine, mode="live", **than):
++    asyncio.run(_dang_nhap_xong(mod))
++    than.setdefault("peer", "p-gia")
++    than.setdefault("mode", mode)
++    _, _, c = _goi(mod, **than)
++    asyncio.run(mod._xu_ly_call_ready(c["call_id"], _fixture_ready()))
++    return c
++
++
++def test_audio_in_mat_khoi_chen_im_lang_va_dem():
++    mod = _module_da_cai(cho_phep_ha_goi_di="bat")
++    engine = FakeEngine()
++    mod._gan_engine(engine)
++    c = _cuoc_active(mod, engine)
++    a = base64.b64encode(b"\x11" * 960).decode("ascii")
++    b = base64.b64encode(b"\x22" * 960).decode("ascii")
++    cc = base64.b64encode(b"\x33" * 960).decode("ascii")
++    for seq, khoi in ((0, a), (1, b), (3, cc)):
++        ma, _, nd = asyncio.run(mod.tich_hop(
++            "audio/in", "POST", {}, {"call_id": c["call_id"], "seq": seq,
++                                     "pcm_b64": khoi, "sample_rate": 48000,
++                                     "channels": 1}, "http://localhost"))
++        assert ma == 200
++    rec = mod._cuoc_goi[c["call_id"]]
++    assert rec["khoi_mat"] == 1 and rec["khoi_nhan"] == 3
++    # A + B + im lặng (dài bằng 1 khối) + C
++    assert bytes(rec["mic_pcm"]) == b"\x11" * 960 + b"\x22" * 960 + b"\x00" * 960 + b"\x33" * 960
++    # khối trùng: không đưa thêm vào luồng
++    truoc = len(rec["mic_pcm"])
++    ma, _, nd = asyncio.run(mod.tich_hop(
++        "audio/in", "POST", {}, {"call_id": c["call_id"], "seq": 1,
++                                 "pcm_b64": b, "sample_rate": 48000,
++                                 "channels": 1}, "http://localhost"))
++    assert ma == 200 and nd["trung"] is True
++    assert len(rec["mic_pcm"]) == truoc
++    # khối > 400 KB thân → 400
++    ma, _, nd = asyncio.run(mod.tich_hop(
++        "audio/in", "POST", {}, {"call_id": c["call_id"], "seq": 4,
++                                 "pcm_b64": "A" * 400_001, "sample_rate": 48000,
++                                 "channels": 1}, "http://localhost"))
++    assert ma == 400
++
++
++def test_audio_in_khong_active_va_qua_tai():
++    mod = _module_da_cai(cho_phep_ha_goi_di="bat")
++    mod._gan_engine(FakeEngine())
++    asyncio.run(_dang_nhap_xong(mod))
++    _, _, c = _goi(mod, peer="p-gia", mode="live")  # mới dialing, chưa active
++    khoi = base64.b64encode(b"\x11" * 96).decode("ascii")
++    ma, _, nd = asyncio.run(mod.tich_hop(
++        "audio/in", "POST", {}, {"call_id": c["call_id"], "seq": 0,
++                                 "pcm_b64": khoi, "sample_rate": 48000,
++                                 "channels": 1}, "http://localhost"))
++    assert ma == 409 and nd["error"]["code"] == "CALL_NOT_ACTIVE"
++    # tài khoản thứ hai (riêng) để cuộc thứ hai không rơi vào hàng đợi
++    tk2, _ = asyncio.run(_dang_nhap_xong(mod, FakeTdlibClient("otp"), phone="+840000000099"))
++    _, _, c2 = _goi(mod, peer="p-gia", mode="live", account=tk2["id"], audio_endpoint="r1")
++    asyncio.run(mod._xu_ly_call_ready(c2["call_id"], _fixture_ready()))
++    assert mod._cuoc_goi[c2["call_id"]]["trang_thai"] == "active"
++    rec = mod._cuoc_goi[c2["call_id"]]
++    rec["mic_pcm"] = bytearray(200_000)  # vượt 2 giây PCM
++    ma, _, nd = asyncio.run(mod.tich_hop(
++        "audio/in", "POST", {}, {"call_id": c2["call_id"], "seq": 0,
++                                 "pcm_b64": khoi, "sample_rate": 48000,
++                                 "channels": 1}, "http://localhost"))
++    assert ma == 429 and nd["error"]["code"] == "AUDIO_QUA_TAI"
++
++
++def test_ve_luong_het_hieu_luc_khi_cuoc_ket_thuc_va_range():
++    mod = _module_da_cai(cho_phep_ha_goi_di="bat")
++    engine = FakeEngine()
++    mod._gan_engine(engine)
++    mod._gan_tts(FakeSynth(pcm=b"\x07" * 4800))
++    c = _cuoc_active(mod, engine, mode="tts", tts_text="xin chao")
++    ma, _, nd = asyncio.run(mod.tich_hop(
++        "audio/stream-url", "POST", {}, {"call_id": c["call_id"]}, "http://localhost"))
++    assert ma == 200 and "/m/telegram-user/api/stream/" in nd["stream_url"]
++    ve = nd["stream_url"].split("/m/telegram-user/api/stream/")[1].split("?")[0].split("/")[0]
++    ma, headers, nd_bytes = asyncio.run(mod.luong(ve, None, "GET"))
++    assert ma == 200 and nd_bytes == b"\x07" * 4800
++    ma, headers, nd_bytes = asyncio.run(mod.luong(ve, "bytes=0-9", "GET"))
++    assert ma == 206 and headers["Content-Range"] == "bytes 0-9/4800"
++    assert nd_bytes == b"\x07" * 10
++    assert asyncio.run(mod.luong("ve-khong-co", None, "GET")) == (404, {}, b"")
++    asyncio.run(mod.tich_hop(
++        "hangup_call", "POST", {}, {"call_id": c["call_id"]}, "http://localhost"))
++    assert asyncio.run(mod.luong(ve, None, "GET")) == (404, {}, b"")
++
++
++# ── P2: audio/upload (file TTS của HA) ───────────────────────────────────
++def test_audio_upload_rap_khoi_tra_id_va_xoa_sau_cuoc():
++    mod = _module_da_cai(cho_phep_ha_goi_di="bat")
++    engine = FakeEngine()
++    mod._gan_engine(engine)
++    asyncio.run(_dang_nhap_xong(mod))
++    k1 = base64.b64encode(b"phan-mot-").decode("ascii")
++    k2 = base64.b64encode(b"phan-hai").decode("ascii")
++    ma, _, nd = asyncio.run(mod.tich_hop(
++        "audio/upload", "POST", {}, {"khoi_b64": k1}, "http://localhost"))
++    assert ma == 200 and nd["upload_id"]
++    up = nd["upload_id"]
++    ma, _, nd = asyncio.run(mod.tich_hop(
++        "audio/upload", "POST", {}, {"upload_id": up, "khoi_b64": k2, "done": True},
++        "http://localhost"))
++    assert ma == 200 and nd["tts_audio_id"]
++    tts_id = nd["tts_audio_id"]
++    tep = mod._tts_files[tts_id]["tep"]
++    assert tep.read_bytes() == b"phan-mot-phan-hai"
++    assert oct(tep.stat().st_mode & 0o777) == "0o600"
++    # khối > 300 KB → 400
++    ma, _, nd = asyncio.run(mod.tich_hop(
++        "audio/upload", "POST", {}, {"khoi_b64": "A" * 300_001}, "http://localhost"))
++    assert ma == 400
++    # gọi bằng tts_audio_id → ready đưa bytes file vào engine → cúp máy xóa file
++    _, _, c = _goi(mod, peer="p-gia", mode="tts", tts_audio_id=tts_id)
++    asyncio.run(mod._xu_ly_call_ready(c["call_id"], _fixture_ready()))
++    assert engine.pcm_out and engine.pcm_out[0][1] == b"phan-mot-phan-hai"
++    asyncio.run(mod.tich_hop(
++        "hangup_call", "POST", {}, {"call_id": c["call_id"]}, "http://localhost"))
++    assert tts_id not in mod._tts_files and not tep.exists()
++
++
++# ── events: cursor đơn điệu + webhook retry ──────────────────────────────
++def test_events_cursor_don_dieu_va_webhook_hong_khong_chan():
++    mod = _module_da_cai(cho_phep_ha_goi_di="bat",
++                         ha_webhook_url="http://127.0.0.1:9/webhook-gia",
++                         ha_webhook_token=TOKEN_WH_GIA)
++    mod._webhook_backoff = [0, 0]
++    mod._gan_engine(FakeEngine())
++    asyncio.run(_dang_nhap_xong(mod))
++    ma, _, nd = asyncio.run(mod.tich_hop("events", "GET", {}, None, "http://localhost"))
++    assert ma == 200 and nd["cursor"] >= 1
++    cursor = nd["cursor"]
++    ma, _, nd = asyncio.run(mod.tich_hop(
++        "events", "GET", {"since": str(cursor)}, None, "http://localhost"))
++    assert ma == 200 and nd["events"] == [] and nd["cursor"] == cursor
++    # cúp máy đẩy event mới nhưng webhook hỏng → vẫn spool, không treo
++    _, _, c = _goi(mod, peer="p-gia", mode="live")
++    asyncio.run(mod.tich_hop(
++        "hangup_call", "POST", {}, {"call_id": c["call_id"]}, "http://localhost"))
++    ma, _, nd = asyncio.run(mod.tich_hop(
++        "events", "GET", {"since": str(cursor)}, None, "http://localhost"))
++    assert len(nd["events"]) == 1 and nd["events"][0]["type"] == "call_ended"
++
++
++def test_webhook_retry_3_lan_va_header_token(monkeypatch):
++    mod = _module_da_cai(ha_webhook_url="http://ha-gia.invalid/webhook",
++                         ha_webhook_token=TOKEN_WH_GIA)
++    mod._webhook_backoff = [0, 0]
++    goi = []
++
++    class Resp:
++        status = 200
++
++        def __enter__(self):
++            return self
++
++        def __exit__(self, *a):
++            return False
++
++    def urlopen_gia(req, timeout=5):
++        goi.append(req)
++        if len(goi) < 3:
++            raise ConnectionError("gia-lap-hong")
++        return Resp()
++
++    monkeypatch.setattr("urllib.request.urlopen", urlopen_gia)
++    su_kien = mod._ghi_su_kien("message_new", "tk-gia", {"van_ban": "x"})
++    assert asyncio.run(mod._day_webhook(su_kien)) is True
++    assert len(goi) == 3
++    # urllib chuẩn hóa tên header về dạng capitalize khi đọc lại
++    assert goi[0].get_header("X-gateway-token") == TOKEN_WH_GIA
++    assert json.loads(goi[0].data.decode("utf-8"))["id"] == su_kien["id"]
++
++
++def test_log_khong_lo_bi_mat(caplog):
++    mod = _module_da_cai(ha_webhook_token=TOKEN_WH_GIA)
++    logger = logging.getLogger("telegram-user")
++    with caplog.at_level(logging.WARNING, logger="telegram-user"):
++        logger.warning("thử ghi bí mật %s vào log", API_HASH_GIA)
++        logger.warning("thử ghi token %s vào log", TOKEN_WH_GIA)
++    assert API_HASH_GIA not in caplog.text
++    assert TOKEN_WH_GIA not in caplog.text
++    assert "••••" in caplog.text
++
++
++def test_pcm_engine_hang_so_va_todo_t1_trong_code():
++    assert mod_module.PCM_ENGINE["dinh_dang"] == "s16le"
++    assert mod_module.PCM_ENGINE["sample_rate"] == 48000
++    assert mod_module.PCM_ENGINE["channels"] == 1
++    src = (THU_MUC / "module.py").read_text(encoding="utf-8")
++    assert "TODO T1" in src
++    assert "CHƯA xác minh" in src
