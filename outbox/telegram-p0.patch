@@ -1,0 +1,1168 @@
+diff --git a/modules/telegram-user/README.md b/modules/telegram-user/README.md
+new file mode 100644
+index 0000000..af256de
+--- /dev/null
++++ b/modules/telegram-user/README.md
+@@ -0,0 +1,85 @@
++# Module telegram-user (P0 — khung + mock)
++
++Module MỚI cho tài khoản Telegram người dùng qua MTProto (phương án B: TDLib
++báo hiệu + NTgCalls media), chạy trong tiến trình lõi web2api, hạng A. Không
++mở rộng `telegram-bot` (bot token ≠ tài khoản người dùng, khác vòng đời xác
++thực, khác tập khả năng). Không sửa một dòng nào của `telegram-bot`.
++
++## P0 gồm có
++
++- `manifest.json` — id `telegram-user`, tiền tố `telegram_user`, hạng A, loại
++  `tien_ich`, nhóm con `nhan-tin-va-kenh`, khả năng `kenh_ra` + `hoi_vong` +
++  `duong_module`, `hoi_vong.chu_ky_giay` 5, tab `web/index.html`.
++- `module.py` — lớp `Module`: `nap`/`cai`/`suc_khoe`/`dung` +
++  `kenh_ra`/`gui_tin` (mock) + `hoi_vong` (mock) + `tich_hop` dispatch +
++  `luong` stub (404) + `KhoPhien` (phiên TDLib trên đĩa).
++- `web/index.html` — tab tĩnh trung thực về trạng thái P0 + đường dẫn tới
++  form Cài đặt chung của lõi.
++- Khung integration mỏng phía HA KHÔNG nằm trong patch này mà là việc riêng
++  phía HA (config flow kiểm tra `health` + service `send_message` + sensor):
++  patch P0 chỉ giao phía module; integration HA mỏng làm khi có máy chủ w2a
++  thật để đối chiếu (xem «Chưa xác minh» trong báo cáo P0).
++
++## P0 CHƯA làm (trả 501, không giả vờ chạy được)
++
++Gọi đi/nhận/kết thúc (`call`, `answer_call`, `hangup_call`, `calls`), lịch sử,
++danh bạ, nhóm, gửi media/voice, mọi đường `audio/*`, luồng `luong`. Đăng nhập
++OTP/2FA/QR thật, gửi tin thật, webhook đẩy event thật, client TDLib thật.
++
++## Cài đặt (điều kiện tiên quyết)
++
++Lõi từ chối nạp sạch nếu thiếu gói khai trong `yeu_cau_goi` (hợp đồng lõi,
++không phải lỗi module). Trên máy chủ w2a phải có trước khi cài module:
++
++- `tdjson==1.8.69` (báo hiệu TDLib, phương án B đã qua cổng T0-B)
++- `ntgcalls==3.0.6` (media; cần glibc ≥ 2.28)
++- `ffmpeg` (nhị phân hệ thống, resample PCM — không phải gói pip)
++
++## Phiên TDLib trên đĩa (lựa chọn của P0, cần chốt với lõi)
++
++`<WEB2API_DATA>/telegram-user/tdlib/<id-tài-khoản>/`:
++
++- `khoa` — khóa mã hóa local TDLib, 32 byte hex, 0600
++- `files/` — thư mục files của TDLib, 0700 (P0 để trống)
++- `tai_khoan.json` — sổ tài khoản mock, 0600
++
++Thư mục gốc lấy từ biến môi trường `WEB2API_DATA` (mặc định `/data`), cùng
++quy ước với `app/kho.py`. Lõi hiện chưa có quy ước thư mục dữ liệu riêng cho
++module nên đường dẫn này là lựa chọn của P0, ghi rõ để chốt lúc triển khai.
++
++## Đường /m (qua `tich_hop`, lõi xác thực khoá khách + LAN-only trước)
++
++| Đường | P0 |
++|---|---|
++| `GET health` | `{status, version, accounts_total, accounts_online}` |
++| `GET accounts` | Chỉ đọc: `{tai_khoan: [{id, phone, display_name, status}]}` — không bí mật. Không có đường thêm tài khoản/mã/2FA qua HA. |
++| `POST send_message` | Thân `{account?, peer, message, quote_message_id?, ttl?}` → ghi hộp thư mock, trả `{ok, tin_id, account, peer}`. |
++| `GET events?since=` | Poll fallback: `{events, cursor}`, id đơn điệu tăng, giữ tối đa 10000 event. |
++| Còn lại trong bảng thiết kế | 501 `{error: {code: "CHUA_CO", message, giai_doan}}`. |
++
++Đường lạ → 404, sai phương thức → 405, thân POST không phải dict → 400.
++Lỗi theo bao `{error: {code, message}}` (thiết kế 4.2).
++
++## kenh_ra (qua /api/gui/telegram-user)
++
++Đích là danh sách `dich` RIÊNG trong cấu hình module (peer MTProto), không
++dùng chung với `telegram-bot`. `kenh_id` bắt buộc khi nhiều đích. `ok` luôn là
++bool thật. Trần lõi: 20 tin/phút/khoá, nội dung ≤ 16 KiB (module kiểm lại).
++
++## Các điểm thiết kế được điều chỉnh ở P0 (xem báo cáo để biết lý do)
++
++- **D-P0-1:** giới hạn 120 req/phút/khoá trong `tich_hop` KHÔNG thực thi được
++  (lõi không truyền danh tính khoá vào `tich_hop`). P0 không đặt giới hạn giả;
++  cần lõi truyền danh tính khoá hoặc giới hạn ở tầng lõi.
++- **D-P0-2:** `cai()` P0 chỉ kiểm định dạng, chưa kiểm DCs qua mạng (đi cùng
++  client thật ở P1).
++- **D-P0-3:** `yeu_cau_goi` trong phác thiết kế chứa chuỗi mô tả
++  («tdjson 1.8.69 (…)») — chuỗi đó KHÔNG qua được `kiem_manifest` (chỉ nhận
++  tên gói trần). P0 dùng `["tdjson", "ntgcalls"]`; version pin ghi ở đây, ở
++  `tai_nguyen.ghi_chu` và trong test.
++- **Thêm trường `dich`:** phác manifest không có nhưng §4.3 bắt buộc có danh
++  sách đích riêng cho `kenh_ra` nên P0 thêm (kiểu `chuoi`, JSON).
++- **Thêm trường `tts_rate`, `queue_timeout`, `queue_depth`,
++  `cho_phep_ha_goi_di`, `tu_dong_nghe_may`:** thuộc chip Cài đặt §7.1, phác
++  manifest lược bớt; P0 thêm đủ (công tắc dạng `chuoi` «bat»/«tat» vì lõi chỉ
++  có kiểu `chuoi`/`bi_mat`/`danh_sach_bi_mat`, không có kiểu bool).
+diff --git a/modules/telegram-user/manifest.json b/modules/telegram-user/manifest.json
+new file mode 100644
+index 0000000..bb57a6c
+--- /dev/null
++++ b/modules/telegram-user/manifest.json
+@@ -0,0 +1 @@
++{"cung_cap":["kenh_ra","hoi_vong","duong_module"],"duong_module":{},"giao_thuc":"telegram-mtproto","hang":"A","hoi_vong":{"chu_ky_giay":5},"id":"telegram-user","loai":"tien_ich","loai_ten":"Tiện ích","loai_thu_tu":42,"mo_ta":"Nhắn tin, nhóm, danh bạ và gọi thoại/video Telegram bằng tài khoản người dùng phụ qua MTProto — đủ chức năng như Zalo + gọi + nhận. HA gọi module qua đường riêng /m/telegram-user/api bằng khoá khách do lõi cấp. P0 chỉ là khung + mock: chưa gọi thật, chưa đăng nhập thật.","nhom_con":{"id":"nhan-tin-va-kenh","ten":"Nhắn tin và kênh"},"phien_ban":"0.1.0","tab_web":{"nhan":"Telegram (tài khoản)","trang":"web/index.html"},"tai_nguyen":{"dia_mb":null,"ghi_chu":"P0 khung + mock: chưa gọi thật, chưa đăng nhập thật, chưa đo RAM/đĩa thật (null = chưa đo). Khi chạy thật cần tdjson 1.8.69 (báo hiệu TDLib, phương án B đã qua cổng T0-B) + ntgcalls 3.0.6 (media; cần glibc >= 2.28) + ffmpeg (nhị phân hệ thống, resample PCM — không phải gói pip nên không khai trong yeu_cau_goi). Telegram DCs do TDLib tự phân giải, module không cấu hình URL tuỳ ý.","gpu":false,"mang_ra":["Telegram DCs (địa chỉ do MTProto tự phân giải — khai theo khuôn lõi cho phép; không cấu hình URL tuỳ ý)"],"ram_them_mb":null},"ten":"Telegram (tài khoản người dùng)","tien_to":"telegram_user","truong_cau_hinh":[{"bat_buoc":true,"khoa":"api_id","kieu":"bi_mat","mo_ta":"ID ứng dụng Telegram của chính bạn, tạo ở my.telegram.org/apps. Chỉ ghi đè, không hiện lại.","nhan":"API ID (lấy ở my.telegram.org)"},{"bat_buoc":true,"khoa":"api_hash","kieu":"bi_mat","mo_ta":"Hash ứng dụng đi cùng API ID (32 ký tự hex). Chỉ ghi đè, không hiện lại.","nhan":"API hash"},{"bat_buoc":false,"khoa":"dich","kieu":"chuoi","mac_dinh":null,"mo_ta":"Danh sách đích gửi nhanh qua /api/gui dạng JSON, ví dụ [{\"id\": \"nha\", \"ten\": \"Nhà\", \"peer\": \"tên người dùng hoặc số điện thoại\"}]. «id» do chủ máy đặt, duy nhất, ổn định; «peer» là tên người dùng, số điện thoại hoặc id người dùng Telegram. Danh sách này RIÊNG, không dùng chung với telegram-bot.","nhan":"Danh sách đích (JSON)"},{"bat_buoc":false,"khoa":"ha_webhook_url","kieu":"chuoi","mo_ta":"URL webhook trên HA mà module đẩy event tới. Để trống thì module chỉ giữ event cho HA poll qua đường events.","nhan":"Webhook HA nhận event"},{"bat_buoc":false,"khoa":"ha_webhook_token","kieu":"bi_mat","mo_ta":"Token module gắn vào header X-Gateway-Token khi đẩy event. Chỉ ghi đè, không hiện lại.","nhan":"Token ký webhook HA"},{"bat_buoc":false,"khoa":"tts_voice","kieu":"chuoi","mac_dinh":"vi-VN-HoaiMyNeural","nhan":"Giọng TTS mặc định"},{"bat_buoc":false,"khoa":"tts_rate","kieu":"chuoi","mac_dinh":"+0%","mo_ta":"Tốc độ giọng TTS, dạng +0%, -10%, +15%.","nhan":"Tốc độ TTS"},{"bat_buoc":false,"khoa":"ring_timeout","kieu":"chuoi","mac_dinh":"45","nhan":"Chờ nghe máy (giây)"},{"bat_buoc":false,"khoa":"ring_attempts","kieu":"chuoi","mac_dinh":"2","nhan":"Số lần quay lại khi không nghe máy"},{"bat_buoc":false,"khoa":"ring_interval","kieu":"chuoi","mac_dinh":"15","nhan":"Cách nhau giữa các lần quay lại (giây)"},{"bat_buoc":false,"khoa":"max_call_seconds","kieu":"chuoi","mac_dinh":"180","nhan":"Cuộc gọi tối đa (giây)"},{"bat_buoc":false,"khoa":"queue_timeout","kieu":"chuoi","mac_dinh":"120","mo_ta":"Thời gian một lượt gọi chờ trong hàng đợi (giây).","nhan":"Chờ trong hàng đợi (giây)"},{"bat_buoc":false,"khoa":"queue_depth","kieu":"chuoi","mac_dinh":"10","mo_ta":"Số lượt gọi chờ tối đa trong hàng đợi.","nhan":"Độ sâu hàng đợi"},{"bat_buoc":false,"khoa":"audio_endpoint_mac_dinh","kieu":"chuoi","mac_dinh":"ha","mo_ta":"ha = mic/loa trên HA qua integration (mặc định); r1 = luồng R1; usb = mic/loa gắn vào máy chủ w2a; file = kiểm thử.","nhan":"Mic/loa mặc định"},{"bat_buoc":false,"khoa":"cho_phep_ha_goi_di","kieu":"chuoi","mac_dinh":"tat","mo_ta":"«bat» cho phép HA gọi đi qua khoá khách; «tat» (mặc định) thì chỉ tương tác trong tab module mới gọi được.","nhan":"Cho phép HA gọi đi"},{"bat_buoc":false,"khoa":"tu_dong_nghe_may","kieu":"chuoi","mac_dinh":"tat","mo_ta":"«bat» tự nghe máy khi có cuộc gọi đến; «tat» (mặc định) thì HA quyết định trong thời gian chờ.","nhan":"Tự động nghe máy"}],"yeu_cau_goi":["tdjson","ntgcalls"]}
+\ No newline at end of file
+diff --git a/modules/telegram-user/module.py b/modules/telegram-user/module.py
+new file mode 100644
+index 0000000..45cb47f
+--- /dev/null
++++ b/modules/telegram-user/module.py
+@@ -0,0 +1,710 @@
++"""Module telegram-user — P0 khung + mock (theo thiết kế sửa đổi telegram-w2a-module).
++
++P0 CHƯA làm: đăng nhập thật (OTP/2FA/QR), gửi tin thật, gọi thật, webhook
++đẩy event thật, luồng audio thật. Mọi đường gọi/nhận/audio trả 501 với giai
++đoạn tương ứng; gửi tin qua /m và /api/gui chỉ ghi vào hộp thư mock trong bộ
++nhớ để kiểm dispatch; tài khoản mock chỉ để kiểm phiên bền qua restart.
++
++Phiên TDLib (mục 7.5 thiết kế): thư mục files + khóa mã hóa local cho mỗi tài
++khoản, dưới <WEB2API_DATA>/telegram-user/tdlib/<id>/ — cùng quy ước gốc dữ
++liệu của lõi (kho.py: WEB2API_DATA, mặc định /data). Đây là lựa chọn của P0,
++cần chốt với lõi lúc triển khai (thiết kế ghi rõ đường dẫn này chưa xác minh).
++
++Bí mật (api_id, api_hash, token webhook, khóa phiên) không bao giờ vào log,
++phản hồi hay nhật ký: bộ lọc _LocBiMat che giá trị đã biết, và mã tránh log
++bí mật ngay từ đầu. Tài khoản qua /m chỉ trả trường công khai (id, phone,
++display_name, status) — không api_id/api_hash/khóa.
++
++Gói tdjson/ntgcalls chỉ nạp lười trong _nap_tdjson/_nap_ntgcalls (P1 mới dùng
++để tạo client thật); P0 chỉ kiểm import được. Cả hai đều khai trong
++yeu_cau_goi nên lõi từ chối nạp sạch (LoiNap «thiếu gói») trên máy chưa cài
++wheel — đó là hợp đồng của lõi, không phải lỗi module.
++"""
++
++from __future__ import annotations
++
++import json
++import logging
++import os
++import re
++import secrets
++import shutil
++import time
++import uuid
++from pathlib import Path
++
++PHIEN_BAN = "0.1.0"
++_MA_TK = re.compile(r"^[a-z0-9][a-z0-9_-]{1,40}$")
++_MA_HEX32 = re.compile(r"^[0-9a-fA-F]{32}$")
++_MA_TTS_RATE = re.compile(r"^[+-]\d+%$")
++_MAC_DINH_SO = {
++    "ring_timeout": 45,
++    "ring_attempts": 2,
++    "ring_interval": 15,
++    "max_call_seconds": 180,
++    "queue_timeout": 120,
++    "queue_depth": 10,
++}
++_GIOI_HAN_SO = {
++    "ring_timeout": (5, 300),
++    "ring_attempts": (1, 5),
++    "ring_interval": (5, 120),
++    "max_call_seconds": (30, 3600),
++    "queue_timeout": (10, 600),
++    "queue_depth": (1, 50),
++}
++_AUDIO_ENDPOINT = {"ha", "r1", "usb", "file"}
++_GIOI_HAN_SU_KIEN = 10000
++_GIOI_HAN_NOI_DUNG = 16 * 1024  # khớp trần lõi cho /api/gui
++_TUYEN_501 = {
++    "call": ("POST", "P1"),
++    "answer_call": ("POST", "P3"),
++    "hangup_call": ("POST", "P1"),
++    "calls": ("GET", "P1"),
++    "history": ("GET", "P4"),
++    "contacts": ("GET", "P4"),
++    "groups": ("GET", "P4"),
++    "send_media": ("POST", "P4"),
++    "send_voice": ("POST", "P4"),
++    "audio/in": ("POST", "P2"),
++    "audio/stream-url": ("POST", "P2"),
++    "audio/upload": ("POST", "P2"),
++}
++
++
++class _LocBiMat(logging.Filter):
++    """Che giá trị bí mật đã biết khỏi bản ghi log (phòng thủ sâu)."""
++
++    def __init__(self):
++        super().__init__()
++        self._gia_tri = set()
++
++    def them(self, gia_tri):
++        if isinstance(gia_tri, str) and len(gia_tri) >= 4:
++            self._gia_tri.add(gia_tri)
++
++    def filter(self, record):
++        try:
++            msg = record.getMessage()
++        except Exception:
++            return True
++        for gia_tri in self._gia_tri:
++            if gia_tri in msg:
++                msg = msg.replace(gia_tri, "••••")
++        record.msg = msg
++        record.args = ()
++        return True
++
++
++_LOC = _LocBiMat()
++log = logging.getLogger("telegram-user")
++log.addFilter(_LOC)
++
++
++def _nap_tdjson():
++    """Nạp tdjson (báo hiệu TDLib, phương án B). P1 dùng để tạo client thật;
++    P0 chỉ kiểm import được. Gói khai trong yeu_cau_goi."""
++    import tdjson
++
++    return tdjson
++
++
++def _nap_ntgcalls():
++    """Nạp ntgcalls (media cho gọi 1-1). P1 dùng cho gọi thật; P0 chỉ kiểm
++    import được. Gói khai trong yeu_cau_goi."""
++    import ntgcalls
++
++    return ntgcalls
++
++
++def _kiem_dich(gia_tri):
++    """Thẩm định danh sách đích gửi nhanh. Trả danh sách chuẩn hóa
++    [{id, ten, peer}]; sai khuôn → ValueError với thông điệp rõ ràng."""
++    if gia_tri is None or gia_tri == "":
++        return []
++    if isinstance(gia_tri, str):
++        try:
++            gia_tri = json.loads(gia_tri)
++        except ValueError:
++            raise ValueError("Trường «dich» phải là JSON hợp lệ.") from None
++    if not isinstance(gia_tri, list):
++        raise ValueError("Trường «dich» phải là danh sách.")
++    ds = []
++    thay = set()
++    for muc in gia_tri:
++        if not isinstance(muc, dict):
++            raise ValueError("Mỗi đích trong «dich» phải là đối tượng.")
++        id_muc = muc.get("id")
++        if not isinstance(id_muc, str) or not id_muc.strip():
++            raise ValueError("Mỗi đích cần «id» khác rỗng.")
++        if id_muc in thay:
++            raise ValueError(f"Trùng id đích: {id_muc}.")
++        peer = muc.get("peer")
++        if isinstance(peer, int):
++            peer = str(peer)
++        if not isinstance(peer, str) or not peer.strip():
++            raise ValueError(f"Đích {id_muc} cần «peer» khác rỗng.")
++        thay.add(id_muc)
++        ds.append({"id": id_muc, "ten": muc.get("ten") or id_muc, "peer": peer.strip()})
++    return ds
++
++
++def _doc_so(gia_tri, mac_dinh):
++    """Đọc số cho nap() (lỏng: sai → mặc định, không sập module)."""
++    try:
++        return int(str(gia_tri).strip())
++    except (TypeError, ValueError):
++        return mac_dinh
++
++
++def _kiem_so(gia_tri, khoa):
++    """Kiểm số chặt cho cai(): phải là số nguyên trong khoảng cho phép."""
++    try:
++        so = int(str(gia_tri).strip())
++    except (TypeError, ValueError):
++        raise ValueError(f"Trường «{khoa}» phải là số nguyên.") from None
++    nho, lon = _GIOI_HAN_SO[khoa]
++    if not nho <= so <= lon:
++        raise ValueError(f"Trường «{khoa}» phải trong khoảng {nho}–{lon}.")
++    return so
++
++
++def _ghi_nguyen_tu(tep: Path, du_lieu: bytes, quyen: int = 0o600) -> None:
++    """Ghi nguyên tử (tệp tạm + đổi tên), quyền 0600 mặc định."""
++    tep.parent.mkdir(parents=True, exist_ok=True)
++    tam = tep.with_name(tep.name + ".tam")
++    tam.write_bytes(du_lieu)
++    os.chmod(tam, quyen)
++    os.replace(tam, tep)
++
++
++def _ban_ghi_cong_khai(ban_ghi: dict) -> dict:
++    """Dạng công khai của một tài khoản cho đường /m (không bí mật).
++
++    P0 mock: trường «phone» mang giá trị peer đã khai (tên người dùng/số/id)
++    theo đúng hình dạng thiết kế; tài khoản TDLib thật ở P1 mới có số thật.
++    """
++    return {
++        "id": ban_ghi.get("id"),
++        "phone": ban_ghi.get("peer"),
++        "display_name": ban_ghi.get("ten"),
++        "status": ban_ghi.get("trang_thai"),
++    }
++
++
++class KhoPhien:
++    """Phiên TDLib trên đĩa cho module (P0: cấu trúc + khóa + sổ mock).
++
++    Bố cục dưới <gốc>/tdlib/<id-tài-khoản>/:
++      khoa           — khóa mã hóa local TDLib, 32 byte hex, 0600
++      files/         — thư mục files của TDLib, 0700 (P0 để trống)
++      tai_khoan.json — sổ tài khoản mock, 0600 (P1 thay bằng trạng thái thật)
++    P0 chưa tạo client TDLib thật nên chưa có dữ liệu phiên thật trong files/.
++    """
++
++    def __init__(self, goc):
++        self.goc = Path(goc)
++        self.thu_muc_tdlib = self.goc / "tdlib"
++
++    @staticmethod
++    def _thu_muc(tep: Path) -> Path:
++        tep.mkdir(parents=True, exist_ok=True)
++        os.chmod(tep, 0o700)
++        return tep
++
++    def _thu_muc_tk(self, tk_id: str) -> Path:
++        if not _MA_TK.match(tk_id or ""):
++            raise ValueError(f"id tài khoản không hợp lệ: {tk_id}")
++        return self._thu_muc(self.thu_muc_tdlib / tk_id)
++
++    def tao_khoa(self, tk_id: str) -> str:
++        """Tạo (lần đầu) hoặc đọc lại khóa mã hóa local của tài khoản."""
++        thu_muc = self._thu_muc_tk(tk_id)
++        tep = thu_muc / "khoa"
++        if tep.exists():
++            return tep.read_text(encoding="utf-8").strip()
++        khoa = secrets.token_hex(32)
++        _ghi_nguyen_tu(tep, khoa.encode("utf-8"))
++        return khoa
++
++    def duong_files(self, tk_id: str) -> Path:
++        """Thư mục files của TDLib cho tài khoản (P1 truyền vào tdjson)."""
++        return self._thu_muc(self._thu_muc_tk(tk_id) / "files")
++
++    def them_tai_khoan(self, ten: str, peer: str) -> dict:
++        """Thêm tài khoản MOCK (P0): tạo thư mục + khóa + sổ. P1 thay bằng
++        luồng đăng nhập OTP/2FA/QR thật ở tab module."""
++        tk_id = "tk-" + uuid.uuid4().hex[:12]
++        thu_muc = self._thu_muc_tk(tk_id)
++        self.tao_khoa(tk_id)
++        self.duong_files(tk_id)
++        ban_ghi = {
++            "id": tk_id,
++            "ten": ten,
++            "peer": peer,
++            "trang_thai": "mock",
++            "da_dang_nhap": False,
++            "tao_luc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
++        }
++        _ghi_nguyen_tu(
++            thu_muc / "tai_khoan.json",
++            json.dumps(ban_ghi, ensure_ascii=False, indent=2).encode("utf-8"),
++        )
++        return ban_ghi
++
++    def danh_sach(self) -> list:
++        """Mọi tài khoản còn sổ trên đĩa (bền qua restart lõi)."""
++        if not self.thu_muc_tdlib.is_dir():
++            return []
++        ds = []
++        for tep in sorted(self.thu_muc_tdlib.glob("*/tai_khoan.json")):
++            try:
++                ban_ghi = json.loads(tep.read_text(encoding="utf-8"))
++            except (ValueError, OSError):
++                continue
++            if isinstance(ban_ghi, dict) and isinstance(ban_ghi.get("id"), str):
++                ds.append(ban_ghi)
++        ds.sort(key=lambda b: b.get("tao_luc", ""))
++        return ds
++
++    def lay(self, tk_id: str):
++        try:
++            thu_muc = self._thu_muc_tk(tk_id)
++        except ValueError:
++            return None
++        tep = thu_muc / "tai_khoan.json"
++        try:
++            ban_ghi = json.loads(tep.read_text(encoding="utf-8"))
++        except (ValueError, OSError):
++            return None
++        return ban_ghi if isinstance(ban_ghi, dict) else None
++
++    def xoa(self, tk_id: str) -> bool:
++        """Xóa tài khoản + phiên (chỉ trong tab module, không bao giờ qua /m)."""
++        try:
++            thu_muc = self._thu_muc_tk(tk_id)
++        except ValueError:
++            return False
++        if not thu_muc.is_dir():
++            return False
++        shutil.rmtree(thu_muc)
++        return True
++
++
++class Module:
++    """Module telegram-user (P0 khung + mock)."""
++
++    def __init__(self, manifest):
++        self.manifest = manifest if isinstance(manifest, dict) else {}
++        self.kho = None  # lõi gán sau khi tạo (kho riêng của module) — P0 chưa dùng
++        self._api_id = ""
++        self._api_hash = ""
++        self._dich = {}
++        self._so = dict(_MAC_DINH_SO)
++        self._tts_voice = "vi-VN-HoaiMyNeural"
++        self._tts_rate = "+0%"
++        self._webhook_url = ""
++        self._webhook_token = ""
++        self._audio_endpoint = "ha"
++        self._cho_phep_ha_goi_di = False
++        self._tu_dong_nghe_may = False
++        self._da_nap = False
++        self._da_dung = False
++        self._hop_thu_di = []  # tin mock đã «gửi» (ghi nhận dispatch, không gửi thật)
++        self._hop_thu_den = []  # tin mock chờ hoi_vong kéo
++        self._su_kien = []  # spool event mock (id đơn điệu tăng, tối đa 10000)
++        self._su_kien_tiep = 1
++
++    def _phien(self) -> KhoPhien:
++        goc = Path(os.environ.get("WEB2API_DATA", "/data")) / "telegram-user"
++        return KhoPhien(goc)
++
++    # ── vòng đời ──────────────────────────────────────────────────────
++    def nap(self, cau_hinh: dict) -> None:
++        """Nạp cấu hình ĐÃ KIỂM (lúc khởi động/cài xong) — không gọi mạng."""
++        cau_hinh = cau_hinh or {}
++        api_id = cau_hinh.get("api_id")
++        self._api_id = str(api_id).strip() if api_id is not None else ""
++        api_hash = cau_hinh.get("api_hash")
++        self._api_hash = str(api_hash).strip() if api_hash is not None else ""
++        _LOC.them(self._api_id)
++        _LOC.them(self._api_hash)
++        token_wh = cau_hinh.get("ha_webhook_token")
++        self._webhook_token = str(token_wh).strip() if token_wh is not None else ""
++        _LOC.them(self._webhook_token)
++        self._webhook_url = str(cau_hinh.get("ha_webhook_url") or "").strip()
++        try:
++            self._dich = {d["id"]: d for d in _kiem_dich(cau_hinh.get("dich"))}
++        except ValueError as e:
++            log.warning("telegram-user: cấu hình đích sai (%s)", e)
++            self._dich = {}
++        for khoa, mac_dinh in _MAC_DINH_SO.items():
++            self._so[khoa] = _doc_so(cau_hinh.get(khoa), mac_dinh)
++        self._tts_voice = (
++            str(cau_hinh.get("tts_voice") or "vi-VN-HoaiMyNeural").strip()
++            or "vi-VN-HoaiMyNeural"
++        )
++        rate = str(cau_hinh.get("tts_rate") or "+0%").strip()
++        self._tts_rate = rate if _MA_TTS_RATE.match(rate) else "+0%"
++        ep = str(cau_hinh.get("audio_endpoint_mac_dinh") or "ha").strip()
++        self._audio_endpoint = ep if ep in _AUDIO_ENDPOINT else "ha"
++        self._cho_phep_ha_goi_di = (
++            str(cau_hinh.get("cho_phep_ha_goi_di") or "tat").strip() == "bat"
++        )
++        self._tu_dong_nghe_may = (
++            str(cau_hinh.get("tu_dong_nghe_may") or "tat").strip() == "bat"
++        )
++        self._da_nap = True
++        self._da_dung = False
++
++    async def cai(self, cau_hinh: dict) -> dict:
++        """Kiểm định dạng cấu hình rồi mới lưu (P0: chỉ kiểm định dạng, KHÔNG
++        kiểm DCs qua mạng, KHÔNG đăng nhập — kiểm DCs đi cùng client thật ở P1).
++        Trả khuôn như telegram-bot: {ok, ket_qua_tung_khoa, loi, cau_hinh_luu}.
++        """
++        cau_hinh = cau_hinh or {}
++
++        def _loi(msg):
++            return {"ok": False, "ket_qua_tung_khoa": [], "loi": msg, "cau_hinh_luu": {}}
++
++        api_id = cau_hinh.get("api_id")
++        api_id_s = str(api_id).strip() if api_id is not None else ""
++        if not api_id_s.isdigit():
++            return _loi("API ID phải là số (lấy ở my.telegram.org).")
++        api_hash = cau_hinh.get("api_hash")
++        api_hash_s = str(api_hash).strip() if api_hash is not None else ""
++        if not _MA_HEX32.match(api_hash_s):
++            return _loi("API hash phải là 32 ký tự hex.")
++        try:
++            dich = _kiem_dich(cau_hinh.get("dich"))
++        except ValueError as e:
++            return _loi(str(e))
++        try:
++            for khoa in _GIOI_HAN_SO:
++                if cau_hinh.get(khoa) is not None:
++                    _kiem_so(cau_hinh.get(khoa), khoa)
++        except ValueError as e:
++            return _loi(str(e))
++        if cau_hinh.get("tts_voice") is not None and not str(
++            cau_hinh.get("tts_voice")
++        ).strip():
++            return _loi("Giọng TTS không được rỗng.")
++        if cau_hinh.get("tts_rate") is not None and not _MA_TTS_RATE.match(
++            str(cau_hinh.get("tts_rate")).strip()
++        ):
++            return _loi("Tốc độ TTS phải dạng +0%, -10%, +15%.")
++        url = cau_hinh.get("ha_webhook_url")
++        if url is not None and str(url).strip():
++            url_s = str(url).strip()
++            if not (url_s.startswith("http://") or url_s.startswith("https://")):
++                return _loi("Webhook HA phải bắt đầu bằng http:// hoặc https://.")
++        ep = cau_hinh.get("audio_endpoint_mac_dinh")
++        if ep is not None and str(ep).strip() not in _AUDIO_ENDPOINT:
++            return _loi("Mic/loa mặc định phải là ha, r1, usb hoặc file.")
++        for khoa in ("cho_phep_ha_goi_di", "tu_dong_nghe_may"):
++            if cau_hinh.get(khoa) is not None and str(cau_hinh.get(khoa)).strip() not in (
++                "bat",
++                "tat",
++            ):
++                return _loi(f"Công tắc «{khoa}» chỉ nhận «bat» hoặc «tat».")
++        da_chuan = {
++            "api_id": api_id_s,
++            "api_hash": api_hash_s,
++            "dich": dich,
++        }
++        for khoa in (
++            list(_GIOI_HAN_SO)
++            + ["tts_voice", "tts_rate", "ha_webhook_url", "ha_webhook_token",
++               "audio_endpoint_mac_dinh", "cho_phep_ha_goi_di", "tu_dong_nghe_may"]
++        ):
++            if cau_hinh.get(khoa) is not None:
++                da_chuan[khoa] = cau_hinh.get(khoa)
++        self.nap(da_chuan)
++        return {
++            "ok": True,
++            "ket_qua_tung_khoa": [
++                {"khoa": "api_id", "ok": True},
++                {"khoa": "api_hash", "ok": True},
++            ],
++            "loi": None,
++            "cau_hinh_luu": da_chuan,
++        }
++
++    async def suc_khoe(self) -> dict:
++        """Sức khỏe theo khuôn chung của lõi. KHÔNG gọi mạng."""
++        da_cau_hinh = bool(self._api_id and self._api_hash)
++        return {
++            "ok": da_cau_hinh,
++            "so_tai_khoan": len(self._phien().danh_sach()),
++            "so_dich": len(self._dich),
++            "che_do": "p0-mock",
++        }
++
++    async def dung(self) -> None:
++        """Dừng module. KHÔNG xóa phiên trên đĩa (restart lõi không mất session)."""
++        self._da_dung = True
++        log.info("telegram-user: đã dừng (phiên trên đĩa giữ nguyên)")
++
++    # ── kenh_ra (/api/gui) ─────────────────────────────────────────────
++    def kenh_ra(self) -> list:
++        """Danh sách đích — KHÔNG chứa bí mật, KHÔNG chứa peer thô."""
++        return [{"id": d["id"], "ten": d["ten"]} for d in self._dich.values()]
++
++    async def gui_tin(self, dich: dict, noi_dung: dict) -> dict:
++        """Gửi văn bản tới đích đã khai (P0: ghi hộp thư mock, không gửi thật).
++        Trả {"ok": bool thật, "ma"?: mã ngắn} theo khuôn lõi bắt buộc."""
++        if not self._api_id or not self._api_hash or not self._dich:
++            return {"ok": False, "ma": "chua_cau_hinh"}
++        dich = dich or {}
++        kenh_id = dich.get("kenh_id")
++        kenh_id = kenh_id.strip() if isinstance(kenh_id, str) else ""
++        if not kenh_id:
++            return {"ok": False, "ma": "thieu_kenh_id"}
++        muc = self._dich.get(kenh_id)
++        if muc is None:
++            return {"ok": False, "ma": "kenh_khong_co"}
++        noi_dung = noi_dung or {}
++        if noi_dung.get("_tep") is not None:
++            return {"ok": False, "ma": "tep_chua_ho_tro"}
++        van_ban = noi_dung.get("van_ban")
++        if not isinstance(van_ban, str) or not van_ban.strip():
++            return {"ok": False, "ma": "noi_dung_rong"}
++        if len(van_ban.encode("utf-8")) > _GIOI_HAN_NOI_DUNG:
++            return {"ok": False, "ma": "noi_dung_qua_dai"}
++        tin_id = uuid.uuid4().hex
++        self._hop_thu_di.append(
++            {
++                "tin_id": tin_id,
++                "kenh_id": kenh_id,
++                "peer": muc["peer"],
++                "van_ban": van_ban,
++                "luc": time.time(),
++            }
++        )
++        log.info("telegram-user: [mock] ghi tin %s tới đích %s", tin_id[:8], kenh_id)
++        return {"ok": True, "tin_id": tin_id}
++
++    # ── hoi_vong (tin vào) ─────────────────────────────────────────────
++    async def hoi_vong(self) -> list:
++        """Kéo tin vào theo chuẩn lõi (P0: xả hộp thư mock do test nạp).
++        Tin trả về đủ 4 trường bắt buộc: id_tin, nguoi_gui, noi_gui, van_ban.
++        Lõi gọi kèm timeout = min(max(chu_ky_giay*2, 30), 60); lỗi không lan
++        module khác (lõi tự lùi chu kỳ)."""
++        ds = self._hop_thu_den
++        self._hop_thu_den = []
++        hop_le = []
++        for tin in ds:
++            if not isinstance(tin, dict):
++                continue
++            if not all(
++                isinstance(tin.get(k), str) and tin.get(k)
++                for k in ("id_tin", "nguoi_gui", "noi_gui", "van_ban")
++            ):
++                log.warning("telegram-user: bỏ tin mock sai khuôn")
++                continue
++            hop_le.append(
++                {
++                    "id_tin": tin["id_tin"],
++                    "nguoi_gui": tin["nguoi_gui"],
++                    "noi_gui": tin["noi_gui"],
++                    "van_ban": tin["van_ban"],
++                }
++            )
++        return hop_le
++
++    # ── duong_module (/m) ──────────────────────────────────────────────
++    async def tich_hop(self, duong, phuong_thuc, query, than, goc):
++        """Dispatch đường /m/telegram-user/api/<duong>.
++
++        Lõi đã làm trước khi tới đây: xác thực khoá khách (phạm vi
++        tich_hop@telegram-user), LAN-only, thân POST ≤ 400.000 byte và phải là
++        dict JSON. Module chỉ còn dispatch + kiểm tham số. Giới hạn tốc độ
++        120 req/phút/khoá trong thiết kế KHÔNG thực thi được ở tầng module vì
++        lõi không truyền danh tính khoá vào tich_hop (xem báo cáo P0, D-P0-1);
++        đường /api/gui vẫn chịu trần 20 tin/phút/khoá của lõi.
++        """
++        duong = (duong or "").strip().strip("/")
++        phuong_thuc = (phuong_thuc or "GET").upper()
++        bang = {
++            "health": {"GET": self._duong_health},
++            "accounts": {"GET": self._duong_accounts},
++            "send_message": {"POST": self._duong_send_message},
++            "events": {"GET": self._duong_events},
++        }
++        if duong in _TUYEN_501:
++            phuong_thuc_cho, giai_doan = _TUYEN_501[duong]
++            if phuong_thuc != phuong_thuc_cho:
++                return 405, {}, {
++                    "error": {
++                        "code": "PHUONG_THUC_KHONG_HO_TRO",
++                        "message": f"Đường {duong} chỉ nhận {phuong_thuc_cho}.",
++                    }
++                }
++            return 501, {}, {
++                "error": {
++                    "code": "CHUA_CO",
++                    "message": f"Đường này thuộc giai đoạn {giai_doan}, chưa có ở P0.",
++                    "giai_doan": giai_doan,
++                }
++            }
++        if duong not in bang:
++            return 404, {}, {
++                "error": {
++                    "code": "DUONG_KHONG_CO",
++                    "message": f"Không có đường {duong}.",
++                }
++            }
++        if phuong_thuc not in bang[duong]:
++            return 405, {}, {
++                "error": {
++                    "code": "PHUONG_THUC_KHONG_HO_TRO",
++                    "message": f"Đường {duong} không nhận {phuong_thuc}.",
++                }
++            }
++        if phuong_thuc == "POST" and not isinstance(than, dict):
++            return 400, {}, {
++                "error": {
++                    "code": "THAN_SAI_KHUON",
++                    "message": "Thân POST phải là đối tượng JSON.",
++                }
++            }
++        return await bang[duong][phuong_thuc](query or {}, than or {})
++
++    async def _duong_health(self, query, than):
++        tai_khoan = self._phien().danh_sach()
++        return 200, {}, {
++            "status": "ok" if (self._api_id and self._api_hash) else "chua_cau_hinh",
++            "version": self.manifest.get("phien_ban", PHIEN_BAN),
++            "accounts_total": len(tai_khoan),
++            "accounts_online": sum(
++                1 for t in tai_khoan if t.get("da_dang_nhap")
++            ),
++        }
++
++    async def _duong_accounts(self, query, than):
++        """CHỈ ĐỌC. Không có đường thêm tài khoản/mã/2FA qua HA — đăng nhập
++        chỉ ở tab module (luật thiết kế)."""
++        return 200, {}, {
++            "tai_khoan": [
++                _ban_ghi_cong_khai(t) for t in self._phien().danh_sach()
++            ]
++        }
++
++    async def _duong_send_message(self, query, than):
++        """Thân {account?, peer, message, quote_message_id?, ttl?} (thiết kế
++        4.2). P0: ghi hộp thư mock, không gửi thật."""
++        peer = than.get("peer")
++        if not isinstance(peer, str) or not peer.strip():
++            return 400, {}, {
++                "error": {
++                    "code": "PEER_THIEU",
++                    "message": "Thân cần «peer» khác rỗng.",
++                }
++            }
++        message = than.get("message")
++        if not isinstance(message, str) or not message.strip():
++            return 400, {}, {
++                "error": {
++                    "code": "MESSAGE_THIEU",
++                    "message": "Thân cần «message» khác rỗng.",
++                }
++            }
++        if len(message.encode("utf-8")) > _GIOI_HAN_NOI_DUNG:
++            return 400, {}, {
++                "error": {
++                    "code": "MESSAGE_QUA_DAI",
++                    "message": "Nội dung vượt 16 KiB.",
++                }
++            }
++        tai_khoan = self._phien().danh_sach()
++        account = than.get("account")
++        if account is not None:
++            if self._phien().lay(str(account)) is None:
++                return 404, {}, {
++                    "error": {
++                        "code": "ACCOUNT_KHONG_CO",
++                        "message": "Không có tài khoản này.",
++                    }
++                }
++            account_id = str(account)
++        elif tai_khoan:
++            account_id = tai_khoan[0]["id"]
++        else:
++            return 503, {}, {
++                "error": {
++                    "code": "ACCOUNT_OFFLINE",
++                    "message": "Chưa có tài khoản nào.",
++                }
++            }
++        tin_id = uuid.uuid4().hex
++        self._hop_thu_di.append(
++            {
++                "tin_id": tin_id,
++                "kenh_id": None,
++                "account": account_id,
++                "peer": peer.strip(),
++                "van_ban": message,
++                "luc": time.time(),
++            }
++        )
++        log.info("telegram-user: [mock] ghi tin %s tới peer qua /m", tin_id[:8])
++        return 200, {}, {
++            "ok": True,
++            "tin_id": tin_id,
++            "account": account_id,
++            "peer": peer.strip(),
++        }
++
++    async def _duong_events(self, query, than):
++        """Poll fallback: {events, cursor}. since lọc id > since (đơn điệu)."""
++        since_raw = query.get("since") if isinstance(query, dict) else None
++        if isinstance(since_raw, list):
++            since_raw = since_raw[0] if since_raw else None
++        try:
++            since = int(str(since_raw).strip()) if since_raw is not None else 0
++        except (TypeError, ValueError):
++            return 400, {}, {
++                "error": {
++                    "code": "SINCE_SAI",
++                    "message": "Tham số «since» phải là số nguyên.",
++                }
++            }
++        su_kien = [e for e in self._su_kien if e["id"] > since]
++        cursor = self._su_kien[-1]["id"] if self._su_kien else 0
++        return 200, {}, {"events": su_kien, "cursor": cursor}
++
++    async def luong(self, ve, khoang, phuong_thuc):
++        """Stub luồng (P2 mới có audio thật): mọi vé đều 404."""
++        return 404, {}, b""
++
++    # ── móc mock cho P0 (test + tab demo; P1 thay bằng TDLib thật) ─────
++    def _them_tai_khoan_mock(self, ten: str, peer: str) -> dict:
++        """Thêm tài khoản mock qua tab (P0). Trả bản ghi công khai."""
++        ban_ghi = self._phien().them_tai_khoan(ten, peer)
++        khoa = self._phien().tao_khoa(ban_ghi["id"])
++        _LOC.them(khoa)
++        return _ban_ghi_cong_khai(ban_ghi)
++
++    def _them_tin_mock(self, nguoi_gui: str, noi_gui: str, van_ban: str) -> dict:
++        tin = {
++            "id_tin": uuid.uuid4().hex,
++            "nguoi_gui": nguoi_gui,
++            "noi_gui": noi_gui,
++            "van_ban": van_ban,
++        }
++        self._hop_thu_den.append(tin)
++        return tin
++
++    def _them_su_kien_mock(self, loai: str, tai_khoan: str, du_lieu: dict) -> dict:
++        su_kien = {
++            "id": self._su_kien_tiep,
++            "type": loai,
++            "account": tai_khoan,
++            "timestamp": int(time.time()),
++            "data": du_lieu if isinstance(du_lieu, dict) else {},
++        }
++        self._su_kien_tiep += 1
++        self._su_kien.append(su_kien)
++        if len(self._su_kien) > _GIOI_HAN_SU_KIEN:
++            del self._su_kien[: len(self._su_kien) - _GIOI_HAN_SU_KIEN]
++        return su_kien
+diff --git a/modules/telegram-user/web/index.html b/modules/telegram-user/web/index.html
+new file mode 100644
+index 0000000..81463ee
+--- /dev/null
++++ b/modules/telegram-user/web/index.html
+@@ -0,0 +1,50 @@
++<!DOCTYPE html>
++<html lang="vi">
++<head>
++<meta charset="utf-8">
++<meta name="viewport" content="width=device-width, initial-scale=1">
++<title>Telegram (tài khoản người dùng)</title>
++<style>
++  body { font-family: system-ui, sans-serif; margin: 24px; color: #181816; background: #F6F5F2; }
++  .the { background: #fff; border: 1px solid #E4E2DC; border-radius: 8px; padding: 16px; margin-bottom: 16px; }
++  h1 { font-size: 20px; }
++  h2 { font-size: 16px; }
++  code { background: #F6F5F2; padding: 2px 6px; border-radius: 4px; }
++  .mock { color: #92400e; }
++</style>
++</head>
++<body>
++<h1>Telegram (tài khoản người dùng)</h1>
++
++<div class="the">
++  <h2>Trạng thái P0</h2>
++  <p class="mock">P0 chỉ là khung + mock: chưa đăng nhập thật, chưa gửi tin thật, chưa gọi thật.
++  Tài khoản, cuộc gọi và nhật ký dưới đây sẽ có dữ liệu thật từ P1 trở đi.</p>
++  <p>Đường kiểm tra sức khỏe cho HA: <code>GET /m/telegram-user/api/health</code> (cần khoá khách phạm vi <code>tich_hop@telegram-user</code>).</p>
++</div>
++
++<div class="the">
++  <h2>Tài khoản</h2>
++  <p>P0: danh sách tài khoản đọc qua <code>GET /m/telegram-user/api/accounts</code> (chỉ đọc, không bí mật).
++  Thêm tài khoản bằng OTP/2FA/QR là việc của P1, chỉ làm ở tab này — không bao giờ qua đường HA.</p>
++</div>
++
++<div class="the">
++  <h2>Cuộc gọi đang chạy</h2>
++  <p>P0: chưa có cuộc gọi thật. Đường <code>GET /m/telegram-user/api/calls</code> trả 501 cho tới P1.</p>
++</div>
++
++<div class="the">
++  <h2>Nhật ký (đã lược bí mật)</h2>
++  <p>P0: nhật ký module không chứa api_id, api_hash, token webhook hay khóa phiên.
++  Event cho HA đọc qua <code>GET /m/telegram-user/api/events?since=</code> (poll fallback).</p>
++</div>
++
++<div class="the">
++  <h2>Cài đặt</h2>
++  <p>Chip «Cài đặt» của module nằm ở trang Hệ thống (form chung dựng từ trường cấu hình):
++  <a href="../../He-thong.dc.html#module-telegram-user">mở ô Telegram (tài khoản người dùng)</a>.
++  Mọi trường bí mật ở đó chỉ ghi đè, không hiện lại.</p>
++</div>
++</body>
++</html>
+diff --git a/test/test_web2api_telegram_user_p0.py b/test/test_web2api_telegram_user_p0.py
+new file mode 100644
+index 0000000..5ad5a2c
+--- /dev/null
++++ b/test/test_web2api_telegram_user_p0.py
+@@ -0,0 +1,291 @@
++"""Test P0 cho module telegram-user MỚI (khung + mock, chưa gọi/đăng nhập thật).
++
++- manifest hợp chuẩn lõi (kiem_manifest), đủ phương thức theo hợp đồng
++  (kiem_chuan_module), quét AST (scripts/kiem_module.py chạy riêng).
++- cai() chỉ kiểm định dạng, không mạng, không credential thật (mọi chuỗi bí
++  mật trong test đều GIẢ rõ ràng).
++- tich_hop dispatch, kenh_ra/gui_tin mock, hoi_vong mock, phiên TDLib trên đĩa
++  bền qua «restart» (tạo lại Module + nap trên cùng WEB2API_DATA).
++- Không Internet, không tài khoản Telegram thật, không gửi tin/gọi thật.
++"""
++
++from __future__ import annotations
++
++import asyncio
++import importlib.util
++import json
++import logging
++import sys
++import time
++import types
++from pathlib import Path
++
++import pytest
++
++from app.kham_pha import kiem_chuan_module, kiem_manifest
++
++GOC = Path(__file__).resolve().parents[1]
++THU_MUC = GOC / "modules" / "telegram-user"
++TEN_GOI = "telegram_user_p0_mod_test"
++
++API_ID_GIA = "123456"
++API_HASH_GIA = "a" * 32
++TOKEN_WH_GIA = "wh-gia-telegram-user-token-cho-test-0000"
++DICH_GIA = [
++    {"id": "nha", "ten": "Nhà", "peer": "nguoi_dung_gia"},
++    {"id": "khach", "ten": "Phòng khách", "peer": "+840000000000"},
++]
++
++
++@pytest.fixture(autouse=True)
++def _web2api_data(tmp_path, monkeypatch):
++    """Mọi test dùng WEB2API_DATA riêng — không bao giờ chạm /data thật."""
++    monkeypatch.setenv("WEB2API_DATA", str(tmp_path))
++    yield tmp_path
++
++
++def _tai_goi():
++    for ten in [t for t in list(sys.modules) if t == TEN_GOI or t.startswith(TEN_GOI + ".")]:
++        del sys.modules[ten]
++    goi = types.ModuleType(TEN_GOI)
++    goi.__path__ = [str(THU_MUC)]
++    sys.modules[TEN_GOI] = goi
++    spec = importlib.util.spec_from_file_location(f"{TEN_GOI}.module", THU_MUC / "module.py")
++    mod = importlib.util.module_from_spec(spec)
++    sys.modules[f"{TEN_GOI}.module"] = mod
++    spec.loader.exec_module(mod)
++    return mod
++
++
++mod_module = _tai_goi()
++Module = mod_module.Module
++MANIFEST = json.loads((THU_MUC / "manifest.json").read_text(encoding="utf-8"))
++
++
++def _cau_hinh_hop_le(**them):
++    cfg = {"api_id": API_ID_GIA, "api_hash": API_HASH_GIA, "dich": DICH_GIA}
++    cfg.update(them)
++    return cfg
++
++
++def _module_da_cai(**them):
++    mod = Module(MANIFEST)
++    kq = asyncio.run(mod.cai(_cau_hinh_hop_le(**them)))
++    assert kq["ok"] is True
++    return mod
++
++
++def test_manifest_hop_chuan():
++    assert kiem_manifest(json.loads(json.dumps(MANIFEST))) is None
++    assert kiem_chuan_module(MANIFEST["cung_cap"], Module) == {}
++    assert MANIFEST["id"] == "telegram-user"
++    assert MANIFEST["tien_to"] == "telegram_user"
++    assert MANIFEST["hang"] == "A"
++    assert set(MANIFEST["cung_cap"]) == {"kenh_ra", "hoi_vong", "duong_module"}
++    assert MANIFEST["hoi_vong"] == {"chu_ky_giay": 5}
++    assert MANIFEST["duong_module"] == {}
++    assert MANIFEST["yeu_cau_goi"] == ["tdjson", "ntgcalls"]
++    assert MANIFEST["tab_web"] == {"nhan": "Telegram (tài khoản)", "trang": "web/index.html"}
++    assert (THU_MUC / "web" / "index.html").is_file()
++
++
++def test_nap_mac_dinh_va_suc_khoe_chua_cau_hinh():
++    mod = Module(MANIFEST)
++    mod.nap({})
++    sk = asyncio.run(mod.suc_khoe())
++    assert sk["ok"] is False
++    assert sk["so_tai_khoan"] == 0
++    assert sk["so_dich"] == 0
++    assert sk["che_do"] == "p0-mock"
++    assert mod.kenh_ra() == []
++
++
++def test_cai_thieu_va_sai():
++    mod = Module(MANIFEST)
++    assert asyncio.run(mod.cai({}))["ok"] is False
++    assert asyncio.run(mod.cai({"api_id": API_ID_GIA}))["ok"] is False
++    assert asyncio.run(mod.cai({"api_id": "abc", "api_hash": API_HASH_GIA}))["ok"] is False
++    assert asyncio.run(mod.cai({"api_id": API_ID_GIA, "api_hash": "ngan"}))["ok"] is False
++    assert asyncio.run(mod.cai({"api_id": API_ID_GIA, "api_hash": API_HASH_GIA, "dich": "{hong"}))["ok"] is False
++    assert asyncio.run(mod.cai({"api_id": API_ID_GIA, "api_hash": API_HASH_GIA, "dich": [{"id": "x"}]}))["ok"] is False
++    assert asyncio.run(mod.cai({"api_id": API_ID_GIA, "api_hash": API_HASH_GIA, "ring_timeout": "1"}))["ok"] is False
++    assert asyncio.run(mod.cai({"api_id": API_ID_GIA, "api_hash": API_HASH_GIA, "ha_webhook_url": "ftp://x"}))["ok"] is False
++    assert asyncio.run(mod.cai({"api_id": API_ID_GIA, "api_hash": API_HASH_GIA, "audio_endpoint_mac_dinh": "la"}))["ok"] is False
++    assert asyncio.run(mod.cai({"api_id": API_ID_GIA, "api_hash": API_HASH_GIA, "cho_phep_ha_goi_di": "co"}))["ok"] is False
++    # cai() thất bại không để lại cấu hình nửa vời
++    assert asyncio.run(mod.suc_khoe())["ok"] is False
++
++
++def test_cai_hop_le_va_kenh_ra_khong_lo_bi_mat():
++    mod = Module(MANIFEST)
++    kq = asyncio.run(mod.cai(_cau_hinh_hop_le()))
++    assert kq["ok"] is True
++    assert kq["loi"] is None
++    assert kq["ket_qua_tung_khoa"] == [
++        {"khoa": "api_id", "ok": True},
++        {"khoa": "api_hash", "ok": True},
++    ]
++    # ket_qua_tung_khoa chỉ có tên trường, không giá trị bí mật
++    assert API_HASH_GIA not in json.dumps(kq["ket_qua_tung_khoa"])
++    assert asyncio.run(mod.suc_khoe())["ok"] is True
++    assert mod.kenh_ra() == [
++        {"id": "nha", "ten": "Nhà"},
++        {"id": "khach", "ten": "Phòng khách"},
++    ]
++    # kenh_ra không chứa peer thô
++    assert "nguoi_dung_gia" not in json.dumps(mod.kenh_ra())
++
++
++def test_gui_tin_mock():
++    mod = Module(MANIFEST)
++    assert asyncio.run(mod.gui_tin({"kenh_id": "nha"}, {"van_ban": "xin chao"})) == {
++        "ok": False,
++        "ma": "chua_cau_hinh",
++    }
++    mod = _module_da_cai()
++    assert asyncio.run(mod.gui_tin({}, {"van_ban": "x"})) == {"ok": False, "ma": "thieu_kenh_id"}
++    assert asyncio.run(mod.gui_tin({"kenh_id": "la"}, {"van_ban": "x"})) == {"ok": False, "ma": "kenh_khong_co"}
++    assert asyncio.run(mod.gui_tin({"kenh_id": "nha"}, {"van_ban": "  "})) == {"ok": False, "ma": "noi_dung_rong"}
++    assert asyncio.run(mod.gui_tin({"kenh_id": "nha"}, {"van_ban": "x" * (17 * 1024)})) == {
++        "ok": False,
++        "ma": "noi_dung_qua_dai",
++    }
++    assert asyncio.run(mod.gui_tin({"kenh_id": "nha"}, {"van_ban": "t", "_tep": {}})) == {
++        "ok": False,
++        "ma": "tep_chua_ho_tro",
++    }
++    kq = asyncio.run(mod.gui_tin({"kenh_id": "nha"}, {"van_ban": "tin mock"}))
++    assert kq["ok"] is True and isinstance(kq["tin_id"], str)
++    assert len(mod._hop_thu_di) == 1
++    assert mod._hop_thu_di[0]["peer"] == "nguoi_dung_gia"
++
++
++def test_tich_hop_health_accounts_khong_lo_bi_mat():
++    mod = _module_da_cai()
++    ma, _, nd = asyncio.run(mod.tich_hop("health", "GET", {}, None, "http://localhost"))
++    assert ma == 200
++    assert nd["status"] == "ok"
++    assert nd["version"] == "0.1.0"
++    assert nd["accounts_total"] == 0 and nd["accounts_online"] == 0
++    ma, _, nd = asyncio.run(mod.tich_hop("accounts", "GET", {}, None, "http://localhost"))
++    assert ma == 200 and nd == {"tai_khoan": []}
++    mod._them_tai_khoan_mock("Tài khoản mock", "nguoi_dung_gia")
++    ma, _, nd = asyncio.run(mod.tich_hop("accounts", "GET", {}, None, "http://localhost"))
++    assert ma == 200 and len(nd["tai_khoan"]) == 1
++    tk = nd["tai_khoan"][0]
++    assert tk["display_name"] == "Tài khoản mock"
++    assert tk["status"] == "mock"
++    # phản hồi không chứa bí mật
++    assert API_HASH_GIA not in json.dumps(nd)
++    assert API_ID_GIA not in json.dumps(nd)
++
++
++def test_tich_hop_send_message_va_events():
++    mod = _module_da_cai()
++    ma, _, nd = asyncio.run(
++        mod.tich_hop("send_message", "POST", {}, {"peer": "p", "message": "m"}, "http://localhost")
++    )
++    assert ma == 503 and nd["error"]["code"] == "ACCOUNT_OFFLINE"
++    tk = mod._them_tai_khoan_mock("Tài khoản mock", "nguoi_dung_gia")
++    ma, _, nd = asyncio.run(
++        mod.tich_hop("send_message", "POST", {}, {"peer": "p", "message": "m"}, "http://localhost")
++    )
++    assert ma == 200 and nd["ok"] is True and nd["account"] == tk["id"]
++    ma, _, nd = asyncio.run(
++        mod.tich_hop("send_message", "POST", {}, {"message": "m"}, "http://localhost")
++    )
++    assert ma == 400 and nd["error"]["code"] == "PEER_THIEU"
++    ma, _, nd = asyncio.run(
++        mod.tich_hop("send_message", "POST", {}, {"peer": "p"}, "http://localhost")
++    )
++    assert ma == 400 and nd["error"]["code"] == "MESSAGE_THIEU"
++    ma, _, nd = asyncio.run(
++        mod.tich_hop("send_message", "POST", {}, {"peer": "p", "message": "m", "account": "tk-khong-co"}, "http://localhost")
++    )
++    assert ma == 404 and nd["error"]["code"] == "ACCOUNT_KHONG_CO"
++    # events: poll fallback theo cursor
++    mod._them_su_kien_mock("message_new", tk["id"], {"van_ban": "mot"})
++    mod._them_su_kien_mock("message_new", tk["id"], {"van_ban": "hai"})
++    ma, _, nd = asyncio.run(mod.tich_hop("events", "GET", {}, None, "http://localhost"))
++    assert ma == 200 and len(nd["events"]) == 2 and nd["cursor"] == 2
++    ma, _, nd = asyncio.run(mod.tich_hop("events", "GET", {"since": "1"}, None, "http://localhost"))
++    assert ma == 200 and len(nd["events"]) == 1 and nd["events"][0]["id"] == 2
++    ma, _, nd = asyncio.run(mod.tich_hop("events", "GET", {"since": "abc"}, None, "http://localhost"))
++    assert ma == 400 and nd["error"]["code"] == "SINCE_SAI"
++
++
++def test_tich_hop_404_405_501_va_luong_stub():
++    mod = _module_da_cai()
++    ma, _, nd = asyncio.run(mod.tich_hop("khong-co", "GET", {}, None, "http://localhost"))
++    assert ma == 404 and nd["error"]["code"] == "DUONG_KHONG_CO"
++    ma, _, nd = asyncio.run(mod.tich_hop("health", "POST", {}, {}, "http://localhost"))
++    assert ma == 405
++    ma, _, nd = asyncio.run(mod.tich_hop("send_message", "POST", {}, "khong-phai-dict", "http://localhost"))
++    assert ma == 400 and nd["error"]["code"] == "THAN_SAI_KHUON"
++    ma, _, nd = asyncio.run(mod.tich_hop("call", "POST", {}, {"peer": "p"}, "http://localhost"))
++    assert ma == 501 and nd["error"]["giai_doan"] == "P1"
++    ma, _, nd = asyncio.run(mod.tich_hop("answer_call", "POST", {}, {"call_id": "c"}, "http://localhost"))
++    assert ma == 501 and nd["error"]["giai_doan"] == "P3"
++    ma, _, nd = asyncio.run(mod.tich_hop("audio/in", "POST", {}, {"call_id": "c"}, "http://localhost"))
++    assert ma == 501 and nd["error"]["giai_doan"] == "P2"
++    ma, _, nd = asyncio.run(mod.tich_hop("history", "GET", {}, None, "http://localhost"))
++    assert ma == 501 and nd["error"]["giai_doan"] == "P4"
++    assert asyncio.run(mod.luong("ve-gia", None, "GET")) == (404, {}, b"")
++
++
++def test_hoi_vong_drain_va_khuon():
++    mod = _module_da_cai()
++    mod._them_tin_mock("nguoi-a", "nhom-x", "tin mot")
++    mod._them_tin_mock("nguoi-b", "nhom-x", "tin hai")
++    mod._hop_thu_den.append({"id_tin": "thieu", "nguoi_gui": "c"})  # sai khuôn → bỏ
++    ds = asyncio.run(mod.hoi_vong())
++    assert len(ds) == 2
++    for tin in ds:
++        assert set(tin) == {"id_tin", "nguoi_gui", "noi_gui", "van_ban"}
++    assert asyncio.run(mod.hoi_vong()) == []
++
++
++def test_phien_ben_qua_restart_va_quyen_tep():
++    mod1 = _module_da_cai()
++    tk = mod1._them_tai_khoan_mock("Tài khoản mock", "nguoi_dung_gia")
++    kho1 = mod1._phien().tao_khoa(tk["id"])
++    tep_khoa = Path(mod1._phien().goc) / "tdlib" / tk["id"] / "khoa"
++    thu_muc_tk = Path(mod1._phien().goc) / "tdlib" / tk["id"]
++    assert oct(tep_khoa.stat().st_mode & 0o777) == "0o600"
++    assert oct(thu_muc_tk.stat().st_mode & 0o777) == "0o700"
++    assert oct((thu_muc_tk / "files").stat().st_mode & 0o777) == "0o700"
++    asyncio.run(mod1.dung())  # dừng KHÔNG xóa phiên
++    mod2 = _module_da_cai()
++    ds = mod2._phien().danh_sach()
++    assert len(ds) == 1 and ds[0]["id"] == tk["id"]
++    assert mod2._phien().tao_khoa(tk["id"]) == kho1  # khóa không đổi qua restart
++    ma, _, nd = asyncio.run(mod2.tich_hop("accounts", "GET", {}, None, "http://localhost"))
++    assert len(nd["tai_khoan"]) == 1
++
++
++def test_su_kien_duoi_5_giay():
++    mod = _module_da_cai()
++    tk = mod._them_tai_khoan_mock("Tài khoản mock", "nguoi_dung_gia")
++    mod._them_su_kien_mock("message_new", tk["id"], {"van_ban": "gap"})
++    bat_dau = time.monotonic()
++    ma, _, nd = asyncio.run(mod.tich_hop("events", "GET", {}, None, "http://localhost"))
++    assert time.monotonic() - bat_dau < 5.0
++    assert ma == 200 and len(nd["events"]) == 1
++
++
++def test_goi_pin_tdjson_ntgcalls():
++    import importlib.metadata
++
++    assert importlib.metadata.version("tdjson") == "1.8.69"
++    assert importlib.metadata.version("ntgcalls") == "3.0.6"
++    assert mod_module._nap_tdjson().__name__ == "tdjson"
++    assert mod_module._nap_ntgcalls().__name__ == "ntgcalls"
++
++
++def test_log_khong_lo_bi_mat(caplog):
++    mod = _module_da_cai()
++    logger = logging.getLogger("telegram-user")
++    with caplog.at_level(logging.WARNING, logger="telegram-user"):
++        logger.warning("thử ghi bí mật %s vào log", API_HASH_GIA)
++    assert API_HASH_GIA not in caplog.text
++    assert "••••" in caplog.text
