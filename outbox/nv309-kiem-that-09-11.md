@@ -1,7 +1,7 @@
 # KẾT QUẢ — Kiểm thật đăng nhập ChatGPT qua MCP (NV309 / xin quyền tự kiểm AI) — 09/11/2026
 
 - **Đã đẩy nhánh `muse/nv309-kiem-that-09-11`** (chỉ nhánh `muse/*`, không main, không
-  force-push; kiểm `ls-remote` ở cuối báo cáo). Báo cáo này + thư mục bằng chứng
+  force-push). Báo cáo này + thư mục bằng chứng
   `outbox/nv309-kiem-that-09-11/` (bản ghi MCP thô).
 - **Mức bằng chứng: kiểm thật (MCP + xem chỉ-đọc).** Không phải test giả, không phải
   trang khách. Lượt này chạy trên web2api thật qua cổng MCP, tài khoản thật đã
@@ -17,7 +17,7 @@
 | Thời gian chạy | Bắt đầu 2026-11-09T03:21:52Z, kết thúc 2026-11-09T03:22:00Z — **8 giây** (10:21:52–10:22:00 +07) |
 | Phiên bản web2api đã kiểm | `tong_quan` trả `phien_ban: "0.1.0-khung"`; main `4eb5d2b`, module `may-dang-nhap` 0.1.7 (theo thư trả lời đo 10:15 09/11) |
 | Bước hỏng | Không có (thành công, không cần chẩn đoán thêm) |
-| Nhánh nộp | `muse/nv309-kiem-that-09-11` — xem hash ở cuối báo cáo |
+| Nhánh nộp | `muse/nv309-kiem-that-09-11` |
 
 ## Quy trình đã chạy (đúng thư trả lời 09/11)
 
