@@ -1,0 +1,1999 @@
+From 2efce18a209eec263e4f0d1a623dfcb238f4842d Mon Sep 17 00:00:00 2001
+From: Muse <muse@local>
+Date: Mon, 9 Nov 2026 08:45:53 +0000
+Subject: [PATCH 1/2] Codec 11300/11301 theo dinh dang that cua engine (zca-js)
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+zca-js ZRTPPacketCodec.ts:279 DEFAULT_ZALO_AUDIO_CODEC la chuoi
+JSON list, khong phai chu tran 'opus':
+'[{"dynamicFptime":0,"frmPtime":20,"name":"opus/16000/1","payload":112}]'
+
+- media_endpoints.DEFAULT_ZALO_AUDIO_CODEC (hang so moi, export).
+- 11300 gui dung chuoi list (server.py buoc 1, khi UI khong gui
+  codec); 11301 gui chuoi list (for_call default moi).
+- applyServerInfo: response 11300 tra ve codec khac '[]' thi dung
+  codec do cho 11301 (ZaloRtcSession.ts:4505-4506).
+- g711 KHONG con quyet dinh codec signaling (mo ta codec media,
+  khong phai chuoi codec trong 11301; zca-js khong doc g711).
+- vc_requestcall docstring cap nhat: dinh dang that da biet.
+- Test do-truoc-xanh-sau: tests/test_codec_zca_js.py 9 test
+  (1/9 do -> 9/9 xanh); mock ghi codec tren day ca hai buoc;
+  cap nhat 3 assertion test_media_provider + 2 assertion
+  test_call_diag_11301 theo hanh vi moi.
+- Full suite: ALL TEST SUITES PASSED (48 muc, ke ca test moi).
+
+Nguon: bao cao outbox/zca-js-tong-hop.md §4.4/§7.2; repo
+softtyos/zca-js v2.3.13. Chua push — cho user duyet + deploy +
+test live goi Dai ca.
+---
+ zalo-pc-app/tests/mock_server.py           |  19 +-
+ zalo-pc-app/tests/run_tests.py             |   2 +-
+ zalo-pc-app/tests/test_call_diag_11301.py  |   8 +-
+ zalo-pc-app/tests/test_codec_zca_js.py     | 331 +++++++++++++++++++++
+ zalo-pc-app/tests/test_media_provider.py   |  11 +-
+ zalo-pc-app/zalo_pc_app/media_endpoints.py |  56 +++-
+ zalo-pc-app/zalo_pc_app/protocol.py        |  14 +-
+ zalo-pc-app/zalo_pc_app/server.py          |   7 +-
+ 8 files changed, 418 insertions(+), 30 deletions(-)
+ create mode 100644 zalo-pc-app/tests/test_codec_zca_js.py
+
+diff --git a/zalo-pc-app/tests/mock_server.py b/zalo-pc-app/tests/mock_server.py
+index 160afa4..049a061 100644
+--- a/zalo-pc-app/tests/mock_server.py
++++ b/zalo-pc-app/tests/mock_server.py
+@@ -238,7 +238,9 @@ class MockZalo:
+         requested = ("requestcall" in steps
+                      or "group/requestcall" in steps)
+         return {"requested": requested,
+-                "delivered": bool(entry["delivered"]), "steps": steps}
++                "delivered": bool(entry["delivered"]), "steps": steps,
++                "requestcall_codec": entry.get("requestcall_codec"),
++                "request_codec": entry.get("request_codec")}
+ 
+     def server_call_state(self, call_id):
+         """The SERVER-side call state the mock models for one callId:
+@@ -300,13 +302,22 @@ class MockZalo:
+         ends connected). `body` (the 11301 request body, when given)
+         is kept as request_addresses so tests can assert the media
+         endpoints the app sent are real relay addresses, never
+-        empty."""
++        empty. `body`'s `codec` is kept too (requestcall_codec /
++        request_codec) so tests can assert the WIRE codec string
++        on both steps (11300 + 11301) — the zca-js codec fix."""
+         entry = self.voice_calls.setdefault(
+             call_id, {"steps": [], "delivered": False,
+                       "server_state": None, "record": None,
+-                      "request_addresses": None})
++                      "request_addresses": None,
++                      "requestcall_codec": None,
++                      "request_codec": None})
+         if step not in entry["steps"]:
+             entry["steps"].append(step)
++        if body is not None:
++            if step in ("requestcall", "group/requestcall"):
++                entry["requestcall_codec"] = body.get("codec")
++            elif step in ("request", "group/request"):
++                entry["request_codec"] = body.get("codec")
+         if step in ("request", "group/request") and (
+                 "requestcall" in entry["steps"]
+                 or "group/requestcall" in entry["steps"]):
+@@ -1297,7 +1308,7 @@ class MockZalo:
+                     or not id_ok or not body.get(id_field)):
+                 return self._postlogin_envelope_error(
+                     114, "Tham số không hợp lệ")
+-            self._record_voice_step(call_id, sub)
++            self._record_voice_step(call_id, sub, body)
+             data = {"ok": True, "path": path, "body": body}
+             if self.requestcall_data:
+                 data.update(self.requestcall_data)
+diff --git a/zalo-pc-app/tests/run_tests.py b/zalo-pc-app/tests/run_tests.py
+index 8b924c1..a71bac8 100644
+--- a/zalo-pc-app/tests/run_tests.py
++++ b/zalo-pc-app/tests/run_tests.py
+@@ -11,7 +11,7 @@ FILES = ["test_aes.py", "test_crypto.py", "test_flow_mock.py",
+          "test_call_11301.py", "test_call_end.py",
+          "test_call_ringing.py", "test_call_answered.py",
+          "test_call_states.py", "test_call_diag_11301.py",
+-         "test_call_local_session.py",
++         "test_call_local_session.py", "test_codec_zca_js.py",
+          "test_media_provider.py", "test_udp_transport.py",
+          "test_p2p.py",
+          "test_app_auth.py",
+diff --git a/zalo-pc-app/tests/test_call_diag_11301.py b/zalo-pc-app/tests/test_call_diag_11301.py
+index d928336..7d87841 100644
+--- a/zalo-pc-app/tests/test_call_diag_11301.py
++++ b/zalo-pc-app/tests/test_call_diag_11301.py
+@@ -145,8 +145,9 @@ def test_step1_and_step2_diag_logged():
+         assert ("[call] step1 call_id=%s status=0" % eff_id) in log, log
+         assert ("[call] step2 send call_id=%s rtp=127.0.0.1:4200 "
+                 "rtcp=127.0.0.1:4201 rtp_source=selected "
+-                "session=present[154] codec=opus"
+-                % eff_id) in log, log
++                "session=present[154] codec=%s"
++                % (eff_id,
++                   media_endpoints.DEFAULT_ZALO_AUDIO_CODEC)) in log, log
+         assert ("[call] step2 resp call_id=%s 11301 keys:" % eff_id) \
+             in log, log
+         assert ("[call] step2 call_id=%s request_sent=True "
+@@ -171,7 +172,8 @@ def test_step1_and_step2_diag_logged():
+         assert diag["rtcp_ip"] == "127.0.0.1", entry
+         assert diag["session_present"] is True, entry
+         assert diag["session_len"] == 154, entry
+-        assert diag["codec"] == "opus", entry
++        assert diag["codec"] == \
++            media_endpoints.DEFAULT_ZALO_AUDIO_CODEC, entry
+         assert SESSID_154 not in json.dumps(calls_body), calls_body
+         state = mock.voice_call_state(eff_id)
+         assert state["delivered"] is True, state
+diff --git a/zalo-pc-app/tests/test_codec_zca_js.py b/zalo-pc-app/tests/test_codec_zca_js.py
+new file mode 100644
+index 0000000..42f7877
+--- /dev/null
++++ b/zalo-pc-app/tests/test_codec_zca_js.py
+@@ -0,0 +1,331 @@
++"""Codec 11300/11301 theo dinh dang that cua engine (zca-js).
++
++Bang chung moi (bao cao outbox/zca-js-tong-hop.md §4.4/§7.2, doc
++truc tiep tu repo softtyos/zca-js v2.3.13):
++  * `ZRTPPacketCodec.ts:279` — `DEFAULT_ZALO_AUDIO_CODEC` la chuoi
++    JSON LIST, khong phai chu tran "opus":
++    '[{"dynamicFptime":0,"frmPtime":20,"name":"opus/16000/1",
++    "payload":112}]'
++  * `ZaloRtcSession.startOutgoingCall` truyen dung chuoi list nay
++    vao CA 11300 va 11301 (khong dung "[]" hay "opus").
++  * `ZaloRtcSession.applyServerInfo` (dong 4505-4506): neu response
++    11300 tra ve `codec` khac "[]" thi DUNG codec server tra ve
++    cho 11301 (codec server thang).
++
++Code cu gui gi:
++  * 11300: "[]" (vc_requestcall fallback khi UI khong gui codec).
++  * 11301: "opus" (suy luan tu zrtc_config.g711 — chinh code ghi
++    la SUY LUAN, UNCONFIRMED) hoac "pcmu"/"pcma" khi g711=1/2.
++  * g711 trong zrtc_config mo ta codec MEDIA (am thanh), khong
++    phai chuoi codec signaling trong 11301 — zca-js khong bao gio
++    doc g711 de chon codec signaling.
++
++Cac test nay PHAI FAIL o code cu va PASS o code moi (do-truoc
++xanh-sau). Khong goi that, khong dung tai khoan that.
++"""
++
++import json
++import os
++import sys
++import tempfile
++import threading
++import time
++import urllib.error
++import urllib.request
++from http.server import ThreadingHTTPServer
++
++sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
++sys.path.insert(0, os.path.dirname(__file__))
++
++from mock_server import MockZalo, TEST_SESSION_KEY  # noqa: E402
++from test_media_provider import (  # noqa: E402
++    FAKE_LOCAL_SESSION, FAKE_RELAYS, FAKE_SESSION, FAKE_SRTP_KEY,
++    FAKE_TOKEN, FakeTransport)
++from zalo_pc_app import media_endpoints  # noqa: E402
++from zalo_pc_app import protocol  # noqa: E402
++from zalo_pc_app import server as app_server  # noqa: E402
++from zalo_pc_app import signaling  # noqa: E402
++
++CALL_ID = 1762345678  # epoch seconds — fits uint32, like the old UI sent
++
++# Chuoi codec that — phai KHOP TU TU voi
++# zca-js DEFAULT_ZALO_AUDIO_CODEC (JSON.stringify, khong khoang
++# trang, dung thu tu key dynamicFptime/frmPtime/name/payload).
++EXPECTED_CODEC = ('[{"dynamicFptime":0,"frmPtime":20,'
++                  '"name":"opus/16000/1","payload":112}]')
++# Codec server tra ve trong 11300 (dung de phan biet voi default):
++# cung dang list nhung payload khac.
++SERVER_CODEC = ('[{"dynamicFptime":0,"frmPtime":20,'
++                '"name":"opus/16000/1","payload":111}]')
++
++
++def _provider():
++    return media_endpoints.MediaEndpoints(
++        transport_factory=lambda cfg: FakeTransport(cfg),
++        default_relays=FAKE_RELAYS, default_token=FAKE_TOKEN,
++        default_session=FAKE_SESSION,
++        default_local_session=FAKE_LOCAL_SESSION,
++        default_srtp_key=FAKE_SRTP_KEY)
++
++
++def _good_kwargs(**over):
++    kw = {"call_id": CALL_ID, "callee_id": "20001",
++          "local_session": FAKE_LOCAL_SESSION}
++    kw.update(over)
++    return kw
++
++
++# ------------------------------------------------------------------ don vi
++
++def test_default_codec_constant_is_zca_json_list():
++    """Hang so codec mac dinh phai la chuoi JSON list Opus cua
++    zca-js — khong phai "opus", khong phai "[]"."""
++    assert media_endpoints.DEFAULT_ZALO_AUDIO_CODEC == EXPECTED_CODEC
++
++
++def test_for_call_default_codec_is_zca_json_list():
++    """Khong co codec o dau (UI / 11300 / default) -> for_call tra
++    ve chuoi JSON list Opus, khong phai "opus" (UNCONFIRMED cu)."""
++    provider = _provider()
++    try:
++        out = provider.for_call(**_good_kwargs())
++        assert out["codec"] == EXPECTED_CODEC, out
++    finally:
++        provider.stop_all()
++
++
++def test_server_codec_wins_apply_server_info():
++    """Response 11300 tra ve `codec` khac "[]" -> alloc giu dung
++    codec do, va for_call dung no cho 11301 (applyServerInfo:
++    codec server thang)."""
++    data = {"codec": SERVER_CODEC, "sessId": "sess-x",
++            "servers": "10.0.0.1:4200,10.0.0.1:4201"}
++    alloc = media_endpoints.allocation_from_requestcall_data(data)
++    assert alloc["codec"] == SERVER_CODEC, alloc
++    provider = _provider()
++    try:
++        out = provider.for_call(
++            call_id=CALL_ID + 1, callee_id="20001",
++            local_session=FAKE_LOCAL_SESSION, requestcall_data=data,
++            protect_rtp=lambda b: b, unprotect_rtp=lambda b: b)
++        assert out["codec"] == SERVER_CODEC, out
++    finally:
++        provider.stop_all()
++
++
++def test_server_codec_empty_list_ignored():
++    """Response 11300 tra ve `codec` = "[]" (khong co codec that)
++    -> khong dung "[]", for_call roi ve chuoi JSON list mac dinh."""
++    data = {"codec": "[]", "sessId": "sess-x",
++            "servers": "10.0.0.1:4200,10.0.0.1:4201"}
++    alloc = media_endpoints.allocation_from_requestcall_data(data)
++    assert alloc.get("codec") in (None, "[]"), alloc
++    provider = _provider()
++    try:
++        out = provider.for_call(
++            call_id=CALL_ID + 2, callee_id="20001",
++            local_session=FAKE_LOCAL_SESSION, requestcall_data=data,
++            protect_rtp=lambda b: b, unprotect_rtp=lambda b: b)
++        assert out["codec"] == EXPECTED_CODEC, out
++    finally:
++        provider.stop_all()
++
++
++def test_g711_no_longer_drives_signaling_codec():
++    """zrtc_config.g711=1 khong con quyet dinh codec signaling:
++    alloc khong dat "pcmu" vao "codec" nua, va for_call tra ve
++    chuoi JSON list mac dinh. (g711 mo ta codec media, khong
++    phai chuoi codec trong 11301; zca-js khong doc g711.)"""
++    data = {"zrtc_config": {
++        "servers": "10.0.0.1:4200,10.0.0.1:4201",
++        "sessId": "sess-xyz", "srtpKey": "k1", "srtpMode": 2,
++        "g711": 1, "token": FAKE_TOKEN}}
++    alloc = media_endpoints.allocation_from_requestcall_data(data)
++    assert alloc.get("codec") != "pcmu", alloc
++    provider = _provider()
++    try:
++        out = provider.for_call(
++            call_id=CALL_ID + 3, callee_id="20001",
++            local_session=FAKE_LOCAL_SESSION, requestcall_data=data,
++            protect_rtp=lambda b: b, unprotect_rtp=lambda b: b)
++        assert out["codec"] == EXPECTED_CODEC, out
++    finally:
++        provider.stop_all()
++
++
++def test_explicit_codec_still_wins():
++    """Codec UI gui len (explicit) van thang — de nguoi dung / test
++    sau nay ép codec khac khi can (kha nang cu, khong mat)."""
++    provider = _provider()
++    try:
++        out = provider.for_call(
++            **_good_kwargs(call_id=CALL_ID + 4, codec="custom-list"))
++        assert out["codec"] == "custom-list", out
++    finally:
++        provider.stop_all()
++
++
++def test_vc_requestcall_docstring_names_real_codec_format():
++    """Tai lieu cua vc_requestcall khong con ghi "chua biet dinh
++    dang codec" — dinh dang that da co tu zca-js."""
++    assert "opus/16000/1" in protocol.vc_requestcall.__doc__, \
++        protocol.vc_requestcall.__doc__
++
++
++# ------------------------------------------------------------------ e2e
++# Drive the real app HTTP API (same harness shape as
++# test_call_11301.py): QR login against the mock, then POST
++# /api/call/request and check the WIRE codec the mock saw on
++# BOTH steps (11300 + 11301) — the mock records it since this
++# change (mock_server._record_voice_step keeps requestcall_codec
++# / request_codec).
++
++def _sig(mock):
++    protocol.AUTH_DOMAIN = mock.base
++    protocol.VOICECALL_DOMAIN = mock.base
++    protocol.PROFILE_DOMAIN = mock.base
++    protocol.GROUP_DOMAIN = mock.base
++    t = app_server.make_transport("sek-test")
++    return signaling.Signaling(t, "dev-1", TEST_SESSION_KEY)
++
++
++def _start_app(mock):
++    tmp = tempfile.mkdtemp(prefix="zalo-pc-qr-codec-")
++    os.environ["ZALO_PC_DATA_DIR"] = tmp
++    os.environ["ZALO_PC_PORT"] = "0"
++    protocol.AUTH_DOMAIN = mock.base
++    protocol.VOICECALL_DOMAIN = mock.base
++    protocol.PROFILE_DOMAIN = mock.base
++    protocol.GROUP_DOMAIN = mock.base
++    app_server.PARAM_CIPHER_KEY = "TEST_PARAM_KEY_32_CHARS_LONG_XXX"
++    state = app_server.AppState(tmp)
++    app_server.STATE = state
++    httpd = ThreadingHTTPServer(("127.0.0.1", 0), app_server.Handler)
++    port = httpd.server_address[1]
++    threading.Thread(target=httpd.serve_forever, daemon=True).start()
++    return httpd, "http://127.0.0.1:%d" % port
++
++
++def _api(base, method, path, body=None):
++    req = urllib.request.Request(base + path, method=method,
++                                 data=json.dumps(body).encode()
++                                 if body is not None else None)
++    req.add_header("Content-Type", "application/json")
++    try:
++        with urllib.request.urlopen(req, timeout=15) as resp:
++            return resp.status, json.loads(resp.read().decode())
++    except urllib.error.HTTPError as e:
++        return e.code, json.loads(e.read().decode())
++
++
++def _login(base):
++    status, body = _api(base, "POST", "/api/qr/new", {})
++    assert body["ok"] is True, body
++    deadline = time.time() + 20
++    last = {}
++    while time.time() < deadline:
++        status, last = _api(base, "GET", "/api/qr/status")
++        if last["state"] == "done":
++            break
++        time.sleep(0.5)
++    assert last["state"] == "done", last
++
++
++def _fake_endpoints():
++    return media_endpoints.MediaEndpoints(
++        transport_factory=lambda cfg: FakeTransport(cfg),
++        default_relays=FAKE_RELAYS, default_token=FAKE_TOKEN,
++        default_session=FAKE_SESSION,
++        default_local_session=FAKE_LOCAL_SESSION,
++        default_srtp_key=FAKE_SRTP_KEY)
++
++
++def test_wire_codec_both_steps_e2e():
++    """Qua API that: UI khong gui codec -> 11300 gui chuoi JSON
++    list Opus (khong phai "[]"), 11301 gui cung chuoi do (khong
++    phai "opus"). Mock ghi lai codec tren day cua ca hai buoc;
++    diag cua /api/calls cung ghi dung codec do."""
++    mock = MockZalo().start()
++    httpd = None
++    old_endpoints = media_endpoints.ENDPOINTS
++    endpoints = _fake_endpoints()
++    media_endpoints.ENDPOINTS = endpoints
++    try:
++        httpd, base = _start_app(mock)
++        _login(base)
++        status, body = _api(base, "POST", "/api/call/request",
++                            {"callee_id": "20001", "call_id": CALL_ID})
++        assert body["ok"] is True, body
++        assert body["request_sent"] is True, body
++        eff_id = body["call_id"]
++        state = mock.voice_call_state(eff_id)
++        assert state["steps"] == ["requestcall", "request"], state
++        assert state["delivered"] is True, state
++        assert state["requestcall_codec"] == EXPECTED_CODEC, state
++        assert state["request_codec"] == EXPECTED_CODEC, state
++        status, body = _api(base, "GET", "/api/calls")
++        by_id = {c["call_id"]: c for c in body["calls"]}
++        assert by_id[str(eff_id)]["diag"]["codec"] == EXPECTED_CODEC, \
++            body
++        httpd.shutdown()
++    finally:
++        endpoints.stop_all()
++        media_endpoints.ENDPOINTS = old_endpoints
++        if httpd is not None:
++            try:
++                httpd.server_close()
++            except Exception:  # noqa: BLE001
++                pass
++        mock.stop()
++
++
++def test_wire_codec_server_codec_e2e():
++    """Qua API that: response 11300 tra ve `codec` khac "[]" ->
++    11301 gui dung codec server tra ve (applyServerInfo), trong
++    khi 11300 van gui chuoi JSON list mac dinh."""
++    mock = MockZalo().start()
++    mock.requestcall_data = {
++        "codec": SERVER_CODEC, "servers": FAKE_RELAYS and
++        "10.0.0.1:4200,10.0.0.1:4201",
++        "sessId": "sess-server-codec", "token": FAKE_TOKEN}
++    httpd = None
++    old_endpoints = media_endpoints.ENDPOINTS
++    endpoints = _fake_endpoints()
++    media_endpoints.ENDPOINTS = endpoints
++    try:
++        httpd, base = _start_app(mock)
++        _login(base)
++        status, body = _api(base, "POST", "/api/call/request",
++                            {"callee_id": "20001",
++                             "call_id": CALL_ID + 10})
++        assert body["ok"] is True, body
++        assert body["request_sent"] is True, body
++        eff_id = body["call_id"]
++        state = mock.voice_call_state(eff_id)
++        assert state["requestcall_codec"] == EXPECTED_CODEC, state
++        assert state["request_codec"] == SERVER_CODEC, state
++        httpd.shutdown()
++    finally:
++        endpoints.stop_all()
++        media_endpoints.ENDPOINTS = old_endpoints
++        if httpd is not None:
++            try:
++                httpd.server_close()
++            except Exception:  # noqa: BLE001
++                pass
++        mock.stop()
++
++
++if __name__ == "__main__":
++    failed = []
++    tests = [v for k, v in sorted(globals().items())
++             if k.startswith("test_")]
++    for fn in tests:
++        try:
++            fn()
++            print("PASS", fn.__name__)
++        except Exception as exc:  # noqa: BLE001
++            failed.append(fn.__name__)
++            print("FAIL", fn.__name__, exc)
++    print("%d/%d tests passed" % (len(tests) - len(failed), len(tests)))
++    raise SystemExit(1 if failed else 0)
+diff --git a/zalo-pc-app/tests/test_media_provider.py b/zalo-pc-app/tests/test_media_provider.py
+index 38077a4..404afc9 100644
+--- a/zalo-pc-app/tests/test_media_provider.py
++++ b/zalo-pc-app/tests/test_media_provider.py
+@@ -257,7 +257,8 @@ def test_valid_allocation_delivered():
+     assert out["rtcp_address"] == "127.0.0.1:4201", out
+     assert out["rtp_address"] != "" and out["rtcp_address"] != "", out
+     assert out["session"] == FAKE_SESSION, out
+-    assert out["codec"] == "opus", out  # default UNCONFIRMED
++    assert out["codec"] == media_endpoints.DEFAULT_ZALO_AUDIO_CODEC, \
++        out  # default: chuoi JSON list Opus cua zca-js (khong "opus")
+     assert out["call_id"] == CALL_ID, out
+     assert out["transport"].started is True, out
+     assert out["transport"].state == "connected", out
+@@ -304,7 +305,9 @@ def test_stop_call():
+ 
+ def test_allocation_from_requestcall_data():
+     """Lay dung vat lieu tu response 11300: servers/sessId/srtpKey/
+-    srtpMode/g711 — khong phat minh gia tri nao."""
++    srtpMode — khong phat minh gia tri nao. g711 KHONG con quyet
++    dinh codec signaling (zca-js: g711 mo ta codec media, khong
++    phai chuoi codec trong 11301; xem test_codec_zca_js.py)."""
+     data = {"zrtc_config": {
+         "servers": "10.0.0.1:4200,10.0.0.1:4201",
+         "sessId": "sess-xyz", "srtpKey": "k1", "srtpMode": 2,
+@@ -314,13 +317,13 @@ def test_allocation_from_requestcall_data():
+     assert alloc["session"] == "sess-xyz", alloc
+     assert alloc["srtp_key"] == "k1", alloc
+     assert alloc["srtp_mode"] == 2, alloc
+-    assert alloc["codec"] == "pcmu", alloc  # g711=1 -> pcmu (SUY LUAN)
++    assert "codec" not in alloc, alloc  # g711=1 khong dat "pcmu" nua
+     provider = _provider()
+     out = provider.for_call(
+         call_id=CALL_ID + 2, callee_id="20001",
+         local_session=FAKE_LOCAL_SESSION, requestcall_data=data,
+         protect_rtp=lambda b: b, unprotect_rtp=lambda b: b)
+-    assert out["codec"] == "pcmu", out
++    assert out["codec"] == media_endpoints.DEFAULT_ZALO_AUDIO_CODEC, out
+     assert out["session"] == "sess-xyz", out
+     # srtpMode=2 from 11300 is kept inside the minimal
+     # engine-default extendData (2026-11-08: 11301 always sends
+diff --git a/zalo-pc-app/zalo_pc_app/media_endpoints.py b/zalo-pc-app/zalo_pc_app/media_endpoints.py
+index 19a10be..f859bad 100644
+--- a/zalo-pc-app/zalo_pc_app/media_endpoints.py
++++ b/zalo-pc-app/zalo_pc_app/media_endpoints.py
+@@ -143,10 +143,17 @@ Parameter sources (all UNCONFIRMED where noted — see
+                when absent, the provider only fills `srtpMode`
+                from `zrtc_config` if present; otherwise None, and
+                `vc_request` omits `extendData`/`subCommand=3`.
+-  codec        explicit > `zrtc_config.g711` (1->"pcmu", 2->"pcma",
+-               else "opus" — SUY LUAN, disasm §3.3) > "opus"
+-               (UNCONFIRMED default; the on-wire codec was never
+-               proven because the payload is SRTP-encrypted).
++  codec        explicit > 11300 response `codec` (applyServerInfo:
++               a non-empty string different from "[]" — the server
++               wins, per zca-js ZaloRtcSession.applyServerInfo) >
++               DEFAULT_ZALO_AUDIO_CODEC (the Opus JSON list the
++               real engine sends; zca-js ZRTPPacketCodec.ts:279).
++               `zrtc_config.g711` NO LONGER drives this value: it
++               describes the MEDIA codec, not the signaling codec
++               string, and zca-js never reads g711 for signaling
++               (the old "pcmu"/"pcma"/"opus" inference was
++               UNCONFIRMED and is retired — see
++               allocation_from_requestcall_data).
+   protect/unprotect_rtp, encode/decode_frame
+                injectable hooks, passed straight into
+                `TransportConfig`. SRTP/Opus are NEVER imported
+@@ -176,7 +183,18 @@ from .udp_transport import (
+ 
+ __all__ = ["MediaEndpoints", "MissingTransportParam",
+            "allocation_from_requestcall_data", "ENDPOINTS",
+-           "describe_requestcall_shape"]
++           "describe_requestcall_shape", "DEFAULT_ZALO_AUDIO_CODEC"]
++
++# Codec list the real engine sends in 11300/11301 (zca-js
++# `ZRTPPacketCodec.ts:279` DEFAULT_ZALO_AUDIO_CODEC, softtyos
++# v2.3.13 — bao cao outbox/zca-js-tong-hop.md §4.4/§7.2): a JSON
++# LIST string, not the bare word "opus". Built with
++# json.dumps(..., separators=(",", ":")) so the wire form is
++# exactly '[{"dynamicFptime":0,"frmPtime":20,"name":"opus/16000/1",
++# "payload":112}]' — key order dynamicFptime/frmPtime/name/payload.
++DEFAULT_ZALO_AUDIO_CODEC = (
++    '[{"dynamicFptime":0,"frmPtime":20,'
++    '"name":"opus/16000/1","payload":112}]')
+ 
+ 
+ # ------------------------------------------------------------------ helpers
+@@ -777,7 +795,10 @@ def allocation_from_requestcall_data(data):
+     invalid -> simply missing, i.e. None downstream),
+     `srtp_key` (from `zrtc_config.srtpKey` — LIVE 2026-11-06
+     the real response has none; absent keys are simply missing),
+-    `srtp_mode`, `codec` (from `zrtc_config.g711`), `extend_data`
++    `srtp_mode`, `codec` (the 11300 response's own `codec` when
++    it is a usable string, non-empty and not "[]" — applyServerInfo;
++    `zrtc_config.g711` no longer feeds this: it describes the MEDIA
++    codec, not the signaling codec string), `extend_data`
+     (from a top-level `extendData` string/dict when present),
+     `rtp_ip` / `rtcp_ip` (from `rtpIP` / `rtcpIP` — the relay
+     addresses the 11300 response designates; 2026-11-08 step 1:
+@@ -848,12 +869,18 @@ def allocation_from_requestcall_data(data):
+         srtp_mode = _find_in_requestcall_data(data, "srtpMode")
+     if isinstance(srtp_mode, int) and not isinstance(srtp_mode, bool):
+         out["srtp_mode"] = srtp_mode
+-    g711 = cfg.get("g711")
+-    if g711 is None:
+-        g711 = _find_in_requestcall_data(data, "g711")
+-    if isinstance(g711, int) and not isinstance(g711, bool):
+-        out["codec"] = ("pcmu" if g711 == 1 else
+-                        "pcma" if g711 == 2 else "opus")
++    # Codec (zca-js applyServerInfo, ZaloRtcSession.ts:4505-4506):
++    # the 11300 response's own `codec` wins when it is a usable
++    # string (non-empty, not "[]"); otherwise NO codec is taken
++    # from the response and for_call falls back to
++    # DEFAULT_ZALO_AUDIO_CODEC. `zrtc_config.g711` is NOT used
++    # here any more: it describes the MEDIA codec, not the
++    # signaling codec string (the old pcmu/pcma/opus inference
++    # was UNCONFIRMED and is retired — see the module docstring).
++    server_codec = _find_in_requestcall_data(data, "codec")
++    if (isinstance(server_codec, str) and server_codec
++            and server_codec != "[]"):
++        out["codec"] = server_codec
+     ext = _find_in_requestcall_data(data, "extendData")
+     if ext is not None:
+         out["extend_data"] = ext
+@@ -1394,7 +1421,10 @@ class MediaEndpoints:
+         # future feature — when it lands, the caller must also
+         # switch typeRequest to 3/6 in server.py.
+         if codec is None:
+-            codec = "opus"  # UNCONFIRMED default (see module docstring)
++            # Default is the Opus JSON list the real engine sends
++            # (zca-js DEFAULT_ZALO_AUDIO_CODEC) — the old "opus"
++            # default was UNCONFIRMED and is retired.
++            codec = DEFAULT_ZALO_AUDIO_CODEC
+         codec = str(codec)
+         ext_dict = _extend_data_dict(
+             extend_data, srtp_mode, is_video,
+diff --git a/zalo-pc-app/zalo_pc_app/protocol.py b/zalo-pc-app/zalo_pc_app/protocol.py
+index 1cd8698..288e546 100644
+--- a/zalo-pc-app/zalo_pc_app/protocol.py
++++ b/zalo-pc-app/zalo_pc_app/protocol.py
+@@ -295,10 +295,16 @@ def vc_requestcall(callee_id, call_id, codec, type_request, device_id):
+       see server._normalize_call_id).
+     - codec: "[]" is the client's own documented fallback (n ??
+       "[]") when the native engine supplies no codec list, so it
+-      is kept — the engine normally supplies its real list, but
+-      no real codec string format is known yet; inventing one
+-      would be guessing. If 114 persists after the typeRequest +
+-      callId fix, codec is the remaining suspect (§7k).
++      is kept — the engine normally supplies its real list. The
++      real list format IS now known (zca-js ZRTPPacketCodec.ts:279
++      DEFAULT_ZALO_AUDIO_CODEC, softtyos v2.3.13 — bao cao
++      outbox/zca-js-tong-hop.md §4.4/§7.2): the JSON list string
++      '[{"dynamicFptime":0,"frmPtime":20,"name":"opus/16000/1",
++      "payload":112}]'. The app sends that list (see
++      media_endpoints.DEFAULT_ZALO_AUDIO_CODEC, used by server.py
++      step 1 and for_call step 2); "[]" survives only as the
++      factory fallback when no codec is supplied at all, matching
++      zca-js requestVoiceCall (options.codec ?? "[]").
+     - typeRequest: 1 for a 1-1 AUDIO call (3 video) — never 0.
+       The pre-fix 0 is the primary 114 suspect (§7k)."""
+     return {"calleeId": callee_id, "callId": call_id,
+diff --git a/zalo-pc-app/zalo_pc_app/server.py b/zalo-pc-app/zalo_pc_app/server.py
+index 59b55ca..6329ca1 100644
+--- a/zalo-pc-app/zalo_pc_app/server.py
++++ b/zalo-pc-app/zalo_pc_app/server.py
+@@ -2815,10 +2815,15 @@ class Handler(BaseHTTPRequestHandler):
+                         body.get("data"),
+                         body.get("partners"))
+                 else:
++                    # 11300 codec (zca-js: the engine always sends
++                    # its Opus JSON list here; "[]" is only the
++                    # factory fallback). An explicit UI codec still
++                    # wins so a later test can force another list.
+                     data = sig.request_call(
+                         thread_id,
+                         call_id,
+-                        body.get("codec"),
++                        body.get("codec")
++                        or media_endpoints.DEFAULT_ZALO_AUDIO_CODEC,
+                         type_request)
+                 # §7l — SECOND STEP, the one the 17:51 live call was
+                 # missing: after requestcall the real client sends
+-- 
+2.43.0
+
+
+From b9fa55dd5c71f09af5232f5be3778aff5dcff820 Mon Sep 17 00:00:00 2001
+From: Muse <muse@local>
+Date: Mon, 9 Nov 2026 09:01:32 +0000
+Subject: [PATCH 2/2] Goi den theo flow zca-js: call_event (99101) -> 11302 ->
+ 11303
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Nguon: bao cao outbox/zca-js-tong-hop.md §7.4; code zca-js v2.3.13
+(control.handler.ts, ZaloRtcSession.ts acceptIncomingCall ~2110,
+rejectIncomingCall ~2250, parseIncomingCallEvent ~582,
+answerVoiceCall.ts / ringRingVoiceCall.ts / cancelVoiceCall.ts /
+endVoiceCall.ts).
+
+- ctrl_poll.extract_call_events: tach call_event tu kenh ctrl 99101
+  (act_type 'voip'; callId/caller/session/codec/rtp/rtcp/callType
+  tu data/params/extendData long nhau, dict hoac chuoi JSON);
+  CtrlPoller dispatch qua on_call_event (loi callback khong chet
+  poller), last_batch them 'call_events'.
+- CallLog: trang thai live moi 'incoming' + record_incoming
+  (thay the cuoc live truoc); record_answered mo cho
+  'incoming' -> 'answered'; snapshot/record_end nhan 'incoming'.
+- server._on_ctrl_call_event: 'request' -> entry incoming +
+  ringring 11302 best-effort (daemon thread) + webhook
+  call.incoming; 'cancel'/'end' cho incoming -> ended 'missed'
+  (cuoc goi nho) + webhook call.ended; 'answer' cho goi di ->
+  _mark_answered nguon 'sync' (gui answerack 11304 — phia caller).
+  Khong arm ring timer cho incoming.
+- POST /api/call/answer: tra loi cuoc incoming — 11300 fallback
+  (cung callId, partner = caller) + for_call + 11303 answer voi
+  codec list JSON; KHONG gui 11301 (tin hieu caller) va KHONG gui
+  11304 answerack (tin hieu caller); _mark_answered(..., send_ack=False).
+- POST /api/call/reject: tu choi cuoc incoming — cancel (11305)
+  + endcall (11306), ca hai best-effort, local-first, detail
+  'user_rejected' (theo zca-js rejectIncomingCall, khong chi 11306
+  nhu bao cao §7.4 ghi).
+- Mock: nhanh ringring (11302) + answer (11303, KHONG co imei —
+  fallthrough chung se loai sai neu khong co nhanh rieng); ghi
+  answer_codec/answer_addresses; 'answer' dua server_state ve
+  connected nhu answerack.
+- Test do-truoc-xanh-sau: tests/test_call_incoming_zca.py 12 test
+  (extractor, poller, CallLog, server callback, answer/reject e2e).
+- Dinh chinh theo code: 11304 la tin hieu CALLER, callee khong gui
+  (bao cao §7.4 buoc 4 chua dung).
+- Full suite: ALL TEST SUITES PASSED (49 muc).
+
+Chua push — cho user duyet + deploy + test live (goi den tu tai
+khoan phu khac + goi di goi Dai ca voi codec moi). Bong bong cuoc
+goi nho hien chu 'sendBubbleMessage': CHUA sua — chuoi do den tu
+server duoi dang noi dung tin nhan, chua co hinh dang that cua
+message do de sua dung (can payload sync cua mot cuoc goi nho that).
+---
+ zalo-pc-app/tests/mock_server.py            |  68 ++-
+ zalo-pc-app/tests/run_tests.py              |   1 +
+ zalo-pc-app/tests/test_call_incoming_zca.py | 439 ++++++++++++++++++++
+ zalo-pc-app/zalo_pc_app/call_log.py         |  55 ++-
+ zalo-pc-app/zalo_pc_app/ctrl_poll.py        | 198 ++++++++-
+ zalo-pc-app/zalo_pc_app/server.py           | 311 +++++++++++++-
+ 6 files changed, 1047 insertions(+), 25 deletions(-)
+ create mode 100644 zalo-pc-app/tests/test_call_incoming_zca.py
+
+diff --git a/zalo-pc-app/tests/mock_server.py b/zalo-pc-app/tests/mock_server.py
+index 049a061..6f0b31c 100644
+--- a/zalo-pc-app/tests/mock_server.py
++++ b/zalo-pc-app/tests/mock_server.py
+@@ -240,7 +240,9 @@ class MockZalo:
+         return {"requested": requested,
+                 "delivered": bool(entry["delivered"]), "steps": steps,
+                 "requestcall_codec": entry.get("requestcall_codec"),
+-                "request_codec": entry.get("request_codec")}
++                "request_codec": entry.get("request_codec"),
++                "answer_codec": entry.get("answer_codec"),
++                "answer_addresses": entry.get("answer_addresses")}
+ 
+     def server_call_state(self, call_id):
+         """The SERVER-side call state the mock models for one callId:
+@@ -304,13 +306,19 @@ class MockZalo:
+         endpoints the app sent are real relay addresses, never
+         empty. `body`'s `codec` is kept too (requestcall_codec /
+         request_codec) so tests can assert the WIRE codec string
+-        on both steps (11300 + 11301) — the zca-js codec fix."""
++        on both steps (11300 + 11301) — the zca-js codec fix.
++        The callee's "answer" (11303) is recorded the same way
++        (answer_codec / answer_addresses) and moves the modeled
++        server state ringing -> connected, like answerack does for
++        an outgoing call."""
+         entry = self.voice_calls.setdefault(
+             call_id, {"steps": [], "delivered": False,
+                       "server_state": None, "record": None,
+                       "request_addresses": None,
+                       "requestcall_codec": None,
+-                      "request_codec": None})
++                      "request_codec": None,
++                      "answer_codec": None,
++                      "answer_addresses": None})
+         if step not in entry["steps"]:
+             entry["steps"].append(step)
+         if body is not None:
+@@ -318,6 +326,11 @@ class MockZalo:
+                 entry["requestcall_codec"] = body.get("codec")
+             elif step in ("request", "group/request"):
+                 entry["request_codec"] = body.get("codec")
++            elif step == "answer":
++                entry["answer_codec"] = body.get("codec")
++                entry["answer_addresses"] = {
++                    "rtcp": body.get("rtcpAddress"),
++                    "rtp": body.get("rtpAddress")}
+         if step in ("request", "group/request") and (
+                 "requestcall" in entry["steps"]
+                 or "group/requestcall" in entry["steps"]):
+@@ -335,6 +348,11 @@ class MockZalo:
+         elif step == "answerack":
+             if entry["server_state"] == "ringing":
+                 entry["server_state"] = "connected"
++        elif step == "answer":
++            # Callee answered an incoming call (11303): the call
++            # is connected now, like answerack for an outgoing one.
++            if entry["server_state"] == "ringing":
++                entry["server_state"] = "connected"
+         elif step == "cancel":
+             entry["record"] = "missed"
+             entry["server_state"] = "ended"
+@@ -1439,6 +1457,50 @@ class MockZalo:
+             self._record_voice_step(call_id, sub)
+             return self._postlogin_envelope(
+                 {"ok": True, "path": path, "body": body})
++        if sub == "ringring":
++            # Callee reports ringing (bundle wZ ringRingVoiceCall,
++            # code 11302, mobile opcode 407): {callerId, callId,
++            # status:0, imei}. The mock records it so tests can
++            # assert the app rings the caller back on an incoming
++            # call_event.
++            call_id = body.get("callId")
++            id_ok = (isinstance(call_id, int)
++                     and not isinstance(call_id, bool)
++                     and 1 <= call_id <= 2 ** 32 - 1)
++            shape_ok = (bool(body.get("callerId")) and id_ok
++                        and body.get("status") == 0
++                        and body.get("imei"))
++            if not shape_ok:
++                return self._postlogin_envelope_error(
++                    114, "Tham số không hợp lệ")
++            self._record_voice_step(call_id, sub, body)
++            return self._postlogin_envelope(
++                {"ok": True, "path": path, "body": body})
++        if sub == "answer":
++            # Callee answers (bundle wZ answerVoiceCall, code
++            # 11303, mobile opcode 402): {callerId, callId,
++            # status:0, codec, rtcpAddress, rtpAddress, session_id}
++            # (+ extendData / subCommand=3). NOTE: NO imei in this
++            # body (zca-js answerVoiceCall.ts) — the generic
++            # fallthrough below would wrongly reject it, so this
++            # branch must come first. The codec is recorded so
++            # tests can assert the JSON-list codec went on the wire.
++            call_id = body.get("callId")
++            id_ok = (isinstance(call_id, int)
++                     and not isinstance(call_id, bool)
++                     and 1 <= call_id <= 2 ** 32 - 1)
++            shape_ok = (bool(body.get("callerId")) and id_ok
++                        and body.get("status") == 0
++                        and isinstance(body.get("codec"), str)
++                        and body.get("rtcpAddress")
++                        and body.get("rtpAddress")
++                        and isinstance(body.get("session_id"), str))
++            if not shape_ok:
++                return self._postlogin_envelope_error(
++                    114, "Tham số không hợp lệ")
++            self._record_voice_step(call_id, sub, body)
++            return self._postlogin_envelope(
++                {"ok": True, "path": path, "body": body})
+         # 1-1 requestcall carries imei; group/requestcall carries
+         # groupId instead (bundle: {groupId, callId, typeRequest,
+         # data, partners}, no imei) — both are valid voicecall bodies.
+diff --git a/zalo-pc-app/tests/run_tests.py b/zalo-pc-app/tests/run_tests.py
+index a71bac8..9b6ac9b 100644
+--- a/zalo-pc-app/tests/run_tests.py
++++ b/zalo-pc-app/tests/run_tests.py
+@@ -12,6 +12,7 @@ FILES = ["test_aes.py", "test_crypto.py", "test_flow_mock.py",
+          "test_call_ringing.py", "test_call_answered.py",
+          "test_call_states.py", "test_call_diag_11301.py",
+          "test_call_local_session.py", "test_codec_zca_js.py",
++         "test_call_incoming_zca.py",
+          "test_media_provider.py", "test_udp_transport.py",
+          "test_p2p.py",
+          "test_app_auth.py",
+diff --git a/zalo-pc-app/tests/test_call_incoming_zca.py b/zalo-pc-app/tests/test_call_incoming_zca.py
+new file mode 100644
+index 0000000..eea4817
+--- /dev/null
++++ b/zalo-pc-app/tests/test_call_incoming_zca.py
+@@ -0,0 +1,439 @@
++"""Goi den theo flow zca-js: call_event (ctrl 99101) -> 11302 ringring
++-> 11303 answer; tu choi bang 11305 cancel + 11306 endcall.
++
++Nguon: bao cao outbox/zca-js-tong-hop.md §7.4; code zca-js v2.3.13
++(src/call-engine/ZaloRtcSession.ts: acceptIncomingCall ~2110,
++rejectIncomingCall ~2250, parseIncomingCallEvent ~582;
++src/apis/call/answerVoiceCall.ts, ringRingVoiceCall.ts,
++cancelVoiceCall.ts, endVoiceCall.ts).
++
++Dinh chinh theo code (bao cao §7.4 buoc 4 chua dung): 11304 answerack
++la tin hieu cua CALLER (ack lai cau tra loi cua callee), callee
++KHONG gui 11304 — mock server_call_state + zca-js deu xac nhan.
++Tu choi 1-1 gui CA cancel (11305) VA endcall (11306), khong chi
++11306 nhu bao cao ghi (rejectIncomingCall, zca-js, best-effort ca
++hai). 11303 answer cua callee KHONG co imei (answerVoiceCall.ts:
++params chi co callerId/callId/status/codec/rtcpAddress/rtpAddress/
++session_id + extendData/subCommand=3) — mock phai co nhanh rieng,
++vi fallthrough chung doi imei/toId/groupId.
++
++Cuoc goi den duoc danh dau "incoming" trong CallLog (trang thai
++live moi), nhan duoc qua POST /api/call/answer (11300 fallback lay
++allocation moi + 11303, KHONG gui 11301 — do la tin hieu cua caller)
++va tu choi qua POST /api/call/reject (11305 + 11306).
++
++Mock/offline hoan toan: khong dang nhap that, khong gui that.
++Khong log noi dung tin — chi id thread/cuoc goi dang test.
++"""
++
++import json
++import os
++import sys
++import tempfile
++import time
++
++sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
++sys.path.insert(0, os.path.dirname(__file__))
++
++from mock_server import MockZalo, TEST_SESSION_KEY  # noqa: E402
++from test_call_11301 import (  # noqa: E402
++    _api, _fake_endpoints, _login, _start_app, FAKE_TOKEN)
++from test_call_ringing import _run, _start_call  # noqa: E402
++from test_media_provider import REAL_SHAPE_SERVERS  # noqa: E402
++from zalo_pc_app import call_log as call_log_mod  # noqa: E402
++from zalo_pc_app import ctrl_poll as ctrl_mod  # noqa: E402
++from zalo_pc_app import media_endpoints  # noqa: E402
++from zalo_pc_app import server as app_server  # noqa: E402
++from zalo_pc_app import webhooks as webhooks_mod  # noqa: E402
++
++UID = "10001"
++CALLER_ID = "20001"
++CALL_ID_IN = 1763201001
++CALL_ID_IN2 = 1763201002
++CALL_ID_OUT = 1763201003
++CALL_ID_NONE = 1763201999
++
++INCOMING_EVENT = {
++    "act": "request",
++    "callId": CALL_ID_IN,
++    "uidN": CALLER_ID,
++    "callerName": "BenBap",
++    "session": "sess-incoming-1",
++    "codec": media_endpoints.DEFAULT_ZALO_AUDIO_CODEC,
++    "rtpAddress": "10.0.0.1:4200",
++    "rtcpAddress": "10.0.0.1:4201",
++    "extendData": {"callType": 0},
++}
++
++
++def _voip_control(data, act_type="voip"):
++    return {"controlId": "c-voip",
++            "content": {"act_type": act_type, "data": data}}
++
++
++def _payload(*controls):
++    return {"controls": list(controls)}
++
++
++def _ctrl_payload_with_call(data):
++    return {"controls": [_voip_control(data)],
++            "reactions": [],
++            "lastActionId": "88",
++            "lastActionIdOther": "60",
++            "queueStatus": {}}
++
++
++def _parsed_event(data):
++    """Event da parse qua extract_call_events — dung dang ma
++    _on_ctrl_call_event nhan tu CtrlPoller."""
++    got = ctrl_mod.extract_call_events(_payload(_voip_control(data)))
++    assert len(got) == 1, got
++    return got[0]
++
++
++def _wait_steps(mock, call_id, wanted, timeout=5.0):
++    deadline = time.time() + timeout
++    while time.time() < deadline:
++        steps = mock.voice_call_state(call_id)["steps"]
++        if all(w in steps for w in wanted):
++            return steps
++        time.sleep(0.05)
++    return mock.voice_call_state(call_id)["steps"]
++
++
++def _wait_active(base, call_id, status, timeout=5.0):
++    deadline = time.time() + timeout
++    while time.time() < deadline:
++        _s, calls = _api(base, "GET", "/api/calls")
++        active = calls.get("active")
++        if (active is not None
++                and str(active["call_id"]) == str(call_id)
++                and active["status"] == status):
++            return active
++        time.sleep(0.05)
++    _s, calls = _api(base, "GET", "/api/calls")
++    return calls.get("active")
++
++
++# ------------------------------------------------------------------
++# 1. Trich event (ctrl_poll.extract_call_events)
++# ------------------------------------------------------------------
++
++def test_extract_call_events():
++    """Event request dang dict doc duoc: call_id so, caller, session,
++    codec, dia chi rtp/rtcp, callType 0 (thoai)."""
++    got = ctrl_mod.extract_call_events(
++        _payload(_voip_control(dict(INCOMING_EVENT))))
++    assert len(got) == 1, got
++    ev = got[0]
++    assert ev["act"] == "request", ev
++    assert ev["call_id"] == CALL_ID_IN, ev
++    assert ev["caller_id"] == CALLER_ID, ev
++    assert ev["caller_name"] == "BenBap", ev
++    assert ev["session"] == "sess-incoming-1", ev
++    assert ev["codec"] == media_endpoints.DEFAULT_ZALO_AUDIO_CODEC, ev
++    assert ev["rtp_address"] == "10.0.0.1:4200", ev
++    assert ev["rtcp_address"] == "10.0.0.1:4201", ev
++    assert ev["call_type"] == 0 and ev["is_video"] is False, ev
++
++
++def test_extract_call_events_nested_params_and_string():
++    """params long nhau (dict hoac chuoi JSON) + data dang chuoi JSON
++    deu doc duoc — hinh parseIncomingCallEvent cua zca-js."""
++    nested = _payload(_voip_control({
++        "act": "request",
++        "params": json.dumps({
++            "callId": CALL_ID_IN2, "uidN": CALLER_ID,
++            "session": "sess-nested",
++            "extendData": json.dumps({"callType": 1})})}))
++    got = ctrl_mod.extract_call_events(nested)
++    assert len(got) == 1, got
++    assert got[0]["call_id"] == CALL_ID_IN2, got
++    assert got[0]["session"] == "sess-nested", got
++    assert got[0]["call_type"] == 1 and got[0]["is_video"] is True, got
++    string_data = _payload(_voip_control(json.dumps(dict(INCOMING_EVENT))))
++    got = ctrl_mod.extract_call_events(string_data)
++    assert len(got) == 1 and got[0]["call_id"] == CALL_ID_IN, got
++
++
++def test_extract_call_events_skips_bad():
++    """Bo qua: act_type khac voip, thieu act, thieu call_id,
++    request thieu caller, trung event trong cung batch."""
++    assert ctrl_mod.extract_call_events(
++        _payload(_voip_control(dict(INCOMING_EVENT),
++                               act_type="group"))) == []
++    no_act = dict(INCOMING_EVENT)
++    del no_act["act"]
++    assert ctrl_mod.extract_call_events(
++        _payload(_voip_control(no_act))) == []
++    no_id = dict(INCOMING_EVENT)
++    del no_id["callId"]
++    assert ctrl_mod.extract_call_events(
++        _payload(_voip_control(no_id))) == []
++    no_caller = dict(INCOMING_EVENT)
++    del no_caller["uidN"]
++    assert ctrl_mod.extract_call_events(
++        _payload(_voip_control(no_caller))) == []
++    dup = {"controls": [
++        _voip_control(dict(INCOMING_EVENT)),
++        _voip_control(dict(INCOMING_EVENT))]}
++    assert len(ctrl_mod.extract_call_events(dup)) == 1
++    # act khac (cancel/end/answer) van trich duoc — chi can call_id.
++    cancel = {"act": "cancel", "callId": CALL_ID_IN}
++    got = ctrl_mod.extract_call_events(_payload(_voip_control(cancel)))
++    assert len(got) == 1 and got[0]["act"] == "cancel", got
++
++
++# ------------------------------------------------------------------
++# 2. CtrlPoller dispatch qua on_call_event
++# ------------------------------------------------------------------
++
++def test_ctrl_poller_dispatches_call_event():
++    """Mot batch ctrl co event voip: di qua on_call_event, con tro
++    van tien (giong test_ctrl_poller_dispatches_group_reaction...)."""
++    mock = MockZalo()
++    registry = ctrl_mod.VoiceAsyncRegistry()
++    calls = []
++    saved = []
++
++    def http_get(url, timeout=30):
++        return 200, mock._postlogin_envelope(
++            _ctrl_payload_with_call(dict(INCOMING_EVENT)))
++
++    poller = ctrl_mod.CtrlPoller(
++        http_get, ["https://poll.invalid/lp-ctl"], TEST_SESSION_KEY,
++        UID, registry, ctl_timeout=30,
++        on_call_event=lambda e: calls.append(e),
++        on_cursor=lambda c: saved.append(c.to_dict()))
++    assert poller.poll_once() == "ok"
++    assert len(calls) == 1, calls
++    assert calls[0]["act"] == "request", calls
++    assert calls[0]["call_id"] == CALL_ID_IN, calls
++    assert calls[0]["caller_id"] == CALLER_ID, calls
++    assert poller.last_batch["call_events"] == 1, poller.last_batch
++    assert poller.cursor.last_action_id == "88"
++    assert len(saved) == 1 and saved[0]["lastActionId"] == "88"
++
++
++def test_ctrl_poller_call_event_callback_error_does_not_kill_poll():
++    """Callback call_event loi van khong lam chet poller; con tro
++    van tien."""
++    mock = MockZalo()
++    registry = ctrl_mod.VoiceAsyncRegistry()
++
++    def bad_call(event):
++        raise RuntimeError("callback loi gia")
++
++    def http_get(url, timeout=30):
++        return 200, mock._postlogin_envelope(
++            _ctrl_payload_with_call(dict(INCOMING_EVENT)))
++
++    poller = ctrl_mod.CtrlPoller(
++        http_get, ["https://poll.invalid/lp-ctl"], TEST_SESSION_KEY,
++        UID, registry, ctl_timeout=30, on_call_event=bad_call)
++    assert poller.poll_once() == "ok"
++    assert poller.cursor.last_action_id == "88"
++
++
++# ------------------------------------------------------------------
++# 3. CallLog: trang thai "incoming"
++# ------------------------------------------------------------------
++
++def test_call_log_incoming_is_live_and_supersedes():
++    """record_incoming: trang thai live moi "incoming", thay the
++    cuoc live truoc (giong record_start), record_answered mo cho
++    "incoming" -> "answered", record_end nhan "incoming"."""
++    log = call_log_mod.CallLog()
++    old = log.record_start(111, "Peer", "20001", "user")
++    assert old["status"] == "sent", old
++    incoming = log.record_incoming(CALL_ID_IN, "BenBap", CALLER_ID,
++                                   "user")
++    assert incoming["status"] == "incoming", incoming
++    snap = log.snapshot()
++    assert snap["active"]["call_id"] == str(CALL_ID_IN), snap
++    assert snap["active"]["status"] == "incoming", snap
++    ended_old = [c for c in snap["calls"] if c["call_id"] == "111"][0]
++    assert ended_old["status"] == "ended", ended_old
++    assert ended_old["detail"] == "superseded_by_new_call", ended_old
++    answered = log.record_answered(CALL_ID_IN, "api")
++    assert answered is not None and answered["status"] == "answered", \
++        answered
++    ended = log.record_end(CALL_ID_IN, "peer_ended")
++    assert ended is not None and ended["status"] == "ended", ended
++
++
++# ------------------------------------------------------------------
++# 4. Server: _on_ctrl_call_event
++# ------------------------------------------------------------------
++
++def _capture_call_webhooks(state):
++    sent = []
++    state.webhook_store.save(
++        {"call_webhook_url": "https://hook.invalid/call"})
++    state.webhook_dispatcher = webhooks_mod.WebhookDispatcher(
++        state.webhook_store,
++        post_fn=lambda url, p: sent.append(p) or 200)
++    return sent
++
++
++def test_server_ctrl_call_event_request_creates_incoming_and_rings():
++    """Event request -> entry "incoming" + 11302 ringring gui toi
++    mock + webhook call.incoming."""
++    mock = MockZalo().start()
++
++    def check(base, mock, endpoints):
++        state = app_server.STATE
++        sent = _capture_call_webhooks(state)
++        state._on_ctrl_call_event(_parsed_event(dict(INCOMING_EVENT)))
++        active = _wait_active(base, CALL_ID_IN, "incoming")
++        assert active is not None, "no incoming entry"
++        assert active["thread_id"] == CALLER_ID, active
++        assert active["peer"] == "BenBap", active
++        steps = _wait_steps(mock, CALL_ID_IN, ["ringring"])
++        assert "ringring" in steps, steps
++        deadline = time.time() + 5
++        while time.time() < deadline and len(sent) < 1:
++            time.sleep(0.05)
++        assert len(sent) == 1, sent
++        assert sent[0]["type"] == "call.incoming", sent
++        assert sent[0]["call_id"] == str(CALL_ID_IN), sent
++        assert sent[0]["thread_id"] == CALLER_ID, sent
++
++    _run(mock, check)
++
++
++def test_server_ctrl_call_event_cancel_marks_missed():
++    """Event cancel cho cuoc incoming chua tra loi -> ended, detail
++    "missed" (cuoc goi nho), webhook call.ended."""
++    mock = MockZalo().start()
++
++    def check(base, mock, endpoints):
++        state = app_server.STATE
++        sent = _capture_call_webhooks(state)
++        state._on_ctrl_call_event(_parsed_event(dict(INCOMING_EVENT)))
++        assert _wait_active(base, CALL_ID_IN, "incoming") is not None
++        state._on_ctrl_call_event(_parsed_event(
++            {"act": "cancel", "callId": CALL_ID_IN,
++             "uidN": CALLER_ID}))
++        _s, calls = _api(base, "GET", "/api/calls")
++        assert calls.get("active") is None, calls
++        ended = [c for c in calls["calls"]
++                 if str(c["call_id"]) == str(CALL_ID_IN)][0]
++        assert ended["status"] == "ended", ended
++        assert ended["detail"] == "missed", ended
++        deadline = time.time() + 5
++        while time.time() < deadline and len(sent) < 2:
++            time.sleep(0.05)
++        ended_hooks = [p for p in sent
++                       if p["type"] == "call.ended"]
++        assert len(ended_hooks) == 1, sent
++
++    _run(mock, check)
++
++
++def test_server_ctrl_call_event_answer_marks_outgoing_answered():
++    """Event answer cho cuoc goi DI "sent" -> _mark_answered nguon
++    "sync" (gui answerack 11304 — day la phia caller, dung cho
++    goi di)."""
++    mock = MockZalo().start()
++
++    def check(base, mock, endpoints):
++        eff_id = _start_call(base, CALLER_ID, CALL_ID_OUT)
++        state = app_server.STATE
++        state._on_ctrl_call_event(_parsed_event(
++            {"act": "answer", "callId": eff_id, "uidN": CALLER_ID}))
++        active = _wait_active(base, eff_id, "answered")
++        assert active is not None, "outgoing not answered"
++        assert active.get("answer_source") == "sync", active
++        steps = _wait_steps(mock, eff_id, ["answerack"])
++        assert "answerack" in steps, steps
++
++    _run(mock, check)
++
++
++# ------------------------------------------------------------------
++# 5. POST /api/call/answer + /api/call/reject (e2e)
++# ------------------------------------------------------------------
++
++def _inject_incoming(base, mock):
++    state = app_server.STATE
++    state._on_ctrl_call_event(_parsed_event(dict(INCOMING_EVENT)))
++    active = _wait_active(base, CALL_ID_IN, "incoming")
++    assert active is not None, "no incoming entry to answer/reject"
++    _wait_steps(mock, CALL_ID_IN, ["ringring"])
++
++
++def test_answer_incoming_e2e():
++    """POST /api/call/answer cho cuoc incoming: 11300 fallback (cung
++    callId, partner = caller) + 11303 answer voi codec list JSON;
++    KHONG gui 11301 (tin hieu cua caller) va KHONG gui 11304
++    answerack (tin hieu cua caller); entry -> "answered"."""
++    mock = MockZalo().start()
++    mock.requestcall_data = {
++        "servers": REAL_SHAPE_SERVERS, "sessId": "sess-real-e2e",
++        "srtpKey": "k-test", "token": FAKE_TOKEN}
++
++    def check(base, mock, endpoints):
++        _inject_incoming(base, mock)
++        status, body = _api(base, "POST", "/api/call/answer",
++                            {"call_id": CALL_ID_IN})
++        assert body["ok"] is True, body
++        assert body["status"] == "answered", body
++        assert body["call_id"] == CALL_ID_IN, body
++        state = mock.voice_call_state(CALL_ID_IN)
++        steps = state["steps"]
++        assert "requestcall" in steps, steps
++        assert "answer" in steps, steps
++        assert "request" not in steps, steps
++        assert "answerack" not in steps, steps
++        assert state.get("answer_codec") == \
++            media_endpoints.DEFAULT_ZALO_AUDIO_CODEC, state
++        active = _wait_active(base, CALL_ID_IN, "answered")
++        assert active is not None, "incoming not answered"
++
++    _run(mock, check)
++
++
++def test_reject_incoming_e2e():
++    """POST /api/call/reject cho cuoc incoming: gui CA cancel (11305)
++    VA endcall (11306) — theo zca-js rejectIncomingCall; entry ket
++    thuc voi detail "user_rejected"."""
++    mock = MockZalo().start()
++
++    def check(base, mock, endpoints):
++        _inject_incoming(base, mock)
++        status, body = _api(base, "POST", "/api/call/reject",
++                            {"call_id": CALL_ID_IN})
++        assert body["ok"] is True, body
++        assert body["ended_call_id"] == CALL_ID_IN, body
++        steps = _wait_steps(mock, CALL_ID_IN, ["cancel", "endcall"])
++        assert "cancel" in steps, steps
++        assert "endcall" in steps, steps
++        _s, calls = _api(base, "GET", "/api/calls")
++        assert calls.get("active") is None, calls
++        ended = [c for c in calls["calls"]
++                 if str(c["call_id"]) == str(CALL_ID_IN)][0]
++        assert ended["status"] == "ended", ended
++        assert ended["detail"] == "user_rejected", ended
++
++    _run(mock, check)
++
++
++def test_answer_and_reject_without_incoming_error():
++    """Answer/reject khi khong co cuoc incoming nao -> loi ro
++    "no_incoming_call", khong gui tin hieu nao."""
++    mock = MockZalo().start()
++
++    def check(base, mock, endpoints):
++        status, body = _api(base, "POST", "/api/call/answer",
++                            {"call_id": CALL_ID_NONE})
++        assert body["ok"] is False, body
++        assert body["error"] == "no_incoming_call", body
++        status, body = _api(base, "POST", "/api/call/reject",
++                            {"call_id": CALL_ID_NONE})
++        assert body["ok"] is False, body
++        assert body["error"] == "no_incoming_call", body
++        assert mock.voice_call_state(CALL_ID_NONE)["steps"] == [], \
++            mock.voice_call_state(CALL_ID_NONE)
++
++    _run(mock, check)
+diff --git a/zalo-pc-app/zalo_pc_app/call_log.py b/zalo-pc-app/zalo_pc_app/call_log.py
+index 4ab317a..11465b3 100644
+--- a/zalo-pc-app/zalo_pc_app/call_log.py
++++ b/zalo-pc-app/zalo_pc_app/call_log.py
+@@ -21,13 +21,20 @@ Statuses (Vietnamese labels live in the UI, not here):
+            `answer_source` how the app learned it ("api" = an
+            explicit /api/call/answered call, e.g. from a sync
+            push event; "media" = first inbound RTP arrived).
++  incoming — a call is coming IN (2026-11-09, zca-js flow): the
++           peer called us and the app saw the `call_event`
++           (act "request") on ctrl 99101. Live until answered
++           (POST /api/call/answer, 11303) or ended (missed,
++           rejected, peer hung up). No ring timer is armed for
++           it — the peer's side decides when it stops ringing.
+   error  — the request failed; `detail` carries the error text.
+   ended  — /api/call/end was called for this call_id.
+ 
+-"LIVE" means status in ("sent", "answered") — every place that
+-looks for the live call (snapshot/active, record_end, supersede)
+-must accept both; before this fix only "sent" existed, so an
+-answered call could never be ended through /api/call/end.
++"LIVE" means status in ("sent", "answered", "incoming") — every
++place that looks for the live call (snapshot/active, record_end,
++supersede) must accept all three; before this fix only "sent"
++existed, so an answered call could never be ended through
++/api/call/end.
+ 
+ Each entry also carries `request_sent` (True/False/None — None
+ means the request step was never attempted, e.g. entries recorded
+@@ -51,7 +58,7 @@ MAX_RECORDS = 50
+ 
+ 
+ # Statuses that count as a LIVE call (ringing or connected).
+-LIVE_STATUSES = ("sent", "answered")
++LIVE_STATUSES = ("sent", "answered", "incoming")
+ 
+ 
+ class CallLog:
+@@ -85,20 +92,46 @@ class CallLog:
+             del self._calls[:-MAX_RECORDS]
+             return dict(entry)
+ 
++    def record_incoming(self, call_id, peer, thread_id, call_type):
++        """A call is coming IN: the peer called us (call_event act
++        "request" on ctrl 99101). Log it live with status
++        "incoming", and close any earlier live call (an incoming
++        call supersedes it, same as record_start). The closed
++        entry keeps "superseded_by_new_call" in `detail`."""
++        now = time.time()
++        with self._lock:
++            for c in self._calls:
++                if c["status"] in LIVE_STATUSES:
++                    c["status"] = "ended"
++                    c["ended_at"] = now
++                    c["detail"] = "superseded_by_new_call"
++            entry = {"call_id": str(call_id), "peer": peer or "",
++                     "thread_id": str(thread_id), "type": call_type,
++                     "status": "incoming", "started_at": now,
++                     "ended_at": None, "detail": "",
++                     "request_sent": None, "request_detail": "",
++                     "answered_at": None, "answer_source": "",
++                     "diag": {}}
++            self._calls.append(entry)
++            del self._calls[:-MAX_RECORDS]
++            return dict(entry)
++
+     def record_answered(self, call_id, source=""):
+         """Mark a live (ringing) call answered: the peer picked up
+-        and the call is connected. Only "sent" -> "answered"; an
+-        already-answered entry is returned unchanged (idempotent)
+-        and any other status (ended/error/unknown) returns None.
+-        The ring timer must be disarmed by the caller when this
+-        returns an entry — an answered call is never ring-timed-out."""
++        and the call is connected. "sent" -> "answered" (outgoing)
++        and "incoming" -> "answered" (we picked up an incoming
++        call); an already-answered entry is returned unchanged
++        (idempotent) and any other status (ended/error/unknown)
++        returns None. The ring timer must be disarmed by the
++        caller when this returns an entry — an answered call is
++        never ring-timed-out."""
+         now = time.time()
+         with self._lock:
+             for c in self._calls:
+                 if c["call_id"] == str(call_id):
+                     if c["status"] == "answered":
+                         return dict(c)
+-                    if c["status"] != "sent":
++                    if c["status"] not in ("sent", "incoming"):
+                         return None
+                     c["status"] = "answered"
+                     c["answered_at"] = now
+diff --git a/zalo-pc-app/zalo_pc_app/ctrl_poll.py b/zalo-pc-app/zalo_pc_app/ctrl_poll.py
+index ad42cf9..1162d3a 100644
+--- a/zalo-pc-app/zalo_pc_app/ctrl_poll.py
++++ b/zalo-pc-app/zalo_pc_app/ctrl_poll.py
+@@ -363,6 +363,183 @@ def extract_reactions(data):
+     return out
+ 
+ 
++def _call_event_int(value):
++    """callId dang so nguyen duong (uint32): int, chuoi so, float
++    nguyen; dang khac -> None."""
++    if isinstance(value, bool):
++        return None
++    if isinstance(value, int):
++        return value if value >= 1 else None
++    if isinstance(value, float) and value.is_integer():
++        return int(value) if value >= 1 else None
++    if isinstance(value, str):
++        text = value.strip()
++        if text.isdigit():
++            return int(text)
++    return None
++
++
++def _call_event_layers(data):
++    """Cac lop dict de doc truong cua mot call event: data goc,
++    roi params long nhau, roi data long nhau — lop truoc thang
++    lop sau (thu tu doc cua parseIncomingCallEvent, zca-js)."""
++    layers = []
++    if isinstance(data, dict):
++        layers.append(data)
++        params = _event_data(data.get("params"))
++        if isinstance(params, dict):
++            layers.append(params)
++        inner = _event_data(data.get("data"))
++        if isinstance(inner, dict):
++            layers.append(inner)
++    return layers
++
++
++def _call_field(layers, *keys):
++    """Gia tri dau tien khac rong cua mot truong qua cac lop."""
++    for layer in layers:
++        for key in keys:
++            value = layer.get(key)
++            if value is not None and value != "":
++                return value
++    return None
++
++
++def _call_rtp_addr(layers, kind):
++    """Dia chi rtp/rtcp: truong thang (rtpAddress/rtpIP/rtpServer),
++    roi servers[0] / serverAddr[0] / rtp[0]; rtcp ve rtp khi
++    thieu (theo parseIncomingCallEvent, zca-js)."""
++    primary = ("rtpAddress", "rtpIP", "rtpServer") \
++        if kind == "rtp" else ("rtcpAddress", "rtcpIP", "rtcpServer")
++    for layer in layers:
++        for key in primary:
++            value = layer.get(key)
++            if isinstance(value, str) and value:
++                return value
++    sub_keys = (("rtpaddr", "rtp", "ip", "addr", "address")
++                if kind == "rtp"
++                else ("rtcpaddr", "rtcp", "ip", "addr", "address"))
++    for layer in layers:
++        for key in ("servers", "serverAddr", "server", "rtp"):
++            items = layer.get(key)
++            if isinstance(items, list) and items:
++                first = items[0]
++                if isinstance(first, dict):
++                    for sub in sub_keys:
++                        value = first.get(sub)
++                        if isinstance(value, str) and value:
++                            return value
++                elif isinstance(first, str) and first:
++                    return first
++    return ""
++
++
++def extract_call_events(data):
++    """Tach cac event goi thoai (call_event) tu payload ctrl da
++    giai ma -> [{act, call_id, caller_id, caller_name, session,
++    codec, rtp_address, rtcp_address, call_type, is_video, data}].
++
++    Bang chung zca-js v2.3.13 (control.handler.ts): control co
++    actType == "voip" thi `callEventData =
++    JSON.parse(control.content.data)` roi emit "call_event".
++    parseIncomingCallEvent (ZaloRtcSession.ts:582+) doc callId tu
++    callId/call_id/id/params.*/extendData.*; caller tu
++    uidN/callerId/uidFrom/fromId (co map noise-id); sessId tu
++    session/sessId/callSetting.session; rtp/rtcp tu
++    rtpAddress/rtpIP/rtpServer/servers[0]/serverAddr[0]; codec
++    tu event; callType tu extendData.callType (0 thoai / 1 video).
++
++    Event thieu act hoac thieu call_id thi bo qua; "request"
++    thieu caller thi bo qua (khong biet ai goi); cac act khac
++    (cancel/end/answer/ringring/answer_ack) chi can call_id.
++    Trung trong mot batch thi chi lay mot. data co the la dict,
++    chuoi JSON, hoac long nhau {params: {...}} / {params:
++    "<json>"}.
++    """
++    out = []
++    seen = set()
++    if not isinstance(data, dict):
++        return out
++    controls = data.get("controls")
++    if not isinstance(controls, list):
++        return out
++    for ctrl in controls:
++        if not isinstance(ctrl, dict):
++            continue
++        content = ctrl.get("content")
++        if not isinstance(content, dict):
++            continue
++        if content.get("act_type") != "voip":
++            continue
++        parsed = _event_data(content.get("data"))
++        if not isinstance(parsed, dict):
++            continue
++        layers = _call_event_layers(parsed)
++        act = _call_field(layers, "act", "type") or ""
++        if not act:
++            act = content.get("act") or content.get("type") or ""
++        act = str(act)
++        if not act:
++            continue
++        call_id = _call_event_int(
++            _call_field(layers, "callId", "call_id", "id"))
++        if call_id is None:
++            continue
++        caller = _call_field(
++            layers, "uidN", "callerId", "uidFrom", "fromId",
++            "hostCall") or ""
++        caller = str(caller)
++        if act == "request" and not caller:
++            continue
++        key = (act, call_id, caller)
++        if key in seen:
++            continue
++        seen.add(key)
++        # callType: extendData (dict hoac chuoi JSON) o bat ky
++        # lop nao thang, roi truong callType thang.
++        call_type = 0
++        for layer in layers:
++            ext = _event_data(layer.get("extendData"))
++            if isinstance(ext, dict):
++                raw_type = ext.get("callType")
++                if isinstance(raw_type, int) \
++                        and not isinstance(raw_type, bool):
++                    call_type = raw_type
++                    break
++                if isinstance(raw_type, str) and raw_type.isdigit():
++                    call_type = int(raw_type)
++                    break
++        raw_type = _call_field(layers, "callType")
++        if isinstance(raw_type, int) \
++                and not isinstance(raw_type, bool):
++            call_type = raw_type
++        elif isinstance(raw_type, str) and raw_type.isdigit():
++            call_type = int(raw_type)
++        session = _call_field(layers, "session", "sessId") or ""
++        call_setting = _call_field(layers, "callSetting")
++        if not session and isinstance(call_setting, dict):
++            session = call_setting.get("session") or ""
++        codec = _call_field(layers, "codec") or ""
++        rtp = _call_rtp_addr(layers, "rtp")
++        rtcp = _call_rtp_addr(layers, "rtcp") or rtp
++        name = _call_field(layers, "callerName", "caller_name",
++                           "name", "displayName") or ""
++        out.append({
++            "act": act,
++            "call_id": call_id,
++            "caller_id": caller,
++            "caller_name": str(name),
++            "session": str(session),
++            "codec": str(codec),
++            "rtp_address": rtp,
++            "rtcp_address": rtcp,
++            "call_type": call_type,
++            "is_video": call_type == 1,
++            "data": parsed,
++        })
++    return out
++
++
+ class VoiceAsyncRegistry:
+     """Kho ket qua event async voice theo fileId (giong local map
+     fileId->data cua bundle: setFileIdData/getFileIdData).
+@@ -517,7 +694,8 @@ class CtrlPoller:
+     def __init__(self, http_get, poll_urls, zpw_enk, own_id,
+                  registry, ctl_timeout=30, cursor=None,
+                  on_cursor=None, on_group_event=None,
+-                 on_reaction=None, file_registry=None):
++                 on_reaction=None, on_call_event=None,
++                 file_registry=None):
+         urls = [u for u in (poll_urls or []) if u]
+         if not urls:
+             raise ValueError("ctrl_poll: can it nhat 1 poll URL "
+@@ -547,14 +725,16 @@ class CtrlPoller:
+         else:
+             self.cursor = PollCursor()
+         self.on_cursor = on_cursor
+-        # on_group_event(event) / on_reaction(event): goi cho moi
+-        # event nhom / reaction tach duoc (xem extract_*); loi o
+-        # callback khong lam chet poller.
++        # on_group_event(event) / on_reaction(event) /
++        # on_call_event(event): goi cho moi event nhom / reaction /
++        # goi thoai tach duoc (xem extract_*); loi o callback
++        # khong lam chet poller.
+         self.on_group_event = on_group_event
+         self.on_reaction = on_reaction
++        self.on_call_event = on_call_event
+         # Chan doan batch vua xu ly (khong log noi dung).
+         self.last_batch = {"group_events": 0, "reactions": 0,
+-                           "at": 0}
++                           "call_events": 0, "at": 0}
+         self._idx = 0
+         self._stop = threading.Event()
+         self._thread = None
+@@ -656,6 +836,7 @@ class CtrlPoller:
+                                            event["url"])
+         group_events = extract_group_events(data)
+         reactions = extract_reactions(data)
++        call_events = extract_call_events(data)
+         before = self.cursor.to_dict()
+         self.cursor.update_from(data)
+         for event in group_events:
+@@ -670,8 +851,15 @@ class CtrlPoller:
+                     self.on_reaction(event)
+                 except Exception:  # noqa: BLE001 - callback loi
+                     pass
++        for event in call_events:
++            if self.on_call_event is not None:
++                try:
++                    self.on_call_event(event)
++                except Exception:  # noqa: BLE001 - callback loi
++                    pass
+         self.last_batch = {"group_events": len(group_events),
+                            "reactions": len(reactions),
++                           "call_events": len(call_events),
+                            "at": time.time()}
+         if self.on_cursor is not None \
+                 and self.cursor.to_dict() != before:
+diff --git a/zalo-pc-app/zalo_pc_app/server.py b/zalo-pc-app/zalo_pc_app/server.py
+index 6329ca1..5dfbb95 100644
+--- a/zalo-pc-app/zalo_pc_app/server.py
++++ b/zalo-pc-app/zalo_pc_app/server.py
+@@ -35,6 +35,13 @@ API (all JSON, never returns session secrets):
+                           1-1 calls; also fired by first inbound
+                           RTP (media proves the answer, no sync
+                           channel needed)
++  POST /api/call/answer   {call_id} -> answer an INCOMING call
++                          (we are the callee): 11300 fallback +
++                          11303 answer; NO 11301 and NO 11304
++                          (both are the caller's signals, zca-js)
++  POST /api/call/reject   {call_id} -> reject an INCOMING call:
++                          cancel (11305) + endcall (11306),
++                          zca-js rejectIncomingCall
+   GET  /api/svc/catalog   96-service catalog + support status
+   POST /api/svc/<action>  addon-service op (services.py; needs login)
+   GET  /api/engine/status media-engine seam status
+@@ -530,6 +537,35 @@ def _disarm_ring_timer(call_id):
+             pass
+ 
+ 
++def _send_ringring_async(call_id, thread_id):
++    """Best-effort ringring (11302, bundle wZ ringRingVoiceCall):
++    the callee reports ringing to the caller. Runs on a daemon
++    thread so it never blocks the ctrl poller — the call_event
++    callback runs on the poller's thread, and a slow signaling
++    round-trip there would stall the whole ctrl channel. The
++    session is read fresh from STATE; without one the ring is
++    skipped (logged, not fatal: the incoming entry is still
++    recorded). Only for 1-1 calls. On success the entry's diag
++    gains incoming_ringring_sent=True, so POST /api/call/answer
++    knows it does not need to ring again."""
++    sess = STATE.session
++    if not sess or not sess.get("zpw_sek") or not sess.get("zpw_enk"):
++        _log_call("ringring call_id=%s ok=False error=no_session"
++                  % call_id)
++        return
++    try:
++        transport = make_transport(sess["zpw_sek"])
++        sig = signaling_mod.Signaling(transport, sess["device_id"],
++                                      sess["zpw_enk"])
++        sig.ringring(thread_id, call_id)
++        STATE.calls.record_diag(
++            call_id, {"incoming_ringring_sent": True})
++        _log_call("ringring call_id=%s ok=True" % call_id)
++    except Exception as e:  # noqa: BLE001 - best-effort
++        _log_call("ringring call_id=%s ok=False error=%s"
++                  % (call_id, e))
++
++
+ def _send_answerack_async(call_id, thread_id):
+     """Best-effort answerack (11304, bundle wZ sendAnswerACKCall):
+     the caller ACKs the callee's answer. Runs on a daemon thread
+@@ -574,18 +610,24 @@ def _calls_snapshot_with_media():
+     return snap
+ 
+ 
+-def _mark_answered(call_id, source):
++def _mark_answered(call_id, source, send_ack=True):
+     """Mark a live (ringing) call answered: the peer picked up and
+     the call is connected. `source` names how the app learned it
+     ("api" = POST /api/call/answered, e.g. from a sync push event;
+-    "media" = first inbound RTP arrived). Idempotent: marking an
++    "media" = first inbound RTP arrived; "sync" = a call_event
++    "answer" on ctrl 99101). Idempotent: marking an
+     already-answered call returns it unchanged without re-logging
+     or re-ACKing. Returns the entry, or None when there is no live
+     call with that id. Side effects on transition: the ring timer
+     is disarmed (an answered call is never ring-timed-out), a
+     [call] answered line is logged, a call webhook event fires,
+-    and an answerack (11304) is sent best-effort on a daemon
+-    thread for 1-1 calls. It also starts the P2P hello handshake
++    and — for an OUTGOING call only (send_ack=True) — an answerack
++    (11304) is sent best-effort on a daemon thread for 1-1 calls.
++    An INCOMING call is answered with send_ack=False: the callee
++    never sends 11304 — it is the CALLER's signal (zca-js
++    acceptIncomingCall sends no answerack; the mock's
++    server_call_state confirms 11304 is the caller's ACK of the
++    callee's answer). It also starts the P2P hello handshake
+     (transport.begin_p2p, best-effort): only now — after the
+     answer — does the relay know the peer's address, so only
+     now can the hello go to the peer instead of to ourselves
+@@ -594,7 +636,7 @@ def _mark_answered(call_id, source):
+     live = None
+     for c in snap["calls"]:
+         if str(c["call_id"]) == str(call_id) \
+-                and c["status"] in ("sent", "answered"):
++                and c["status"] in ("sent", "answered", "incoming"):
+             live = c
+             break
+     if live is None:
+@@ -627,7 +669,7 @@ def _mark_answered(call_id, source):
+     webhooks_mod.dispatch_call_event(
+         STATE.webhook_dispatcher, entry,
+         (STATE.session or {}).get("uid", ""))
+-    if (entry.get("type") or "user") != "group":
++    if send_ack and (entry.get("type") or "user") != "group":
+         thread = threading.Thread(
+             target=_send_answerack_async,
+             args=(int(entry["call_id"]), entry["thread_id"]),
+@@ -1455,6 +1497,101 @@ class AppState:
+         except Exception:
+             pass
+ 
++    def _on_ctrl_call_event(self, event):
++        """Callback call_event tu CtrlPoller (99101): su kien goi
++        thoai theo flow zca-js (ZaloRtcSession: call_event act
++        "request" -> ringring 11302 -> answer 11303 -> answerack
++        11304 o phia caller; tu choi bang cancel 11305 + endcall
++        11306). Chi log dang event + id, khong log noi dung."""
++        try:
++            act = (event or {}).get("act", "")
++            call_id = (event or {}).get("call_id")
++            if call_id is None:
++                return
++            if act == "request":
++                self._on_incoming_call_request(event)
++            elif act in ("cancel", "end", "endcall"):
++                self._on_incoming_call_ended(event, act)
++            elif act == "answer":
++                # Peer answered OUR outgoing call (sync path):
++                # mark answered, source "sync" — _mark_answered
++                # sends the caller's answerack (11304) itself.
++                entry = _mark_answered(call_id, "sync")
++                if entry is not None:
++                    _log_call("call_event answer call_id=%s "
++                              "answered" % call_id)
++            elif act in ("ringring", "answer_ack"):
++                _log_call("call_event %s call_id=%s" % (act, call_id))
++            elif act in ("group_request", "group_cancel",
++                         "group_end"):
++                # Group incoming: chua ho tro (chi 1-1 o vong nay).
++                _log_call("call_event %s call_id=%s "
++                          "unsupported=group" % (act, call_id))
++            else:
++                _log_call("call_event act=%s call_id=%s ignored"
++                          % (act, call_id))
++        except Exception:
++            pass
++
++    def _on_incoming_call_request(self, event):
++        """Cuoc goi den (call_event act "request"): ghi entry
++        "incoming" (thay the cuoc live truoc), gui ringring 11302
++        best-effort tren daemon thread, day webhook call.incoming.
++        Khong arm ring timer — phia goi quyet dinh khi nao dung
++        do chuong."""
++        call_id = int(event["call_id"])
++        caller_id = str(event.get("caller_id") or "")
++        peer = event.get("caller_name") or caller_id
++        entry = STATE.calls.record_incoming(
++            call_id, peer, caller_id, "user")
++        STATE.calls.record_diag(call_id, {
++            "incoming_codec": event.get("codec") or "",
++            "incoming_session_present": bool(event.get("session")),
++            "incoming_rtp_present": bool(event.get("rtp_address")),
++            "incoming_ringring_sent": False})
++        _log_call("incoming call_id=%s peer=%s thread=%s"
++                  % (call_id, peer, caller_id))
++        thread = threading.Thread(
++            target=_send_ringring_async,
++            args=(call_id, caller_id), daemon=True)
++        thread.start()
++        webhooks_mod.dispatch_call_event(
++            STATE.webhook_dispatcher, entry,
++            (STATE.session or {}).get("uid", ""))
++
++    def _on_incoming_call_ended(self, event, act):
++        """Caller ket thuc truoc khi ta tra loi (cancel/end), hoac
++        ket thuc mot cuoc dang noi: chi GHI NHAN, khong gui tin
++        hieu (phia kia da ket thuc roi). Incoming chua tra loi ->
++        "missed" (cuoc goi nho); outgoing/answered -> peer ket
++        thuc. Webhook call.ended."""
++        call_id = int(event["call_id"])
++        snap = STATE.calls.snapshot()
++        target = None
++        for c in snap["calls"]:
++            if str(c["call_id"]) == str(call_id) \
++                    and c["status"] in ("incoming", "sent",
++                                        "answered"):
++                target = c
++                break
++        if target is None:
++            _log_call("call_event %s call_id=%s ignored=no_live"
++                      % (act, call_id))
++            return
++        if target["status"] == "incoming":
++            detail = "missed"
++        elif act == "cancel":
++            detail = "peer_declined"
++        else:
++            detail = "peer_ended"
++        entry = STATE.calls.record_end(call_id, detail)
++        if entry is not None:
++            _log_call("call_event %s call_id=%s ended detail=%s"
++                      % (act, call_id, detail))
++            webhooks_mod.dispatch_call_event(
++                STATE.webhook_dispatcher, entry,
++                (STATE.session or {}).get("uid", ""))
++
+     @staticmethod
+     def _sync_error_text(exc):
+         """Failure label for sync_error: exception type + a
+@@ -1686,6 +1823,7 @@ class AppState:
+                 on_cursor=lambda c: self._save_sync_cursor("ctrl", c),
+                 on_group_event=self._on_ctrl_group_event,
+                 on_reaction=self._on_ctrl_reaction,
++                on_call_event=self._on_ctrl_call_event,
+                 file_registry=self.file_async)
+         except ValueError as e:
+             print("[sync-poll] kenh ctrl khong mo duoc: %s"
+@@ -3255,6 +3393,167 @@ class Handler(BaseHTTPRequestHandler):
+                  "status": entry["status"],
+                  "answered_at": entry.get("answered_at"),
+                  "answer_source": entry.get("answer_source", "")})
++        if path == "/api/call/answer":
++            sess = self._require_login()
++            if sess is None:
++                return self._send_json({"error": "chua_dang_nhap"},
++                                       status=401)
++            # Answer an INCOMING call (we are the callee). zca-js
++            # acceptIncomingCall: ringring 11302 (unless the
++            # call_event handler already sent it) -> requestVoiceCall
++            # 11300 fallback for a fresh allocation (same callId,
++            # partner = caller) -> answerVoiceCall 11303 with the
++            # allocation's endpoints. The 11301 request step is NOT
++            # sent — that is the caller's signal — and no answerack
++            # (11304) is sent either: 11304 is the CALLER's signal
++            # (zca-js + mock server_call_state). Target resolution
++            # mirrors /api/call/answered, but only an "incoming"
++            # entry counts.
++            raw_id = body.get("call_id", "")
++            call_id = _coerce_call_id(raw_id)
++            snap = STATE.calls.snapshot()
++            live = snap["active"]
++            target = None
++            if call_id is not None:
++                for c in snap["calls"]:
++                    if (str(c["call_id"]) == str(call_id)
++                            and c["status"] == "incoming"):
++                        target = c
++                        break
++            if target is None and live is not None \
++                    and live["status"] == "incoming":
++                target = live
++            if target is None:
++                _log_call("answer call_id=%s reason=no_incoming_call"
++                          % raw_id)
++                return self._send_json(
++                    {"ok": False, "error": "no_incoming_call"})
++            call_id = int(target["call_id"])
++            caller_id = target["thread_id"]
++            codec = ((target.get("diag") or {}).get("incoming_codec")
++                     or media_endpoints.DEFAULT_ZALO_AUDIO_CODEC)
++            # Ringring first when the call_event handler has not
++            # sent it yet (best-effort, synchronous here: the
++            # answer must reach the caller after the ring).
++            if not (target.get("diag") or {}).get(
++                    "incoming_ringring_sent"):
++                try:
++                    transport = make_transport(sess["zpw_sek"])
++                    sig = signaling_mod.Signaling(
++                        transport, sess["device_id"], sess["zpw_enk"])
++                    sig.ringring(caller_id, call_id)
++                    STATE.calls.record_diag(
++                        call_id, {"incoming_ringring_sent": True})
++                except Exception as e:  # noqa: BLE001 - best-effort
++                    _log_call("ringring call_id=%s ok=False "
++                              "error=%s" % (call_id, e))
++            try:
++                transport = make_transport(sess["zpw_sek"])
++                sig = signaling_mod.Signaling(
++                    transport, sess["device_id"], sess["zpw_enk"])
++                data = sig.request_call(
++                    caller_id, call_id, codec,
++                    _type_request_for("user"))
++                _alloc = media_endpoints. \
++                    allocation_from_requestcall_data(data)
++                hooks = {}
++                if _alloc.get("srtp_key") is not None:
++                    try:
++                        from . import pc_media
++                        hooks = pc_media.media_hooks_for_call(
++                            _alloc["srtp_key"])
++                    except Exception:  # noqa: BLE001 - optional
++                        hooks = {}
++
++                def _on_first_media():
++                    _mark_answered(call_id, "media", send_ack=False)
++
++                endpoints = media_endpoints.ENDPOINTS.for_call(
++                    call_id=call_id, callee_id=caller_id,
++                    call_type="user", codec=body.get("codec") or codec,
++                    local_session=_alloc.get("local_session"),
++                    peer_session=_alloc.get("peer_session"),
++                    requestcall_data=data,
++                    on_first_media=_on_first_media, **hooks)
++                sig.answer(caller_id, call_id, 0, endpoints["codec"],
++                           endpoints["rtcp_address"],
++                           endpoints["rtp_address"],
++                           endpoints["session"],
++                           endpoints["extend_data"])
++            except Exception as e:  # noqa: BLE001 - loi ro
++                _log_call("answer call_id=%s ok=False error=%s"
++                          % (call_id, e))
++                return self._send_json(
++                    {"ok": False, "error": str(e)})
++            entry = _mark_answered(call_id, "api", send_ack=False)
++            if entry is None:
++                return self._send_json(
++                    {"ok": False, "error": "no_incoming_call"})
++            return self._send_json(
++                {"ok": True, "call_id": call_id,
++                 "status": entry["status"],
++                 "answered_at": entry.get("answered_at"),
++                 "answer_source": entry.get("answer_source", "")})
++        if path == "/api/call/reject":
++            sess = self._require_login()
++            if sess is None:
++                return self._send_json({"error": "chua_dang_nhap"},
++                                       status=401)
++            # Reject an INCOMING call (we are the callee). zca-js
++            # rejectIncomingCall (1-1): cancelVoiceCall (11305)
++            # AND endVoiceCall (11306, status 3), both best-effort.
++            # LOCAL-FIRST like /api/call/end: the entry is ended
++            # locally first, then the signals are attempted.
++            raw_id = body.get("call_id", "")
++            call_id = _coerce_call_id(raw_id)
++            snap = STATE.calls.snapshot()
++            live = snap["active"]
++            target = None
++            if call_id is not None:
++                for c in snap["calls"]:
++                    if (str(c["call_id"]) == str(call_id)
++                            and c["status"] == "incoming"):
++                        target = c
++                        break
++            if target is None and live is not None \
++                    and live["status"] == "incoming":
++                target = live
++            if target is None:
++                _log_call("reject call_id=%s reason=no_incoming_call"
++                          % raw_id)
++                return self._send_json(
++                    {"ok": False, "error": "no_incoming_call"})
++            call_id = int(target["call_id"])
++            caller_id = target["thread_id"]
++            entry = STATE.calls.record_end(call_id, "user_rejected")
++            zalo_ok = True
++            zalo_error = ""
++            for signal in ("cancel", "endcall"):
++                try:
++                    transport = make_transport(sess["zpw_sek"])
++                    sig = signaling_mod.Signaling(
++                        transport, sess["device_id"], sess["zpw_enk"])
++                    if signal == "cancel":
++                        # callerId = the CALLER (peer), callType =
++                        # the 1-1 audio enum (1), like _send_end_signal.
++                        sig.cancel(caller_id, call_id,
++                                   _type_request_for("user"))
++                    else:
++                        sig.endcall(caller_id, call_id)
++                except Exception as e:  # noqa: BLE001 - best-effort
++                    zalo_ok = False
++                    zalo_error = str(e)
++            if entry is not None:
++                webhooks_mod.dispatch_call_event(
++                    STATE.webhook_dispatcher, entry,
++                    (STATE.session or {}).get("uid", ""))
++                _log_call("reject call_id=%s zalo_ok=%s%s"
++                          % (call_id, zalo_ok,
++                             (" zalo_error=" + zalo_error)
++                             if zalo_error else ""))
++            return self._send_json(
++                {"ok": True, "ended_call_id": call_id,
++                 "zalo_ok": zalo_ok, "zalo_error": zalo_error})
+         # WEBHOOK HOOK (webhooks.py): save the webhook config. Auth is
+         # the same _require_login() as /api/calls. Bad URL -> 400,
+         # nothing written. Unknown keys are dropped by normalize.
+-- 
+2.43.0
+
