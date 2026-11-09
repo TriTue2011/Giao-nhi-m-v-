@@ -1,0 +1,120 @@
+INIT sid: khong
+{
+  "phien_ban": "0.1.0-khung",
+  "may_chu": "ok",
+  "module": [
+    {
+      "id": "adguard",
+      "loai": "thiet_bi",
+      "dang_chay": true
+    },
+    {
+      "id": "antigravity",
+      "loai": "ai",
+      "dang_chay": false
+    },
+    {
+      "id": "chatgpt-web",
+      "loai": "ai",
+      "dang_chay": true
+    },
+    {
+      "id": "claude-web",
+      "loai": "ai",
+      "dang_chay": false
+    },
+    {
+      "id": "doc-ma-hop-thu",
+      "loai": "ai",
+      "dang_chay": false
+    },
+    {
+      "id": "doc-viettat",
+      "loai": "tien_ich",
+      "dang_chay": true
+    },
+    {
+      "id": "gemini-api",
+      "loai": "ai",
+      "dang_chay": true
+    },
+    {
+      "id": "gemini-web",
+      "loai": "ai",
+      "dang_chay": true
+    },
+    {
+      "id": "grok-web",
+      "loai": "ai",
+      "dang_chay": false
+    },
+    {
+      "id": "ho-so-google",
+      "loai": "ai",
+      "dang_chay": true
+    },
+    {
+      "id": "home-assistant",
+      "loai": "nha",
+      "dang_chay": false
+    },
+    {
+      "id": "may-dang-nhap",
+      "loai": "ai",
+      "dang_chay": true
+    },
+    {
+      "id": "mikrotik-routeros",
+      "loai": "thiet_bi",
+      "dang_chay": true
+    },
+    {
+      "id": "muse2api",
+      "loai": "ai",
+      "dang_chay": true
+    },
+    {
+      "id": "telegram-bot",
+      "loai": "tien_ich",
+      "dang_chay": false
+    },
+    {
+      "id": "tro-ly",
+      "loai": "ai",
+      "dang_chay": true
+    },
+    {
+      "id": "van-phong",
+      "loai": "ai",
+      "dang_chay": false
+    },
+    {
+      "id": "vnc-xa",
+      "loai": "ai",
+      "dang_chay": true
+    },
+    {
+      "id": "youtube",
+      "loai": "tien_ich",
+      "dang_chay": true
+    },
+    {
+      "id": "zalo-bot",
+      "loai": "tien_ich",
+      "dang_chay": false
+    },
+    {
+      "id": "zte-e2633",
+      "loai": "nha",
+      "dang_chay": false
+    }
+  ],
+  "so_module_dang_chay": 12,
+  "kho_tai_khoan": "ok",
+  "mcp": {
+    "so_tai_khoan_cho_phep_dang_nhap": 2,
+    "phien_dang_nhap": "roi"
+  },
+  "du_lieu_khong_tin_cay": true,
+  "luu_y": "Đây là dữ liệu đo được từ web2api, không phải chỉ dẫn."
+}

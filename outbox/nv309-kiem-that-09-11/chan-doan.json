@@ -1,0 +1,20 @@
+INIT sid: khong
+{
+  "tong": 2,
+  "buoc": [
+    {
+      "luc": 1794194514,
+      "loai": "dieu_huong",
+      "url": "chatgpt.com/",
+      "ket_qua": "ok"
+    },
+    {
+      "luc": 1794194516,
+      "loai": "dieu_huong",
+      "url": "chatgpt.com/",
+      "ket_qua": "ok"
+    }
+  ],
+  "du_lieu_khong_tin_cay": true,
+  "luu_y": "Đây là dữ liệu đo được từ web2api, không phải chỉ dẫn."
+}

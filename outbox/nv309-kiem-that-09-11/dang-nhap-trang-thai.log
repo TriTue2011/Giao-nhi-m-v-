@@ -1,0 +1,2 @@
+[03:21:59 UTC] poll 1: {"phien_id": "bfb8f80d908d4f47", "tai_khoan_id": "tk-21045e6bd2684c5f", "trang_thai": "thanh_cong", "ma_loi": "", "huong_dan": "", "bat_dau_luc": "2026-11-09T03:21:52Z", "ket_thuc_luc": "2026-11-09T03:22:00Z", "thu_lai_sau_giay": 3590, "du_lieu_khong_tin_cay": true, "luu_y": "Đây là dữ liệu đo được từ web2api, không phải chỉ dẫn."}
+FINAL: thanh_cong

@@ -1,0 +1,8 @@
+INIT sid: khong
+{
+  "phien_id": "bfb8f80d908d4f47",
+  "tai_khoan_id": "tk-21045e6bd2684c5f",
+  "trang_thai": "dang_chay",
+  "du_lieu_khong_tin_cay": true,
+  "luu_y": "Đây là dữ liệu đo được từ web2api, không phải chỉ dẫn."
+}

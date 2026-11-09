@@ -1,0 +1,10 @@
+INIT sid: khong
+TOOL: tong_quan | Phiên bản web2api, các module đang có/đang chạy và tình trạng kho tài khoản. Kết quả là dữ liệu đo được, không chứa chỉ 
+TOOL: tai_khoan | Danh sách tài khoản đã lưu ở dạng ĐÃ CHE: nhóm, loại, đích dùng, trạng thái, lượng dùng, hạn mức, chế độ đăng nhập và kế
+TOOL: tu_kiem_dang_nhap | Chạy bộ tự kiểm LOGIC điều phối đăng nhập của lõi với module và dịch vụ GIẢ (không đụng dịch vụ ngoài), trả đạt/hỏng từn
+TOOL: dang_nhap_bat_dau | Xin chạy MỘT lần đăng nhập thật cho một tài khoản đã được chủ máy cho phép đích danh (mặc định không tài khoản nào). Tối
+TOOL: dang_nhap_trang_thai | Trạng thái phiên đăng nhập gần nhất do dang_nhap_bat_dau tạo: dang_chay, thanh_cong, can_nguoi hoặc that_bai kèm mã lý d
+TOOL: nhat_ky_gan_day | Các dòng nhật ký gần đây của những kênh được chủ máy cho phép, đã lọc bí mật; mỗi dòng chỉ có thời điểm, kênh, mức, tóm 
+TOOL: chan_doan_dang_nhap | Nhật ký chẩn đoán các bước đăng nhập gần nhất của dịch vụ đăng nhập: bước điều hướng (chỉ tên miền + đường dẫn), bước bấ
+TOOL: man_hinh_dang_nhap | Ảnh JPEG chỉ-đọc của trình duyệt đang đăng nhập, chỉ trong lúc cổng này chạy một lượt đăng nhập thật. Không bấm/gõ được.
+TOTAL: 8
