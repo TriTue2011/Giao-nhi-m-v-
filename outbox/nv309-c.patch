@@ -1,0 +1,813 @@
+From a82c3aca5f408f1ae488d7b83081bc2665393e2d Mon Sep 17 00:00:00 2001
+From: Muse <muse@local>
+Date: Mon, 9 Nov 2026 04:33:39 +0000
+Subject: [PATCH] NV309-c: khoa serial toan cuc cho duong Google + giu captcha
+ toan cuc
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+- app/khoa_dang_nhap_google.py (moi): singleton asyncio trong tien trinh
+  loi — serial 1 luot Google tai 1 thoi diem, gian cach 25 giay tu moc
+  ket thuc luot truoc (c2a _GLOGIN_GAP_S), giu captcha 6 gio
+  (c2a _GLOGIN_CAPTCHA_HOLD_S), chu hold chay lai duoc de go hold.
+  Gap doc tu env WEB2API_GOOGLE_GIAN_CACH_GIAY luc goi (mac dinh 25).
+- 4 module *-web: tai_dung_ho_so thanh wrapper qua khoa loi (chi serial
+  neu khong danh tinh, khong dat hold); hook captcha-subset o moi diem
+  kiem tin hieu trong than cu (_tai_dung_ho_so_chay); thanh cong go hold
+  cua dung chu; T2 + dang_nhap nhanh google noi chu_giu=email (bo sung
+  tren main 5c86930: patch cu chua noi dang_nhap, chu hold lech voi T2).
+- test/conftest.py: gap Google = 0 trong test.
+- test/test_nv309_c.py (moi, 7 test): serial, gap, captcha chan module
+  khac bang cho_captcha_toan_cuc, chu hold chay lai go hold, 2FA thuan
+  khong dat hold, luot khong danh tinh chi serial, dang_nhap google
+  dat hold theo email.
+---
+ app/khoa_dang_nhap_google.py  | 144 +++++++++++++++++++++++++
+ modules/chatgpt-web/module.py |  38 ++++++-
+ modules/claude-web/module.py  |  41 +++++++-
+ modules/gemini-web/module.py  |  38 ++++++-
+ modules/grok-web/module.py    |  50 ++++++++-
+ test/conftest.py              |   5 +
+ test/test_nv309_c.py          | 193 ++++++++++++++++++++++++++++++++++
+ 7 files changed, 495 insertions(+), 14 deletions(-)
+ create mode 100644 app/khoa_dang_nhap_google.py
+ create mode 100644 test/test_nv309_c.py
+
+diff --git a/app/khoa_dang_nhap_google.py b/app/khoa_dang_nhap_google.py
+new file mode 100644
+index 0000000..76358dc
+--- /dev/null
++++ b/app/khoa_dang_nhap_google.py
+@@ -0,0 +1,144 @@
++"""Khóa serial toàn cục cho đường Google + giữ captcha toàn cục (NV309-c).
++
++SAI S3: trước đây mỗi module *-web chỉ có khóa riêng + hoãn captcha riêng
++1800 giây → hai module có thể đăng nhập Google song song, dồn RAM và mời
++captcha chùm. c2a tránh điều này bằng `_glogin_serial` (1 phiên tại một thời
++điểm, giãn cách 25 giây) + giữ CAPTCHA toàn cục 6 giờ — đọc lấy hiểu từ
++`inbox/tai-lieu/c2a-dang-nhap/services/account_recovery.py`, tự viết lại cho
++kiến trúc w2a (asyncio, không threading).
++
++MỘT chỗ duy nhất: mọi lượt Google của module (điểm chặn `tai_dung_ho_so`)
++đi qua `phien_dang_nhap_google`. Per-module 1800 giây giữ nguyên (lớp dưới).
++
++Phạm vi: khóa này sống trong TIẾN TRÌNH LÕI → serialize các lượt Google của
++module. Tiến trình DỊCH VỤ (do_google_login_steps) là tiến trình khác, không
++bị khóa này serialize (vẫn bị trần 2 ngữ cảnh của pool) — serialize xuyên
++tiến trình cần cơ chế khóa chia sẻ, là follow-up, không tự đoán ở đây.
++
++Chủ hold (`chu`) là EMAIL của tài khoản — khớp cả đường đã lưu lẫn T2 cùng
++tài khoản. Lượt không danh tính (chu rỗng) chỉ serial, không đặt hold (không
++có chủ để gỡ — tránh hold kẹt 6 giờ không ai gỡ được).
++"""
++
++from __future__ import annotations
++
++import asyncio
++import contextlib
++import os
++import time
++
++#: Giãn cách tối thiểu giữa 2 lượt Google (như bấm tay lần lượt — c2a 25s).
++GIAN_CACH_GIAY = 25.0
++#: Giữ captcha toàn cục (c2a 6 giờ: thử thách theo IP, không phải theo tài khoản).
++GIU_CAPTCHA_GIAY = 6 * 3600.0
++#: Mã lỗi khi lượt Google bị chặn vì đang giữ captcha (mã ngắn, khớp khuôn
++#: chung [a-z0-9_]{1,64}; KHÔNG phải can_nguoi — người đã xử lý captcha đầu
++#: rồi, các lượt khác chỉ chờ, không cần người bấm thêm).
++MA_LOI_GIU = "cho_captcha_toan_cuc"
++
++#: Tín hiệu captcha/thử thách theo IP (khác 2FA/xác minh theo tài khoản).
++TIN_HIEU_CAPTCHA = {"captcha", "cloudflare", "thu_thach_truy_cap"}
++
++_khoa_serial: asyncio.Lock | None = None
++_lan_xong_cuoi: float = 0.0
++_giu_den: float = 0.0
++_giu_chu: str = ""
++
++
++def _lay_khoa() -> asyncio.Lock:
++    global _khoa_serial
++    if _khoa_serial is None:
++        _khoa_serial = asyncio.Lock()
++    return _khoa_serial
++
++
++def dat_lai() -> None:
++    """Reset trạng thái singleton (cho test; production không gọi)."""
++    global _lan_xong_cuoi, _giu_den, _giu_chu
++    _lan_xong_cuoi = 0.0
++    _giu_den = 0.0
++    _giu_chu = ""
++
++
++def _gap_hieu_luc() -> float:
++    """Giãn cách hiệu lực: env `WEB2API_GOOGLE_GIAN_CACH_GIAY` (nếu đặt) thắng
++    hằng mặc định — test đặt 0 để khỏi ngủ 25 giây mỗi lượt; env sai → mặc định."""
++    try:
++        return float(os.environ.get("WEB2API_GOOGLE_GIAN_CACH_GIAY", "")
++                     or GIAN_CACH_GIAY)
++    except (TypeError, ValueError):
++        return GIAN_CACH_GIAY
++
++
++def dang_giu() -> bool:
++    """Đang trong thời gian giữ captcha toàn cục?"""
++    return time.time() < _giu_den
++
++
++def thong_tin_giu() -> tuple[bool, str, int]:
++    """(đang_giữ, chủ_hold, số_phút_còn_lại) — chỉ dùng nội bộ để so khớp và
++    log kỹ thuật; KHÔNG đưa email chủ hold vào thông điệp gửi người dùng
++    (tránh lộ email tài khoản khác)."""
++    if not dang_giu():
++        return False, "", 0
++    con = max(0, int((_giu_den - time.time()) / 60))
++    return True, _giu_chu, con
++
++
++def dat_giu_captcha(chu: str = "") -> None:
++    """Đặt giữ captcha toàn cục 6 giờ cho `chu` (chủ hold).
++
++    Chỉ khi `chu` khác rỗng: lượt không danh tính gặp captcha vẫn trả
++    can_nguoi như cũ nhưng không đặt hold toàn cục.
++    """
++    global _giu_den, _giu_chu
++    chu = (chu or "").strip()
++    if not chu:
++        return
++    _giu_den = time.time() + GIU_CAPTCHA_GIAY
++    _giu_chu = chu
++
++
++def bo_giu_neu_chu(chu: str = "") -> None:
++    """Gỡ hold nếu `chu` đúng là chủ hold (chủ đã đăng nhập xong)."""
++    global _giu_den, _giu_chu
++    chu = (chu or "").strip()
++    if chu and chu == _giu_chu:
++        _giu_den = 0.0
++        _giu_chu = ""
++
++
++class BiGiuCaptchaToanCuc(Exception):
++    """Lượt Google bị chặn vì đang giữ captcha toàn cục (chủ khác)."""
++
++
++@contextlib.asynccontextmanager
++async def phien_dang_nhap_google(chu: str = ""):
++    """Một lượt đăng nhập Google: serial toàn cục + giãn cách + kiểm hold.
++
++    - Giữ serial suốt lượt (kể cả vòng chờ tín hiệu) — lượt khác xếp hàng.
++    - Trong lock: nếu đang giữ và `chu` không phải chủ → raise
++      `BiGiuCaptchaToanCuc` (module dịch thành `MA_LOI_GIU`, không lái trình
++      duyệt). Chủ hold được chạy lại (đường hồi phục: người đã tích tay xong
++      → lượt này thấy da_dang_nhap → thành công → gỡ hold).
++    - Nếu được chạy: ngủ nốt gap từ mốc kết thúc lượt trước rồi yield.
++    - Finally: chỉ đóng mốc khi lượt thực sự chạy (lượt bị chặn không đẩy
++      mốc); luôn nhả lock.
++    """
++    global _lan_xong_cuoi
++    khoa = _lay_khoa()
++    await khoa.acquire()
++    da_chay = False
++    try:
++        if dang_giu() and (chu or "").strip() != _giu_chu:
++            raise BiGiuCaptchaToanCuc
++        cho = _gap_hieu_luc() - (time.monotonic() - _lan_xong_cuoi) \
++            if _lan_xong_cuoi else 0.0
++        if cho > 0:
++            await asyncio.sleep(cho)
++        da_chay = True
++        yield
++    finally:
++        if da_chay:
++            _lan_xong_cuoi = time.monotonic()
++        khoa.release()
+diff --git a/modules/chatgpt-web/module.py b/modules/chatgpt-web/module.py
+index 8fc6334..2032d4f 100644
+--- a/modules/chatgpt-web/module.py
++++ b/modules/chatgpt-web/module.py
+@@ -28,6 +28,7 @@ import time
+ from datetime import datetime, timezone
+ from pathlib import Path
+ 
++from app import khoa_dang_nhap_google as khoa_google
+ from app.kho import che
+ from app.khoi_phuc_phien import KetQuaKhoiPhuc, TaiKhoanCanKhoiPhuc
+ from app.loi_openai import loai_theo_ma, nhac_lai, than_loi
+@@ -398,7 +399,28 @@ class Module:
+     _TIN_HIEU_CAN_NGUOI = {"captcha", "2fa", "xac_minh", "xac_minh_thiet_bi",
+                            "cloudflare", "thu_thach_truy_cap"}
+ 
+-    async def tai_dung_ho_so(self, ho_so, trinh_duyet) -> KetQuaDangNhap:
++    async def tai_dung_ho_so(self, ho_so, trinh_duyet,
++                             chu_giu="") -> KetQuaDangNhap:
++        """Đăng nhập bằng Google TRONG hồ sơ đã đăng nhập Google (NV93).
++
++        NV309-c: điểm chặn duy nhất của đường Google — chạy trong khóa
++        serial toàn cục của lõi + kiểm giữ captcha toàn cục (xem grok-web
++        để biết đầy đủ ngữ nghĩa; `chu_giu` là email, nếu không thì id hồ
++        sơ; cả hai rỗng → chỉ serial, không đặt hold).
++        """
++        if trinh_duyet is None:
++            return KetQuaDangNhap(False, ma_loi="can_nguoi")
++        hs_id = ho_so.get("id") if isinstance(ho_so, dict) else str(ho_so or "")
++        chu = (chu_giu or "").strip() or (hs_id or "").strip()
++        try:
++            async with khoa_google.phien_dang_nhap_google(chu):
++                return await self._tai_dung_ho_so_chay(ho_so, trinh_duyet,
++                                                      chu)
++        except khoa_google.BiGiuCaptchaToanCuc:
++            return KetQuaDangNhap(False, ma_loi=khoa_google.MA_LOI_GIU)
++
++    async def _tai_dung_ho_so_chay(self, ho_so, trinh_duyet,
++                                   chu_giu="") -> KetQuaDangNhap:
+         """Đăng nhập bằng Google TRONG hồ sơ đã đăng nhập Google (NV93).
+ 
+         Hợp đồng NV92-P3: ``tai_dung_ho_so(ho_so, trinh_duyet)`` — module tự làm
+@@ -425,6 +447,9 @@ class Module:
+             return KetQuaDangNhap(False, ma_loi="loi_module")
+         if tin_hieu & self._TIN_HIEU_CAN_NGUOI:
+             # CAPTCHA/Cloudflare/2FA/xác minh thiết bị: dừng, KHÔNG cố vượt.
++            # NV309-c: chỉ tín hiệu captcha mới đặt hold toàn cục.
++            if tin_hieu & khoa_google.TIN_HIEU_CAPTCHA:
++                khoa_google.dat_giu_captcha(chu_giu)
+             return KetQuaDangNhap(False, ma_loi="can_nguoi")
+         try:
+             if "da_dang_nhap" not in tin_hieu:
+@@ -436,6 +461,9 @@ class Module:
+                 for _ in range(20):
+                     tin_hieu = set(await trinh_duyet.tin_hieu(self.quy_tac_tin_hieu()) or set())
+                     if tin_hieu & self._TIN_HIEU_CAN_NGUOI:
++                        # NV309-c: như điểm kiểm đầu (chỉ captcha mới giữ chung).
++                        if tin_hieu & khoa_google.TIN_HIEU_CAPTCHA:
++                            khoa_google.dat_giu_captcha(chu_giu)
+                         return KetQuaDangNhap(False, ma_loi="can_nguoi")
+                     if "da_dang_nhap" in tin_hieu:
+                         da_vao = True
+@@ -461,6 +489,8 @@ class Module:
+         await self._them_tai_khoan_tu_ho_so(token, hs_id, email, goi)
+         log.info("chatgpt-web: tái dùng hồ sơ %s → tài khoản %s (gói %s)",
+                  hs_id, self._khoa_tu_token(token), goi)
++        # NV309-c: chủ hold đăng nhập xong → gỡ hold toàn cục.
++        khoa_google.bo_giu_neu_chu(chu_giu)
+         return KetQuaDangNhap(True, cookie=token)
+ 
+     # -- liệt kê / gỡ tài khoản (NV93) ------------------------------------------
+@@ -878,7 +908,8 @@ class Module:
+                 if cach == "google":
+                     if td is None:
+                         return KetQuaKhoiPhuc(False, tang="T2", ma_loi="trinh_duyet_none")
+-                    kq2 = await self.tai_dung_ho_so(ho_so_google or "", td)
++                    kq2 = await self.tai_dung_ho_so(ho_so_google or "", td,
++                                                    chu_giu=email)
+                 else:
+                     kq2 = await self._dang_nhap_bang_trinh_duyet(email, mat_khau_dung, td, totp=totp_dung)
+                 self._lan_t2[khoa] = time.time()
+@@ -1037,7 +1068,8 @@ class Module:
+                 td = await self._lay_trinh_duyet_module()
+                 self._trinh_duyet_da_dung = td
+                 return await self.tai_dung_ho_so(
+-                    getattr(tai_khoan, "ho_so_google", "") or "", td)
++                    getattr(tai_khoan, "ho_so_google", "") or "", td,
++                    chu_giu=tai_khoan.email)
+             if loai == "cookie":
+                 token = tai_khoan.cookie.lay() if tai_khoan.cookie else ""
+                 if not token:
+diff --git a/modules/claude-web/module.py b/modules/claude-web/module.py
+index 9cd5997..6640c6d 100644
+--- a/modules/claude-web/module.py
++++ b/modules/claude-web/module.py
+@@ -23,6 +23,7 @@ from urllib.parse import urlsplit
+ 
+ import httpx
+ 
++from app import khoa_dang_nhap_google as khoa_google
+ from app import model_bo_sung
+ from app import tu_lam_moi
+ from app.khoi_phuc_phien import KetQuaKhoiPhuc, TaiKhoanCanKhoiPhuc
+@@ -429,7 +430,8 @@ class Module:
+                 td = tao() if callable(tao) else None
+                 self._trinh_duyet_da_dung = td
+                 return await self.tai_dung_ho_so(
+-                    getattr(tai_khoan, "ho_so_google", "") or "", td)
++                    getattr(tai_khoan, "ho_so_google", "") or "", td,
++                    chu_giu=tai_khoan.email)
+             if loai == "cookie":
+                 cookie_tho = tai_khoan.cookie.lay() if tai_khoan.cookie else ""
+                 if not cookie_tho:
+@@ -494,7 +496,28 @@ class Module:
+         sk = _session_key_tu_cookie(cookie)
+         return self._khoa_tu_session_key(sk) if sk else None
+ 
+-    async def tai_dung_ho_so(self, ho_so, trinh_duyet) -> KetQuaDangNhap:
++    async def tai_dung_ho_so(self, ho_so, trinh_duyet,
++                             chu_giu="") -> KetQuaDangNhap:
++        """Đăng nhập bằng Google TRONG hồ sơ đã đăng nhập Google (NV93).
++
++        NV309-c: điểm chặn duy nhất của đường Google — chạy trong khóa
++        serial toàn cục của lõi + kiểm giữ captcha toàn cục (xem grok-web
++        để biết đầy đủ ngữ nghĩa; `chu_giu` là email, nếu không thì id hồ
++        sơ; cả hai rỗng → chỉ serial, không đặt hold).
++        """
++        if trinh_duyet is None:
++            return KetQuaDangNhap(False, ma_loi="can_nguoi")
++        hs_id = ho_so.get("id") if isinstance(ho_so, dict) else str(ho_so or "")
++        chu = (chu_giu or "").strip() or (hs_id or "").strip()
++        try:
++            async with khoa_google.phien_dang_nhap_google(chu):
++                return await self._tai_dung_ho_so_chay(ho_so, trinh_duyet,
++                                                      chu)
++        except khoa_google.BiGiuCaptchaToanCuc:
++            return KetQuaDangNhap(False, ma_loi=khoa_google.MA_LOI_GIU)
++
++    async def _tai_dung_ho_so_chay(self, ho_so, trinh_duyet,
++                                   chu_giu="") -> KetQuaDangNhap:
+         """Đăng nhập bằng Google TRONG hồ sơ đã đăng nhập Google (NV93).
+ 
+         Hợp đồng NV92-P3: module tự làm bước «Continue with Google» của nó
+@@ -526,12 +549,18 @@ class Module:
+             tin_hieu = set(await trinh_duyet.tin_hieu(self.quy_tac_tin_hieu()) or set())
+             if tin_hieu & self._TIN_HIEU_CAN_NGUOI:
+                 # CAPTCHA/Cloudflare/2FA/xác minh: DỪNG ngay, không cố vượt.
++                # NV309-c: chỉ tín hiệu captcha mới đặt hold toàn cục.
++                if tin_hieu & khoa_google.TIN_HIEU_CAPTCHA:
++                    khoa_google.dat_giu_captcha(chu_giu)
+                 return KetQuaDangNhap(False, ma_loi="can_nguoi")
+             if "da_dang_nhap" not in tin_hieu:
+                 # Bước 2 — bấm «Continue with Google» trong hồ sơ (SSO).
+                 await trinh_duyet.mo_trang(self._URL_DANG_NHAP)
+                 tin_hieu = set(await trinh_duyet.tin_hieu(self.quy_tac_tin_hieu()) or set())
+                 if tin_hieu & self._TIN_HIEU_CAN_NGUOI:
++                    # NV309-c: như điểm kiểm đầu (chỉ captcha mới giữ chung).
++                    if tin_hieu & khoa_google.TIN_HIEU_CAPTCHA:
++                        khoa_google.dat_giu_captcha(chu_giu)
+                     return KetQuaDangNhap(False, ma_loi="can_nguoi")
+                 if "da_dang_nhap" not in tin_hieu:
+                     await trinh_duyet.bam(self._BO_CHON_GOOGLE)
+@@ -540,6 +569,9 @@ class Module:
+                     for _ in range(20):
+                         tin_hieu = set(await trinh_duyet.tin_hieu(self.quy_tac_tin_hieu()) or set())
+                         if tin_hieu & self._TIN_HIEU_CAN_NGUOI:
++                            # NV309-c: như điểm kiểm đầu (chỉ captcha mới giữ chung).
++                            if tin_hieu & khoa_google.TIN_HIEU_CAPTCHA:
++                                khoa_google.dat_giu_captcha(chu_giu)
+                             return KetQuaDangNhap(False, ma_loi="can_nguoi")
+                         if "da_dang_nhap" in tin_hieu:
+                             da_vao = True
+@@ -582,6 +614,8 @@ class Module:
+         self._them_tai_khoan_nv93(session_key, org, hs_id, email)
+         # Log chỉ khoá mờ — KHÔNG BAO GIỜ log session_key/org thô.
+         LOG.info("claude-web: tái dùng hồ sơ %s → tài khoản %s", hs_id, khoa)
++        # NV309-c: chủ hold đăng nhập xong → gỡ hold toàn cục.
++        khoa_google.bo_giu_neu_chu(chu_giu)
+         return KetQuaDangNhap(True, cookie="sessionKey=" + session_key)
+ 
+     def _them_tai_khoan_nv93(self, session_key: str, org: str,
+@@ -960,7 +994,8 @@ class Module:
+                     self._trinh_duyet_da_dung = td
+                     if td is None:
+                         return KetQuaKhoiPhuc(False, tang="T2", ma_loi="trinh_duyet_none")
+-                    kq2 = await self.tai_dung_ho_so(ho_so_google or "", td)
++                    kq2 = await self.tai_dung_ho_so(ho_so_google or "", td,
++                                                    chu_giu=email)
+                 else:
+                     if mat_khau_dung is None:
+                         mat_khau_dung = self.mat_khau_da_luu(khoa) or self.mat_khau_da_luu(email)
+diff --git a/modules/gemini-web/module.py b/modules/gemini-web/module.py
+index 66cf10a..9b69d6f 100644
+--- a/modules/gemini-web/module.py
++++ b/modules/gemini-web/module.py
+@@ -22,6 +22,7 @@ import re
+ import threading
+ import time
+ 
++from app import khoa_dang_nhap_google as khoa_google
+ from app import model_bo_sung
+ from app import tu_lam_moi
+ from app.kho import che
+@@ -480,7 +481,8 @@ class Module:
+                 if cach == "google":
+                     if td is None:
+                         return KetQuaKhoiPhuc(False, tang="T2", ma_loi="trinh_duyet_none")
+-                    kq2 = await self.tai_dung_ho_so(ho_so_google or "", td)
++                    kq2 = await self.tai_dung_ho_so(ho_so_google or "", td,
++                                                    chu_giu=email)
+                 else:
+                     kq2 = await self._dang_nhap_bang_trinh_duyet(email, mat_khau_dung, td, totp=totp_dung)
+                 self._lan_t2[khoa] = time.time()
+@@ -644,7 +646,8 @@ class Module:
+                 td = await self._lay_trinh_duyet_module()
+                 self._trinh_duyet_da_dung = td
+                 return await self.tai_dung_ho_so(
+-                    getattr(tai_khoan, "ho_so_google", "") or "", td)
++                    getattr(tai_khoan, "ho_so_google", "") or "", td,
++                    chu_giu=tai_khoan.email)
+             if loai == "cookie":
+                 chuoi = tai_khoan.cookie.lay() if tai_khoan.cookie else ""
+                 if not chuoi:
+@@ -714,7 +717,28 @@ class Module:
+             models = list(MO_HINH_HO_TRO)
+         return True, models, ""
+ 
+-    async def tai_dung_ho_so(self, ho_so, trinh_duyet) -> KetQuaDangNhap:
++    async def tai_dung_ho_so(self, ho_so, trinh_duyet,
++                             chu_giu="") -> KetQuaDangNhap:
++        """Đăng nhập bằng Google TRONG hồ sơ đã đăng nhập Google (NV93).
++
++        NV309-c: điểm chặn duy nhất của đường Google — chạy trong khóa
++        serial toàn cục của lõi + kiểm giữ captcha toàn cục (xem grok-web
++        để biết đầy đủ ngữ nghĩa; `chu_giu` là email, nếu không thì id hồ
++        sơ; cả hai rỗng → chỉ serial, không đặt hold).
++        """
++        if trinh_duyet is None:
++            return KetQuaDangNhap(False, ma_loi="can_nguoi")
++        hs_id = ho_so.get("id") if isinstance(ho_so, dict) else str(ho_so or "")
++        chu = (chu_giu or "").strip() or (hs_id or "").strip()
++        try:
++            async with khoa_google.phien_dang_nhap_google(chu):
++                return await self._tai_dung_ho_so_chay(ho_so, trinh_duyet,
++                                                      chu)
++        except khoa_google.BiGiuCaptchaToanCuc:
++            return KetQuaDangNhap(False, ma_loi=khoa_google.MA_LOI_GIU)
++
++    async def _tai_dung_ho_so_chay(self, ho_so, trinh_duyet,
++                                   chu_giu="") -> KetQuaDangNhap:
+         """Đăng nhập bằng Google TRONG hồ sơ đã đăng nhập Google (NV93).
+ 
+         Hợp đồng NV92-P3: module tự làm bước «Đăng nhập bằng Google» của nó
+@@ -741,6 +765,9 @@ class Module:
+             return KetQuaDangNhap(False, ma_loi="loi_module")
+         if tin_hieu & self._TIN_HIEU_CAN_NGUOI:
+             # CAPTCHA/Cloudflare/2FA/xác minh thiết bị: dừng, KHÔNG cố vượt.
++            # NV309-c: chỉ tín hiệu captcha mới đặt hold toàn cục.
++            if tin_hieu & khoa_google.TIN_HIEU_CAPTCHA:
++                khoa_google.dat_giu_captcha(chu_giu)
+             return KetQuaDangNhap(False, ma_loi="can_nguoi")
+         try:
+             if "da_dang_nhap" not in tin_hieu:
+@@ -752,6 +779,9 @@ class Module:
+                 for _ in range(20):
+                     tin_hieu = set(await trinh_duyet.tin_hieu(self.quy_tac_tin_hieu()) or set())
+                     if tin_hieu & self._TIN_HIEU_CAN_NGUOI:
++                        # NV309-c: như điểm kiểm đầu (chỉ captcha mới giữ chung).
++                        if tin_hieu & khoa_google.TIN_HIEU_CAPTCHA:
++                            khoa_google.dat_giu_captcha(chu_giu)
+                         return KetQuaDangNhap(False, ma_loi="can_nguoi")
+                     if "da_dang_nhap" in tin_hieu:
+                         da_vao = True
+@@ -784,6 +814,8 @@ class Module:
+         # Log chỉ khoá mờ — KHÔNG BAO GIỜ log psid/psidts.
+         log.info("gemini-web: tái dùng hồ sơ %s → tài khoản %s (gói %s)",
+                  hs_id, self._khoa_tu_token(psid), goi)
++        # NV309-c: chủ hold đăng nhập xong → gỡ hold toàn cục.
++        khoa_google.bo_giu_neu_chu(chu_giu)
+         return KetQuaDangNhap(True, cookie=chuoi)
+ 
+     async def _them_tai_khoan_tu_ho_so(self, chuoi: str, psid: str,
+diff --git a/modules/grok-web/module.py b/modules/grok-web/module.py
+index 430f228..98c364e 100644
+--- a/modules/grok-web/module.py
++++ b/modules/grok-web/module.py
+@@ -37,6 +37,7 @@ import time
+ from typing import AsyncIterator
+ from urllib.parse import urlsplit
+ 
++from app import khoa_dang_nhap_google as khoa_google
+ from app import model_bo_sung
+ from app import tu_lam_moi
+ from app.chuyen_tiep import ds_khoa
+@@ -414,7 +415,30 @@ class Module:
+             return False
+         return False
+ 
+-    async def tai_dung_ho_so(self, ho_so, trinh_duyet) -> KetQuaDangNhap:
++    async def tai_dung_ho_so(self, ho_so, trinh_duyet,
++                             chu_giu="") -> KetQuaDangNhap:
++        """«Sign in with Google» TRONG hồ sơ đã đăng nhập Google (NV93).
++
++        NV309-c: điểm chặn duy nhất của đường Google trong module — lượt chạy
++        trong khóa serial toàn cục của lõi (1 lượt tại một thời điểm, giãn
++        cách 25 giây) + kiểm giữ captcha toàn cục. Chủ hold: `chu_giu` (email,
++        nếu điểm gọi truyền) nếu không thì id hồ sơ; cả hai rỗng → chỉ serial,
++        không đặt hold. Bị giữ → trả `cho_captcha_toan_cuc` mà không lái
++        trình duyệt.
++        """
++        if trinh_duyet is None:
++            return KetQuaDangNhap(False, ma_loi="can_nguoi")
++        hs_id = ho_so.get("id") if isinstance(ho_so, dict) else str(ho_so or "")
++        chu = (chu_giu or "").strip() or (hs_id or "").strip()
++        try:
++            async with khoa_google.phien_dang_nhap_google(chu):
++                return await self._tai_dung_ho_so_chay(ho_so, trinh_duyet,
++                                                      chu)
++        except khoa_google.BiGiuCaptchaToanCuc:
++            return KetQuaDangNhap(False, ma_loi=khoa_google.MA_LOI_GIU)
++
++    async def _tai_dung_ho_so_chay(self, ho_so, trinh_duyet,
++                                   chu_giu="") -> KetQuaDangNhap:
+         """«Sign in with Google» TRONG hồ sơ đã đăng nhập Google (NV93).
+ 
+         Hợp đồng NV92-P3: module tự làm bước Google SSO của nó trong hồ sơ,
+@@ -443,10 +467,16 @@ class Module:
+             return KetQuaDangNhap(False, ma_loi="loi_module")
+         if tin_hieu & self._TIN_HIEU_CAN_NGUOI:
+             # CAPTCHA/Cloudflare/2FA/xác minh: dừng, KHÔNG cố vượt.
++            # NV309-c: chỉ tín hiệu captcha/thử thách theo IP mới đặt hold
++            # toàn cục (2FA/xác minh là theo tài khoản, không giữ chung).
++            if tin_hieu & khoa_google.TIN_HIEU_CAPTCHA:
++                khoa_google.dat_giu_captcha(chu_giu)
+             return KetQuaDangNhap(False, ma_loi="can_nguoi")
+         # Probe HTTP sớm: phát hiện thử thách bằng cấu trúc NGAY, không chờ
+         # hết vòng (c2a đo 20/09: grok.com không tự qua được).
+         if await self._co_thu_thach():
++            # NV309-c: thử thách truy cập → giữ captcha toàn cục.
++            khoa_google.dat_giu_captcha(chu_giu)
+             return KetQuaDangNhap(False, ma_loi="can_nguoi")
+         try:
+             if "da_dang_nhap" not in tin_hieu:
+@@ -456,6 +486,9 @@ class Module:
+                 for _ in range(20):
+                     tin_hieu = set(await trinh_duyet.tin_hieu(self.quy_tac_tin_hieu()) or set())
+                     if tin_hieu & self._TIN_HIEU_CAN_NGUOI:
++                        # NV309-c: như điểm kiểm đầu (chỉ captcha mới giữ chung).
++                        if tin_hieu & khoa_google.TIN_HIEU_CAPTCHA:
++                            khoa_google.dat_giu_captcha(chu_giu)
+                         return KetQuaDangNhap(False, ma_loi="can_nguoi")
+                     if "da_dang_nhap" in tin_hieu:
+                         da_vao = True
+@@ -473,12 +506,16 @@ class Module:
+         if not jar:
+             return KetQuaDangNhap(False, ma_loi="khong_lay_duoc_phien")
+         if await self._co_thu_thach(jar):
++            # NV309-c: thử thách ở cookie cuối → giữ captcha toàn cục.
++            khoa_google.dat_giu_captcha(chu_giu)
+             return KetQuaDangNhap(False, ma_loi="can_nguoi")
+         chuoi = self._chuoi_tu_jar(jar)
+         email = str(ho_so.get("email") or "") if isinstance(ho_so, dict) else ""
+         khoa = self._them_tai_khoan_tu_ho_so(jar, hs_id, email)
+         # Log chỉ khoá mờ — KHÔNG BAO GIỜ log cookie.
+         log.info("grok-web: tái dùng hồ sơ %s → tài khoản %s", hs_id, khoa)
++        # NV309-c: chủ hold đăng nhập xong → gỡ hold toàn cục.
++        khoa_google.bo_giu_neu_chu(chu_giu)
+         return KetQuaDangNhap(True, cookie=chuoi)
+ 
+     def _them_tai_khoan_tu_ho_so(self, jar: dict[str, str],
+@@ -889,7 +926,7 @@ class Module:
+         nạp lại). Mật khẩu (nếu có) bị xoá sau khi dùng.
+         """
+         try:
+-            return await self.tai_dung_ho_so("", trinh_duyet)
++            return await self.tai_dung_ho_so("", trinh_duyet, chu_giu=email)
+         finally:
+             if mat_khau is not None:
+                 mat_khau.xoa()
+@@ -965,7 +1002,8 @@ class Module:
+                 td = tao() if callable(tao) else None
+                 self._trinh_duyet_da_dung = td
+                 ho_so = getattr(tai_khoan, "ho_so_google", "") or ""
+-                return await self.tai_dung_ho_so(ho_so, td)
++                return await self.tai_dung_ho_so(ho_so, td,
++                                                chu_giu=tai_khoan.email)
+             if loai == "mat_khau":
+                 if tai_khoan.mat_khau is None:
+                     return KetQuaDangNhap(False, ma_loi="thieu_mat_khau")
+@@ -988,7 +1026,8 @@ class Module:
+                     td = tao() if callable(tao) else None
+                     self._trinh_duyet_da_dung = td
+                     ho_so = getattr(tai_khoan, "ho_so_google", "") or ""
+-                    return await self.tai_dung_ho_so(ho_so, td)
++                    return await self.tai_dung_ho_so(ho_so, td,
++                                                    chu_giu=tai_khoan.email)
+                 if bm is None:
+                     return KetQuaDangNhap(False, ma_loi="khong_co_mat_khau_luu")
+                 tao = self._tao_trinh_duyet
+@@ -1033,7 +1072,8 @@ class Module:
+         try:
+             cach = self.cach_dang_nhap_cua("", tai_khoan.email)
+             if cach == "google":
+-                kq = await self.tai_dung_ho_so("", trinh_duyet)
++                kq = await self.tai_dung_ho_so("", trinh_duyet,
++                                              chu_giu=tai_khoan.email)
+                 if kq.thanh_cong:
+                     return KetQuaKhoiPhuc(True, tang="b")
+                 return KetQuaKhoiPhuc(False, tang="b",
+diff --git a/test/conftest.py b/test/conftest.py
+index 9727475..1a85da3 100644
+--- a/test/conftest.py
++++ b/test/conftest.py
+@@ -19,6 +19,11 @@ from pathlib import Path
+ 
+ import pytest
+ 
++#: NV309-c: giãn cách Google = 0 trong test (pacing 25 giây là hành vi
++#: production; test đơn vị gọi tai_dung_ho_so nhiều lần không được ngủ 25
++#: giây mỗi lượt — test nào muốn kiểm gap thì tự đặt env riêng).
++os.environ.setdefault("WEB2API_GOOGLE_GIAN_CACH_GIAY", "0")
++
+ GOC_WEB2API = Path(__file__).resolve().parents[1]
+ if str(GOC_WEB2API) not in sys.path:
+     sys.path.insert(0, str(GOC_WEB2API))
+diff --git a/test/test_nv309_c.py b/test/test_nv309_c.py
+new file mode 100644
+index 0000000..1b5ed1d
+--- /dev/null
++++ b/test/test_nv309_c.py
+@@ -0,0 +1,193 @@
++"""NV309-c — khóa serial toàn cục cho đường Google + giữ captcha toàn cục.
++
++SAI S3: w2a chỉ có khóa riêng từng module + hoãn captcha riêng từng module
++1800 giây → hai module có thể đăng nhập Google song song, dồn RAM và mời
++captcha chùm (c2a: `_glogin_serial` 1 phiên tại một thời điểm, giãn cách
++25 giây + giữ CAPTCHA toàn cục 6 giờ).
++
++Mảnh này: MỘT chỗ duy nhất trong lõi (`app/khoa_dang_nhap_google.py`) —
++serial + gap + hold — áp tại điểm chặn `tai_dung_ho_so` của 4 module.
++KHÔNG đổi ngữ nghĩa challenge → can_nguoi (Q4): gặp thử thách vẫn trả
++can_nguoi như cũ, chỉ thêm tác dụng phụ đặt hold cho các lượt sau.
++Hoãn riêng từng module 1800 giây giữ nguyên.
++
++Đỏ-trước-xanh: trước mảnh này, module lõi chưa tồn tại (ImportError) và
++`tai_dung_ho_so` không nhận `chu_giu` (TypeError).
++"""
++
++from __future__ import annotations
++
++import asyncio
++import importlib.util
++import json
++import sys
++import time
++from pathlib import Path
++
++import pytest
++
++from app import khoa_dang_nhap_google as kg
++from app.khoi_phuc_phien import TrinhDuyetGia
++from app.tai_khoan_hang_loat import DongDaTach
++
++THU_MUC_MODULE = Path("modules/grok-web")
++HO_SO = "abcdef0123456789"
++EMAIL_A = "a-gia@example.com"
++EMAIL_B = "b-gia@example.com"
++
++
++def chay(coro):
++    return asyncio.run(coro)
++
++
++def tai_grok_web():
++    ten = "web2api_module_grok_web_nv309c"
++    sys.modules.pop(ten, None)
++    tep = THU_MUC_MODULE / "module.py"
++    manifest = json.loads((THU_MUC_MODULE / "manifest.json").read_text(encoding="utf-8"))
++    spec = importlib.util.spec_from_file_location(
++        ten, tep, submodule_search_locations=[str(THU_MUC_MODULE)])
++    mod = importlib.util.module_from_spec(spec)
++    sys.modules[ten] = mod
++    spec.loader.exec_module(mod)
++    return mod, manifest
++
++
++def mod_moi(monkeypatch):
++    mod, manifest = tai_grok_web()
++    m = mod.Module(manifest)
++
++    async def khong_co_thu_thach(*a):
++        return False
++
++    monkeypatch.setattr(m, "_co_thu_thach", khong_co_thu_thach)
++    return m
++
++
++@pytest.fixture(autouse=True)
++def dat_lai_khoa(monkeypatch):
++    """Mỗi test chạy trên khóa sạch, gap/hold nhỏ để test nhanh."""
++    kg.dat_lai()
++    # NV309-c: gap đọc từ env lúc gọi nên fixture đặt env, không đặt hằng.
++    monkeypatch.setenv("WEB2API_GOOGLE_GIAN_CACH_GIAY", "0")
++    monkeypatch.setattr(kg, "GIU_CAPTCHA_GIAY", 3600.0)
++    yield
++    kg.dat_lai()
++
++
++# ── Khóa lõi: serial + gap ────────────────────────────────────────────────
++
++def test_hai_luot_google_khong_chay_chong():
++    """Lượt 2 chỉ vào sau khi lượt 1 ra (không song song)."""
++    vao, ra = [], []
++
++    async def kich_ban():
++        async def luot(ten, giu):
++            async with kg.phien_dang_nhap_google(ten):
++                vao.append(ten)
++                await asyncio.sleep(giu)
++                ra.append(ten)
++
++        await asyncio.gather(luot("a", 0.05), luot("b", 0.0))
++
++    chay(kich_ban())
++    assert vao[0] in ("a", "b") and ra[0] == vao[0]
++    assert vao[1] != vao[0] and ra[1] == vao[1]
++    # Thứ tự: vào–ra–vào–ra (không vào–vào).
++    assert ra[0] == vao[0]
++
++
++def test_gap_giua_hai_luot(monkeypatch):
++    """Lượt 2 bắt đầu sau lượt 1 kết thúc ít nhất bằng gap (monkeypatch env)."""
++    kg.dat_lai()
++    monkeypatch.setenv("WEB2API_GOOGLE_GIAN_CACH_GIAY", "0.2")
++    moc = []
++
++    async def kich_ban():
++        async with kg.phien_dang_nhap_google("a"):
++            pass
++        moc.append(time.monotonic())
++        async with kg.phien_dang_nhap_google("b"):
++            moc.append(time.monotonic())
++
++    chay(kich_ban())
++    assert moc[1] - moc[0] >= 0.19  # gap 0.2 trừ sai số đo nhỏ
++
++
++# ── Hold captcha toàn cục qua module Grok ──────────────────────────────────
++
++def test_captcha_o_module_a_chan_module_b(monkeypatch):
++    """Grok gặp captcha (tín hiệu captcha) → đặt hold; lượt Google khác
++    (email khác) bị chặn mà KHÔNG lái trình duyệt."""
++    m = mod_moi(monkeypatch)
++    td_cap = TrinhDuyetGia(
++        trang={m._URL_TAI_DUNG: {"tin_hieu": ["captcha"], "cookie": {}}})
++    kq = chay(m.tai_dung_ho_so(HO_SO, td_cap, chu_giu=EMAIL_A))
++    assert not kq.thanh_cong and kq.ma_loi == "can_nguoi"
++    assert kg.dang_giu()
++
++    td_b = TrinhDuyetGia(
++        trang={m._URL_TAI_DUNG: {"tin_hieu": ["da_dang_nhap"],
++                                 "cookie": {"sso": "sso-gia"}}})
++    kq2 = chay(m.tai_dung_ho_so(HO_SO, td_b, chu_giu=EMAIL_B))
++    assert not kq2.thanh_cong and kq2.ma_loi == kg.MA_LOI_GIU
++    assert ("mo_trang", m._URL_TAI_DUNG) not in td_b.hanh_dong
++
++
++def test_chu_hold_chay_lai_thanh_cong_thi_go_hold(monkeypatch):
++    """Chủ hold (người đã tích tay xong) chạy lại → thành công + gỡ hold →
++    lượt khác chạy lại được."""
++    m = mod_moi(monkeypatch)
++    kg.dat_giu_captcha(EMAIL_A)
++    assert kg.dang_giu()
++    td = TrinhDuyetGia(
++        trang={m._URL_TAI_DUNG: {"tin_hieu": ["da_dang_nhap"],
++                                 "cookie": {"sso": "sso-gia"}}})
++    kq = chay(m.tai_dung_ho_so(HO_SO, td, chu_giu=EMAIL_A))
++    assert kq.thanh_cong, kq.ma_loi
++    assert not kg.dang_giu()
++
++
++def test_2fa_thuan_khong_dat_hold(monkeypatch):
++    """2FA thuần (không captcha) → can_nguoi nhưng KHÔNG đặt hold toàn cục
++    (2FA là theo tài khoản, không phải thử thách theo IP)."""
++    m = mod_moi(monkeypatch)
++    td = TrinhDuyetGia(
++        trang={m._URL_TAI_DUNG: {"tin_hieu": ["2fa"], "cookie": {}}})
++    kq = chay(m.tai_dung_ho_so(HO_SO, td, chu_giu=EMAIL_A))
++    assert not kq.thanh_cong and kq.ma_loi == "can_nguoi"
++    assert not kg.dang_giu()
++
++
++def test_luot_khong_danh_tinh_chi_serial_khong_dat_hold(monkeypatch):
++    """Lượt không danh tính (không chu_giu, không id hồ sơ) gặp captcha →
++    vẫn can_nguoi nhưng KHÔNG đặt hold toàn cục (không có chủ để gỡ)."""
++    m = mod_moi(monkeypatch)
++    td = TrinhDuyetGia(
++        trang={m._URL_TAI_DUNG: {"tin_hieu": ["captcha"], "cookie": {}}})
++    kq = chay(m.tai_dung_ho_so("", td))
++    assert not kq.thanh_cong and kq.ma_loi == "can_nguoi"
++    assert not kg.dang_giu()
++
++
++def test_dang_nhap_google_dat_hold_theo_email(monkeypatch):
++    """Bổ sung trên main 5c86930 (patch cũ chưa nối): đường `dang_nhap`
++    nhánh google của grok-web phải đặt hold với chủ là EMAIL của tài khoản
++    (như T2), không phải id hồ sơ — nếu không, lượt T2 cùng tài khoản
++    thành công sẽ không gỡ được hold do đường này đặt (chủ lệch nhau)."""
++    m = mod_moi(monkeypatch)
++    td = TrinhDuyetGia(
++        trang={m._URL_TAI_DUNG: {"tin_hieu": ["captcha"], "cookie": {}}})
++    m._tao_trinh_duyet = lambda: td
++    tk = DongDaTach(dong=1, email=EMAIL_A, loai="google")
++    kq = chay(m.dang_nhap(tk))
++    assert not kq.thanh_cong and kq.ma_loi == "can_nguoi"
++    assert kg.dang_giu()
++    dang_giu, chu, _con = kg.thong_tin_giu()
++    assert dang_giu and chu == EMAIL_A
++    # Lượt khác (email khác) bị chặn bằng mã giữ toàn cục, không lái trình duyệt.
++    td_b = TrinhDuyetGia(
++        trang={m._URL_TAI_DUNG: {"tin_hieu": ["da_dang_nhap"],
++                                 "cookie": {"sso": "sso-gia"}}})
++    kq2 = chay(m.tai_dung_ho_so(HO_SO, td_b, chu_giu=EMAIL_B))
++    assert not kq2.thanh_cong and kq2.ma_loi == kg.MA_LOI_GIU
+-- 
+2.43.0
+

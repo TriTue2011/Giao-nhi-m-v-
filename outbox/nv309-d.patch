@@ -1,0 +1,401 @@
+From 876df99e3c4c91024b37ae419cb8c19e1f871be8 Mon Sep 17 00:00:00 2001
+From: Muse <muse@local>
+Date: Mon, 9 Nov 2026 04:37:58 +0000
+Subject: [PATCH] NV309-d: ngan sach 1200s cho engine (a)/(b)/(c)/(d) + Grok
+ thu lai 1 lan qua lam moi truoc khi xoay
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+- app/khoi_phuc_phien.py: NGAN_SACH_ABCD_GIAY = 1200 (mau c2a
+  _RECOVER_BUDGET_S); het thi bo tang (b), van xoay (c) roi (d) voi ly do
+  rieng; kiem o bien tang, khong cat giua luot goi tang.
+- modules/grok-web/module.py: _luong_van_ban thu lai 1 lan qua tang (a)
+  lam_moi_phien khi loi phien truoc khi co chu (mau c2a stream_chat
+  range(2) + lam_moi(p)); loi khong phai phien xoay ngay; da co chu thi
+  dung nhu cu.
+- Thu tu uu tien CAU HINH DUOC chua lam: Q2 cua NV309 chua co cau tra loi
+  (xem bao cao nv309-d-bao-cao.md) — cho chu may.
+- Test do-truoc-xanh-sau (mock, khong mang that): 5 test moi grok-web +
+  1 test moi nv88; cap nhat 1 test xoay cu theo hanh vi moi.
+---
+ app/khoi_phuc_phien.py              |  50 +++++++++-
+ modules/grok-web/module.py          |  65 +++++++++----
+ test/test_web2api_grok-web.py       | 141 +++++++++++++++++++++++++++-
+ test/test_web2api_nv88_khoi_phuc.py |  27 ++++++
+ 4 files changed, 260 insertions(+), 23 deletions(-)
+
+diff --git a/app/khoi_phuc_phien.py b/app/khoi_phuc_phien.py
+index 849da2f..1f81ce0 100644
+--- a/app/khoi_phuc_phien.py
++++ b/app/khoi_phuc_phien.py
+@@ -18,6 +18,10 @@ An toàn bí mật: mật khẩu chỉ tồn tại trong `BiMatTam`, bị xoá k
+ sau khi tầng (b) dùng xong (kể cả khi lỗi); không log, không trả trong kết quả,
+ không vào nhật ký. Trạng thái khôi phục lưu ở
+ `<WEB2API_DATA>/bi_mat/khoi_phuc_phien.json` (0600).
++
++Ngân sách tổng NV309-d: một lượt (a)/(b)/(c)/(d) tối đa 1200 giây
++(`NGAN_SACH_ABCD_GIAY`, theo c2a `_RECOVER_BUDGET_S`); hết thì bỏ tầng (b),
++vẫn xoay tài khoản kế ở (c) rồi mới cần người ở (d).
+ """
+ 
+ from __future__ import annotations
+@@ -52,6 +56,27 @@ MA_CAN_NGUOI = "can_nguoi"
+ #: tài khoản đó (tránh bị nhà cung cấp khoá tài khoản).
+ HONG_B_TOI_DA = 2
+ 
++#: Ngân sách tổng cho một lượt engine (a)/(b)/(c)/(d), theo c2a
++#: ``services/account_recovery.py::_RECOVER_BUDGET_S = 1200`` (đủ thang
++#: T2 ≤180s + T3 ≤700s + ...). Engine T0–T3 đã có T_NGAN_SACH_GIAY riêng;
++#: engine này trước đây không có trần tổng — một lượt tầng (b) kẹt lâu
++#: không bị cắt ở tầng lõi. Hết ngân sách thì bỏ tầng (b) (việc dài), vẫn
++#: được xoay sang tài khoản kế ở tầng (c) rồi mới cần người ở (d).
++#: Kiểm ở BIÊN tầng — một lượt gọi tầng đang chạy không bị cắt giữa chừng
++#: (giống c2a kiểm giữa các bước); trần của lượt gọi ngoài (vd timeout MCP)
++#: vẫn là lớp cắt cuối.
++NGAN_SACH_ABCD_GIAY = 1200.0
++
++
++def _bay_gio() -> float:
++    """Đồng hồ đơn điệu cho ngân sách (điểm chích để test giả lập hết giờ)."""
++    return time.monotonic()
++
++
++def _het_ngan_sach(bat_dau: float) -> bool:
++    """Đã quá ngân sách tổng của lượt này chưa (tính từ lúc bắt đầu lượt)."""
++    return _bay_gio() - bat_dau >= NGAN_SACH_ABCD_GIAY
++
+ #: Mã lỗi an toàn: ngắn, chỉ chữ thường/số/gạch dưới (giống tai_khoan_hang_loat).
+ _MAU_MA_LOI = re.compile(r"[a-z0-9_]{1,64}")
+ 
+@@ -760,10 +785,16 @@ async def khoi_phuc(module: Any, tai_khoan: TaiKhoanCanKhoiPhuc, *,
+     email_che = _che_email(tai_khoan.email)
+     log.info("khoi-phuc: bắt đầu module=%s khoa=%s (%s)", module_id, khoa, email_che)
+     ma_loi_cuoi = ""
++    # NV309-d: mốc ngân sách tổng 1200 giây cho cả lượt (a)/(b)/(c)/(d).
++    bat_dau = _bay_gio()
+ 
+     # ── Tầng (a): làm mới phiên/token bằng cookie đang có ──
+     lam_moi = getattr(module, "lam_moi_phien", None)
+-    if callable(lam_moi):
++    if _het_ngan_sach(bat_dau):
++        ma_loi_cuoi = "het_ngan_sach"
++        log.warning("khoi-phuc: %s/%s hết ngân sách %ds trước tầng (a) — bỏ qua",
++                    module_id, khoa, int(NGAN_SACH_ABCD_GIAY))
++    elif callable(lam_moi):
+         kq = await _goi_an_toan(lam_moi, TANG_A, khoa)
+         if kq.can_nguoi:
+             return await _vao_can_nguoi(module_id, khoa, "gặp màn hình cần người xử lý",
+@@ -782,7 +813,13 @@ async def khoi_phuc(module: Any, tai_khoan: TaiKhoanCanKhoiPhuc, *,
+     mat_khau_truc_tiep = tai_khoan.mat_khau
+     mat_khau_kho: BiMatTam | None = None
+     try:
+-        if not tt.get("ngung_tu_dang_nhap"):
++        if _het_ngan_sach(bat_dau):
++            # NV309-d: hết ngân sách tổng — bỏ tầng (b) (việc dài: mở trình
++            # duyệt, đăng nhập lại), để tầng (c) xoay tài khoản kế rồi (d).
++            ma_loi_cuoi = "het_ngan_sach"
++            log.warning("khoi-phuc: %s/%s hết ngân sách %ds — bỏ tầng (b)",
++                        module_id, khoa, int(NGAN_SACH_ABCD_GIAY))
++        elif not tt.get("ngung_tu_dang_nhap"):
+             mat_khau_dung = mat_khau_truc_tiep
+             if mat_khau_dung is None and dung_mat_khau_luu:
+                 lay_mk = getattr(module, "mat_khau_da_luu", None)
+@@ -907,9 +944,14 @@ async def khoi_phuc(module: Any, tai_khoan: TaiKhoanCanKhoiPhuc, *,
+                               huong_dan=f"Đã chuyển sang tài khoản kế ({khoa_moi}).")
+ 
+     # ── Tầng (d): hết cách → cần người ──
++    ly_do_d = ("đã thử làm mới phiên, đăng nhập lại và chuyển tài khoản nhưng chưa được")
++    if ma_loi_cuoi == "het_ngan_sach":
++        # NV309-d: nói rõ lượt này dừng vì hết ngân sách 1200 giây (không
++        # phải vì đã thử hết mọi tầng) để người đọc trạng thái hiểu đúng.
++        ly_do_d = ("hết ngân sách 1200 giây cho lượt khôi phục này "
++                   "(đã thử làm mới phiên và chuyển tài khoản nhưng chưa được)")
+     return await _vao_can_nguoi(
+-        module_id, khoa,
+-        "đã thử làm mới phiên, đăng nhập lại và chuyển tài khoản nhưng chưa được",
++        module_id, khoa, ly_do_d,
+         mo_novnc, nguoi_dung_id, _ho_so_cua(module, module_id, khoa))
+ 
+ 
+diff --git a/modules/grok-web/module.py b/modules/grok-web/module.py
+index 430f228..fcc96f1 100644
+--- a/modules/grok-web/module.py
++++ b/modules/grok-web/module.py
+@@ -1376,6 +1376,25 @@ class Module:
+         uid = await lay_uid_tu_phien(jar, self._goc_https)
+         return KhachGrokWeb(self._ws_co_so, jar, uid)
+ 
++    async def _lam_moi_thu_lai(self, idx: int) -> bool:
++        """NV309-d: làm mới một lần cho tài khoản idx (mẫu c2a lam_moi(p)).
++
++        Gọi tầng (a) ``lam_moi_phien`` — grok.com không có endpoint làm mới
++        cookie công khai nên tầng này chỉ KIỂM lại phiên; sống lại thì trả
++        True để lượt chat thử lại. Hỏng hoặc lỗi trong tầng (a) thì False
++        (xoay tài khoản kế); không ném ra ngoài — đường chat không được hỏng
++        vì bước làm mới phụ.
++        """
++        try:
++            khoa = self._khoa_tu_jar(self._tai_khoan[idx])
++        except (IndexError, TypeError, AttributeError):
++            return False
++        try:
++            kq = await self.lam_moi_phien(khoa)
++        except Exception:
++            return False
++        return bool(getattr(kq, "thanh_cong", False))
++
+     async def _luong_van_ban(
+         self, che_do: str, loi_nhan: str
+     ) -> AsyncIterator[str]:
+@@ -1385,28 +1404,38 @@ class Module:
+         mất kết nối…) đều chuyển sang tài khoản kế. Đã có chữ rồi mà lỗi thì
+         dừng (không xoay để khỏi hỏi Grok hai lần). Hết tài khoản mà thử được
+         thì ném lỗi cuối cùng.
++
++        NV309-d (mẫu c2a api/grok_web.py::stream_chat — mỗi tài khoản tối đa
++        2 lượt): lỗi phiên lần đầu, chưa có chữ nào, thì làm mới một lần qua
++        tầng (a) rồi thử lại cùng tài khoản; vẫn hỏng mới sang tài khoản kế.
++        Lỗi không phải phiên thì xoay ngay, không làm mới.
+         """
+         loi_cuoi: Exception | None = None
+         for idx in self._thu_tu_tai_khoan():
+             da_co_chu = False
+-            try:
+-                khach = await self._khach(idx)
+-            except LoiGrokWeb as e:
+-                self._danh_dau_loi(idx, e)
+-                loi_cuoi = e
+-                continue
+-            try:
+-                async for manh in khach.chay(che_do, loi_nhan):
+-                    da_co_chu = True
+-                    yield manh
+-                self._danh_dau_khoe(idx)
+-                return
+-            except LoiGrokWeb as e:
+-                self._danh_dau_loi(idx, e)
+-                loi_cuoi = e
+-                if da_co_chu:
+-                    break  # đã stream dở: dừng, không xoay
+-                continue
++            da_thu_lai = False
++            while True:
++                try:
++                    khach = await self._khach(idx)
++                    async for manh in khach.chay(che_do, loi_nhan):
++                        da_co_chu = True
++                        yield manh
++                    self._danh_dau_khoe(idx)
++                    return
++                except LoiGrokWeb as e:
++                    if da_co_chu:
++                        self._danh_dau_loi(idx, e)
++                        loi_cuoi = e
++                        break  # đã stream dở: dừng, không xoay
++                    if (not da_thu_lai and isinstance(e, LoiPhienGrokWeb)
++                            and await self._lam_moi_thu_lai(idx)):
++                        da_thu_lai = True
++                        continue  # thử lại một lần cùng tài khoản
++                    self._danh_dau_loi(idx, e)
++                    loi_cuoi = e
++                    break
++            if da_co_chu:
++                break
+         raise loi_cuoi or LoiGrokWeb("không có tài khoản nào dùng được")
+ 
+     # ── Chat ───────────────────────────────────────────────────────────
+diff --git a/test/test_web2api_grok-web.py b/test/test_web2api_grok-web.py
+index 74602f2..bd32eb8 100644
+--- a/test/test_web2api_grok-web.py
++++ b/test/test_web2api_grok-web.py
+@@ -343,7 +343,12 @@ def test_chuyen_tai_khoan_khi_loi_phien_dang_su_kien(bo_module, may_chu):
+     assert ma == 200
+     # Tài khoản lỗi vẫn kịp gửi lời nhắn trước khi nhận sự kiện error → có mặt
+     # trong nhật ký, nhưng câu trả lời tới từ tài khoản 2.
+-    assert [e["sso"] for e in may_chu.nhat_ky] == ["loi_phien_su_kien", "tot_2"]
++    # NV309-d: lỗi phiên trước khi có chữ thì làm mới (tầng (a) — máy chủ giả
++    # trả /api/auth/session 200 nên làm mới «thành công») rồi thử lại CÙNG
++    # tài khoản một lần; vẫn lỗi mới xoay sang tài khoản 2. Vì vậy tài khoản
++    # lỗi xuất hiện hai lần trong nhật ký.
++    assert [e["sso"] for e in may_chu.nhat_ky] == ["loi_phien_su_kien",
++                                                  "loi_phien_su_kien", "tot_2"]
+ 
+ 
+ def test_chuyen_tai_khoan_khi_tra_loi_rong(bo_module, may_chu):
+@@ -529,3 +534,137 @@ def test_converter_hop_van_ban(bo_module):
+     assert "Chào" in van_ban
+     assert "data:..." not in van_ban  # media bị bỏ ở giai đoạn này
+     assert "Vâng." in van_ban
++
++
++# ── NV309-d: thử lại 1 lần qua làm mới khi lỗi phiên, trước khi xoay ──
++# Mẫu c2a api/grok_web.py::stream_chat (mỗi tài khoản tối đa 2 lượt: lỗi phiên
++# lần đầu → lam_moi(p) một lần → thử lại; vẫn hỏng mới sang tài khoản kế).
++# w2a: tầng (a) lam_moi_phien chỉ KIỂM lại phiên (grok.com không có endpoint
++# làm mới công khai) — sống lại thì thử lại lượt chat, không thì xoay.
++# Chỉ thử lại khi CHƯA có chữ nào và lỗi là lỗi phiên; lỗi khác (hết lượt,
++# lỗi máy chủ) xoay ngay không làm mới; đã có chữ thì dừng như cũ.
++
++
++class _KhachGrokGia:
++    """Khách Grok giả: chạy theo kịch bản (lỗi hoặc chữ) theo lần gọi chay()."""
++
++    def __init__(self, kich_ban):
++        self.kich_ban = list(kich_ban)
++        self.so_lan_chay = 0
++
++    async def chay(self, che_do, loi_nhan):
++        self.so_lan_chay += 1
++        while self.kich_ban:
++            muc = self.kich_ban.pop(0)
++            if isinstance(muc, Exception):
++                raise muc
++            yield muc
++
++
++def _lap_module_lam_moi_gia(bo_module, may_chu, kich_ban_khach, lam_moi_ok=True,
++                            monkeypatch=None):
++    """Module grok-web với _khach/lam_moi_phien giả (không mạng, không ws thật).
++
++    kich_ban_khach: {idx: [LoiGrokWeb | str, ...]}. Trả (md, goi_khach,
++    goi_lam_moi, khach_theo_idx). monkeypatch (nếu có) dùng để tắt kích hoạt
++    khôi phục nền ``bao_loi_phien`` — nó cũng gọi ``lam_moi_phien`` (T0) qua
++    tác vụ nền, làm nhiễu đếm «làm mới trong lượt chat» ở đây (hành vi nền
++    đó đã có từ trước, không thuộc phạm vi test này).
++    """
++    mod, _ = bo_module
++    md = lap_module(bo_module, [cookie("tot_1"), cookie("tot_2")], may_chu.url)
++    if monkeypatch is not None:
++        monkeypatch.setattr(mod.tu_lam_moi, "bao_loi_phien",
++                            lambda *a, **k: None)
++    goi_khach: list[int] = []
++    goi_lam_moi: list[str] = []
++    khach_theo_idx = {i: _KhachGrokGia(kb) for i, kb in kich_ban_khach.items()}
++
++    async def khach_gia(idx):
++        goi_khach.append(idx)
++        return khach_theo_idx[idx]
++
++    async def lam_moi_gia(khoa):
++        goi_lam_moi.append(khoa)
++        return mod.KetQuaKhoiPhuc(lam_moi_ok, tang="a",
++                                  ma_loi="" if lam_moi_ok else "het_han")
++
++    md._khach = khach_gia
++    md.lam_moi_phien = lam_moi_gia
++    return md, goi_khach, goi_lam_moi, khach_theo_idx
++
++
++async def _doc_luong(md):
++    return "".join([m async for m in md._luong_van_ban("fast", "xin chào")])
++
++
++def test_nv309d_loi_phien_thu_lai_qua_lam_moi_roi_thanh_cong(bo_module, may_chu, monkeypatch):
++    mod, _ = bo_module
++    md, goi_khach, goi_lam_moi, khach = _lap_module_lam_moi_gia(
++        bo_module, may_chu,
++        {0: [mod.LoiPhienGrokWeb("het phien"), "xin chào"],
++         1: ["không dùng tới"]},
++        lam_moi_ok=True, monkeypatch=monkeypatch)
++    assert chay(_doc_luong(md)) == "xin chào"
++    assert len(goi_lam_moi) == 1  # làm mới đúng một lần cho tài khoản 0
++    assert goi_khach == [0, 0]  # thử lại cùng tài khoản, không xoay
++    assert khach[1].so_lan_chay == 0
++
++
++def test_nv309d_lam_moi_hong_thi_xoay_tai_khoan_ke(bo_module, may_chu, monkeypatch):
++    mod, _ = bo_module
++    md, goi_khach, goi_lam_moi, _ = _lap_module_lam_moi_gia(
++        bo_module, may_chu,
++        {0: [mod.LoiPhienGrokWeb("het phien")],
++         1: ["từ tài khoản hai"]},
++        lam_moi_ok=False, monkeypatch=monkeypatch)
++    assert chay(_doc_luong(md)) == "từ tài khoản hai"
++    assert len(goi_lam_moi) == 1
++    assert goi_khach == [0, 1]  # làm mới hỏng → không thử lại, xoay ngay
++
++
++def test_nv309d_thu_lai_van_hong_thi_xoay_chi_lam_moi_mot_lan(bo_module, may_chu, monkeypatch):
++    mod, _ = bo_module
++    md, goi_khach, goi_lam_moi, _ = _lap_module_lam_moi_gia(
++        bo_module, may_chu,
++        {0: [mod.LoiPhienGrokWeb("het phien"),
++             mod.LoiPhienGrokWeb("van het phien")],
++         1: ["từ tài khoản hai"]},
++        lam_moi_ok=True, monkeypatch=monkeypatch)
++    assert chay(_doc_luong(md)) == "từ tài khoản hai"
++    assert len(goi_lam_moi) == 1  # mỗi tài khoản tối đa một lần làm mới
++    assert goi_khach == [0, 0, 1]
++
++
++def test_nv309d_loi_khong_phai_phien_khong_lam_moi(bo_module, may_chu, monkeypatch):
++    mod, _ = bo_module
++    md, goi_khach, goi_lam_moi, _ = _lap_module_lam_moi_gia(
++        bo_module, may_chu,
++        {0: [mod.LoiHanMucGrokWeb("het luot")],
++         1: ["từ tài khoản hai"]},
++        lam_moi_ok=True, monkeypatch=monkeypatch)
++    assert chay(_doc_luong(md)) == "từ tài khoản hai"
++    assert goi_lam_moi == []  # hết lượt thì xoay ngay, không làm mới
++    assert goi_khach == [0, 1]
++
++
++def test_nv309d_loi_phien_sau_khi_co_chu_khong_thu_lai(bo_module, may_chu, monkeypatch):
++    mod, _ = bo_module
++    md, goi_khach, goi_lam_moi, _ = _lap_module_lam_moi_gia(
++        bo_module, may_chu,
++        {0: ["một ", mod.LoiPhienGrokWeb("het phien")]},
++        lam_moi_ok=True, monkeypatch=monkeypatch)
++
++    async def doc_luong_loi():
++        chu = []
++        try:
++            async for m in md._luong_van_ban("fast", "xin chào"):
++                chu.append(m)
++        except mod.LoiPhienGrokWeb:
++            return "".join(chu), True
++        return "".join(chu), False
++
++    van_ban, co_loi = chay(doc_luong_loi())
++    assert (van_ban, co_loi) == ("một ", True)
++    assert goi_lam_moi == []  # đã có chữ: dừng, không thử lại
++    assert goi_khach == [0]
+diff --git a/test/test_web2api_nv88_khoi_phuc.py b/test/test_web2api_nv88_khoi_phuc.py
+index 2c35727..356cc25 100644
+--- a/test/test_web2api_nv88_khoi_phuc.py
++++ b/test/test_web2api_nv88_khoi_phuc.py
+@@ -289,3 +289,30 @@ def test_trinh_duyet_gia_ghi_hanh_dong_va_doc_cookie():
+     assert [h[0] for h in td.hanh_dong] == ["mo_trang", "dien", "bam"]
+     # giá trị điền vào không nằm trong nhật ký hành động ở dạng thô
+     assert "ban@example.com" not in json.dumps([h[0] for h in td.hanh_dong])
++
++
++# ── NV309-d: ngân sách tổng 1200 giây cho engine (a)/(b)/(c)/(d) ─────────
++# Mẫu c2a services/account_recovery.py::_RECOVER_BUDGET_S = 1200 (đủ thang
++# T2 ≤180s + T3 ≤700s + ...). Engine T0–T3 đã có T_NGAN_SACH_GIAY riêng;
++# engine a/b/c/d trước đây không có trần tổng — một lượt tầng (b) kẹt lâu
++# không bị cắt ở tầng lõi. Hết ngân sách thì bỏ tầng (b) (việc dài), vẫn
++# được xoay sang tài khoản kế ở tầng (c) rồi mới cần người ở (d).
++
++
++def test_nv309d_ngan_sach_1200_bo_tang_b_khi_het_gio(du_lieu, monkeypatch):
++    mod = ModuleGia()
++    mod.kich_ban["a"] = kp.KetQuaKhoiPhuc(False, ma_loi="het_han")
++    mod.mat_khau_luu = MAT_KHAU_GIA  # tầng (b) đủ điều kiện chạy nếu không bị chặn
++    mod.khoa_ke = None
++    # Đồng hồ giả: 0 giây lúc bắt đầu + lúc kiểm trước tầng (a), rồi 1201 giây.
++    moc = {"lan": 0}
++
++    def dong_ho_gia():
++        moc["lan"] += 1
++        return 0.0 if moc["lan"] <= 2 else 1201.0
++
++    monkeypatch.setattr(kp, "_bay_gio", dong_ho_gia)
++    kq = chay(kp.khoi_phuc(mod, _tk()))
++    assert ("a", "tk-mot") in mod.da_goi  # tầng (a) vẫn chạy
++    assert ("b", "tk-mot") not in mod.da_goi  # tầng (b) bị chặn vì hết ngân sách
++    assert kq.tang == "d" and kq.can_nguoi
+-- 
+2.43.0
+

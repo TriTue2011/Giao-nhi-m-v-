@@ -1,0 +1,235 @@
+From d32a4f0ac2195e1d27694ee1abcdcbc8f4bf586b Mon Sep 17 00:00:00 2001
+From: Muse <muse@local>
+Date: Mon, 9 Nov 2026 04:42:07 +0000
+Subject: [PATCH] NV309-test-do: sua 6 test do tren main (docs env, README
+ man-hinh, nv85, muse2api/paho, nv187)
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+- docs/THAM-CHIEU.md muc 8: bo sung 7 bien WEB2API_* thieu (COMBO_THU_LAI_NHANH_GIAY,
+  DANG_NHAP_HONG_LIEN_TIEP_DUNG, DO_CHUAN, JWT_LAM_MOI_BAT, JWT_LAM_MOI_KHOANG_GIAY,
+  THU_CHAT_GIAN_CACH_GIAY, THU_CHAT_TRAN_GIAY) voi mac dinh doc tu ma; them dong
+  GET /api/trinh-duyet/{module}/man-hinh vao bang duong.
+- README.md: nhac GET /api/trinh-duyet/{module}/man-hinh (anh JPEG man hinh dang
+  dang nhap tu dong, chi quan tri, chi xem) o muc noVNC.
+- scripts/kiem_module.py: URL chi la dinh danh (claim JWT
+  https://api.openai.com/profile, chi lam khoa dict, khong fetch) khong tinh la
+  goi mang ra — chatgpt-web het bao loi mang_ra; them test hoi quy nv85.
+- requirements.txt: khai paho-mqtt==2.1.0 (manifest mqtt yeu_cau_goi=[paho] nhung
+  requirements thieu) — test_moi_manifest_goi_thieu_rong het do.
+- test_web2api_nv187: them 6 ngoai le da kiem chung thu cong (log.* trong with khoa
+  chi giu ham_khoa._KHOA_LUONG, khong quay lai dung khoa dang giu).
+---
+ README.md                                     |  2 +-
+ docs/THAM-CHIEU.md                            |  8 +++++
+ requirements.txt                              |  5 +++
+ scripts/kiem_module.py                        | 19 +++++++++++
+ .../test_web2api_nv187_khoa_khong_tai_nhap.py | 32 +++++++++++++++++++
+ test/test_web2api_nv85_kiem_module.py         | 17 ++++++++++
+ 6 files changed, 82 insertions(+), 1 deletion(-)
+
+diff --git a/README.md b/README.md
+index 2430f1c..dc510d7 100644
+--- a/README.md
++++ b/README.md
+@@ -49,7 +49,7 @@ flowchart LR
+ - **Sao lưu & Khôi phục mã hoá**: Xuất bản sao lưu cấu hình mã hoá AES-256-GCM với mật khẩu (`POST /api/sao-luu`). Khôi phục kiểm chứng toàn vẹn, bảo vệ quyền chủ sở hữu khoá, tự động hoàn tác nếu lỗi ghi (`POST /api/khoi-phuc`).
+ - **Nhật ký chống sửa lén (Tamper-evident)**: Từng dòng nhật ký được liên kết bằng chuỗi băm SHA-256 (`truoc` và `bam`), tự động phát hiện can thiệp hoặc đứt chuỗi (`GET /api/nhat-ky/chuoi`). Tự động che giấu khoá và bí mật trong mọi thông báo lỗi và nhật ký.
+ - **Đo tài nguyên theo yêu cầu (NV261)**: Chỉ đo khi có người gọi API — không đo nền, mở trang không tự đo. (Nút «Đo ngay»/«Đo lại» trên trang Hệ thống → Module chưa nối: đang nền lại lên trang Module mới của NV259.) `POST /api/he-thong/do-tai-nguyen` (chỉ quản trị, `Cache-Control: no-store`, tối đa 1 lần/giây/người dùng) trả một ảnh chụp dùng chung: RAM từng module (quét tham chiếu từ biến toàn cục — nhãn «ước lượng»; dịch vụ phụ khai `dich_vu_phu` trong manifest thì đọc cgroup của chính container đó — nhãn «đo», không đọc được thì «chưa đo»), CPU từng module (lấy mẫu ngăn xếp mọi luồng, cửa sổ ≥ 2 giây), GPU, và phần RAM «chưa quy cho module». Mỗi lần cài module thành công cũng ghi lại hiệu RAM của lõi «lúc nạp +N MB (đo)».
+-- **Trình duyệt từ xa noVNC (`vnc-xa`)**: Mở workspace trình duyệt trên máy chủ qua noVNC (cần dịch vụ trình duyệt riêng `dich-vu/trinh-duyet`, cấu hình `dich_vu_url` và `khoa_dich_vu`) để đăng nhập thủ công các dịch vụ có CAPTCHA/OTP, duy trì phiên và tự động đưa cookie sang module khác mà không lộ ra ngoài. Module khai khả năng `trinh_duyet_xem` (vd `may-dang-nhap`) còn cho xem trực tiếp màn hình đang đăng nhập tự động qua `POST /api/trinh-duyet/{module}/xem` (cần xác nhận lại, vé một lần 60 giây).
++- **Trình duyệt từ xa noVNC (`vnc-xa`)**: Mở workspace trình duyệt trên máy chủ qua noVNC (cần dịch vụ trình duyệt riêng `dich-vu/trinh-duyet`, cấu hình `dich_vu_url` và `khoa_dich_vu`) để đăng nhập thủ công các dịch vụ có CAPTCHA/OTP, duy trì phiên và tự động đưa cookie sang module khác mà không lộ ra ngoài. Module khai khả năng `trinh_duyet_xem` (vd `may-dang-nhap`) còn cho xem trực tiếp màn hình đang đăng nhập tự động qua `POST /api/trinh-duyet/{module}/xem` (cần xác nhận lại, vé một lần 60 giây). Ảnh JPEG trực tiếp của màn hình đó: `GET /api/trinh-duyet/{module}/man-hinh` (chỉ quản trị, chỉ xem — không thao tác; `404` khi chưa có trình duyệt nào đang mở).
+ - **Hồ sơ Google & tái dùng (`/api/danh-tinh`, `/api/tai-khoan/tai-dung`)**: Đăng nhập Google MỘT lần trong một hồ sơ trình duyệt bền (`POST /api/danh-tinh/dang-nhap` tạo + tự đăng nhập; xem `GET /api/danh-tinh` và `GET /api/danh-tinh/{id}/trang-thai`; kiểm lại tín hiệu đăng nhập `POST /api/danh-tinh/{id}/kiem-lai`; gửi mã 2FA `POST /api/danh-tinh/{id}/ma-2fa`; xoá `DELETE /api/danh-tinh/{id}`). Mỗi provider «tái dùng» hồ sơ qua `POST /api/tai-khoan/tai-dung` để tự «Đăng nhập bằng Google» trong hồ sơ đó và thêm tài khoản của chính nó. Gặp CAPTCHA/Cloudflare/xác minh → «cần người» + noVNC, không tự giải. Giao diện quản lý danh tính: mục «Danh tính» ở Hệ thống → AI. Lượng dùng và hạn mức từng tài khoản (chỉ đọc thụ động từ phản hồi nhà cung cấp, thiếu tiêu đề thì ghi «không biết», không bịa số): `GET /api/tai-khoan/luong-dung`, `GET /api/tai-khoan/han-muc` (chỉ quản trị). Đăng nhập chạy nền theo mô-đun hỗ trợ: hỏi tiến độ `GET /api/tai-khoan/da-luu/{id}/dang-nhap-trang-thai`, gửi mã 2FA `POST /api/tai-khoan/da-luu/{id}/ma-2fa` (mã đi qua bộ nhớ tạm rồi bị xoá, không ghi log). Đăng nhập tất cả tài khoản chưa có hồ sơ của một nhóm: `POST /api/tai-khoan/da-luu/dang-nhap-theo-module` (chạy tuần tự, giãn cách, dừng sớm khi gặp N lỗi liên tiếp). Lấy bí mật (mật khẩu/khoá/token) hoặc mã OTP của một tài khoản đã lưu chỉ qua `POST /api/tai-khoan/bi-mat` (không có GET; thân `{"id", "hanh_dong"}`), cần xác nhận lại mật khẩu (step-up), phản hồi `no-store`, nhật ký chỉ ghi ai/bản ghi nào/hành động và không bao giờ ghi giá trị bí mật, khoá TOTP gốc không bao giờ trả.
+ - **Tìm kiếm tri thức (`/api/tim-kiem`)**: Lõi cung cấp đường chuẩn kết hợp 5 sơ đồ (công tắc nguồn/sơ đồ, lọc nhiều mặt, cây phân cấp, mục lục tài liệu, phễu nối tầng) và đánh dấu dữ liệu nguồn ngoài không tin cậy (cần module có khả năng tương ứng, hiện chưa có module đi kèm).
+ - **Công cụ AI từ thiết bị (`/api/cong-cu`)**: Lõi cung cấp đường chuẩn tự động chuyển đổi thiết bị và hành động thành công cụ function-calling chuẩn OpenAI; hàng chờ phê duyệt cho các tác vụ nguy hiểm (`/api/phe-duyet`) (cần module có khả năng tương ứng, hiện chưa có module đi kèm).
+diff --git a/docs/THAM-CHIEU.md b/docs/THAM-CHIEU.md
+index 3852018..bee759a 100644
+--- a/docs/THAM-CHIEU.md
++++ b/docs/THAM-CHIEU.md
+@@ -5016,6 +5016,7 @@ Cột «Khoá» cho biết có cần `Authorization: Bearer <khoá quản trị>
+ | `POST /api/trinh-duyet/{module}/mo` | Có | Mở/khôi phục hồ sơ trình duyệt từ xa (tuỳ chọn `url` trang bắt đầu) và cấp vé dùng một lần (60s) |
+ | `POST /api/trinh-duyet/{module}/{ho_so}/ve` | Có | Cấp thêm vé ngắn hạn cho hồ sơ đang mở |
+ | `GET /api/trinh-duyet/{module}` | Có | Liệt kê workspace (hồ sơ) của module: `ho_so`, `ten`, `loai`, `trang_thai`, `dang_mo`, `thu_cong`, `luc_mo` |
++| `GET /api/trinh-duyet/{module}/man-hinh` | Có | Ảnh JPEG trang trình duyệt đang đăng nhập tự động của module (chỉ xem, không thao tác; chỉ quản trị; `404` khi chưa có trình duyệt nào đang mở; ảnh không hợp lệ → `502`) |
+ | `POST /api/trinh-duyet/{module}` | Có | Tạo workspace `{"ten"}` → `{"ho_so", "ten"}` (ID ngẫu nhiên, không mở trình duyệt) |
+ | `POST /api/trinh-duyet/{module}/{ho_so}/cookie-sang-module` | Có | Lấy cookie của `mien` từ hồ sơ, cài vào trường bí mật `truong` của `module_dich` (phản hồi không chứa cookie) |
+ | `POST /api/trinh-duyet/{module}/{ho_so}/dong` | Có | Đóng hồ sơ trình duyệt, thu hồi vé/phiên và đóng WebSocket; đóng GIỮ PHIÊN mà hồ sơ có gắn danh tính → tự kiểm lại tín hiệu phiên và cập nhật trạng thái danh tính, phản hồi kèm trường `danh_tinh` (NV179) |
+@@ -5068,6 +5069,7 @@ Cột «Khoá» cho biết có cần `Authorization: Bearer <khoá quản trị>
+ | `WEB2API_KENH_VAO_BAO_NGUOI_LA` | `1` | Bật/tắt gửi tin cảnh báo khi có người lạ nhắn tin tới bot (mặc định bật = `1`, gửi 1 lần tới đích báo của sổ thiết bị) |
+ | `WEB2API_MAY_RAM_MB` | không | Tổng RAM của máy (MB) do người vận hành khai |
+ | `WEB2API_MAY_CPU` | không | Số nhân CPU của máy do người vận hành khai |
++| `WEB2API_DO_CHUAN` | không | Chế độ chẩn đoán phép đo tài nguyên (NV261): đặt `1` để bật tracemalloc từ lúc khởi động, có chuẩn tuyệt đối khi chẩn đoán phép đo — web2api chậm đi đáng kể nên chỉ dùng khi chẩn đoán, tắt mặc định. Đọc lúc khởi động |
+ | `TZ` | không | Biến chuẩn của hệ điều hành: múi giờ của nhà, tên IANA (vd `Asia/Ho_Chi_Minh`). Studio báo giờ hiện tại cho model theo múi giờ này (trường `mui_gio` của `GET /api/tinh-nang`), không theo trình duyệt; chưa đặt hoặc sai → `null`, Studio dùng múi giờ trình duyệt, nhật ký có một cảnh báo |
+ | `WEB2API_TEP_TOI_DA_MB` | `25` | Trần tổng thân `multipart/form-data` (MB, mọi tệp + trường) cho các đường `/v1` nhận tệp; vượt là `413` |
+ | `WEB2API_THAN_TOI_DA_MB` | `25` | Trần thân JSON (MB) cho mọi đường nhận thân JSON: các đường `/v1` (chat, tạo ảnh, đọc giọng nói, video…) và các đường `POST`/`PUT` của `/api/*` (cấu hình module, module từ xa, nguồn git); vượt là `413`. Đọc mỗi lượt (đổi không cần khởi động lại); đếm byte thật, không tin `Content-Length` |
+@@ -5083,10 +5085,15 @@ Cột «Khoá» cho biết có cần `Authorization: Bearer <khoá quản trị>
+ | `WEB2API_DANG_NHAP_HANG_CHO_TOI_DA` | `16` | Trần số lượt yêu cầu đăng nhập đang chờ và đang băm scrypt đồng thời; vượt trần trả `429` kèm `Retry-After` ngay lập tức để bỏ tải |
+ | `WEB2API_SCRYPT_HANG_CHO_TOI_DA` | `16` | Bí danh của `WEB2API_DANG_NHAP_HANG_CHO_TOI_DA` cấu hình trần hàng chờ băm mật khẩu scrypt |
+ | `WEB2API_DANG_NHAP_GIAN_CACH_GIAY` | `30` | Giãn cách (giây) giữa hai lần đăng nhập tự động liên tiếp trong lượt đăng nhập hàng loạt (`app/tai_khoan_hang_loat.py`); số thực, kẹp trong `[0, 3600]`, sai → `30`. Đọc mỗi lượt chạy (đổi không cần khởi động lại) |
++| `WEB2API_DANG_NHAP_HONG_LIEN_TIEP_DUNG` | `2` | Số tài khoản hỏng liên tiếp thì dừng cả hàng đăng nhập hàng loạt (NV210); sai → `2`. Đọc mỗi lần gọi |
+ | `WEB2API_TU_LAM_MOI_BAT` | `1` | Tự khôi phục/làm mới phiên nhiều tầng nối vào đường chạy (NV91-P2): `1` = bật, `0` = tắt (đường API thủ công `/api/tai-khoan/khoi-phuc` vẫn chạy). Đọc mỗi lần gọi |
+ | `WEB2API_TU_LAM_MOI_KHOANG_GIAY` | `1800` | Chu kỳ (giây) vòng làm mới phiên định kỳ nền; tối thiểu `60` để không thành vòng lặp bận. Đọc mỗi vòng |
+ | `WEB2API_TU_LAM_MOI_NGHI_GIAY` | `300` | Thời gian nghỉ (giây) giữa hai lượt tự khôi phục của cùng một tài khoản. Đọc mỗi lần kích hoạt |
+ | `WEB2API_TU_LAM_MOI_GIAN_CACH_TAI_KHOAN_GIAY` | `30` | Giãn cách (giây) giữa các tài khoản trong một vòng làm mới định kỳ. Đọc mỗi vòng |
++| `WEB2API_JWT_LAM_MOI_BAT` | `1` | Bật/tắt vòng nền tự làm mới JWT (NV207): `1` = bật, `0` = tắt (các giá trị `true`/`yes`/`on` và `false`/`no`/`off` cũng nhận; lạ → bật). Đọc mỗi lần gọi |
++| `WEB2API_JWT_LAM_MOI_KHOANG_GIAY` | `21600` | Chu kỳ (giây) vòng làm mới JWT định kỳ nền (6 giờ); tối thiểu `300` để không thành vòng lặp bận. Đọc mỗi lần gọi |
++| `WEB2API_THU_CHAT_GIAN_CACH_GIAY` | `5` | Giãn tối thiểu (giây) giữa hai lần «Thử chat» của cùng một module, chống bấm dồn; sai/âm → `5`. Đọc mỗi lần gọi |
++| `WEB2API_THU_CHAT_TRAN_GIAY` | `60` | Trần thời gian (giây) một lượt «Thử chat»; không phải số dương hữu hạn → `60` (đặt sai không tắt được trần). Đọc mỗi lần gọi |
+ | `WEB2API_CHU_KY_MODEL_GIO` | `3` | Chu kỳ tự động làm mới danh sách model của các module (giờ, số thực, kẹp trong khoảng 1..24; sai kiểu, NaN hoặc vô cực dùng mặc định 3 và ghi cảnh báo log). Đọc mỗi chu kỳ |
+ | `WEB2API_PHIEN_WEB_RANH_GIO` | `8` | Thời gian hết hạn do nhàn rỗi (giờ) của một phiên web kể từ lần hoạt động gần nhất |
+ | `WEB2API_STEPUP_GIAY` | `900` | Thời gian hiệu lực (giây) của xác nhận lại (step-up) cho thao tác nguy hiểm của quản trị; mặc định 15 phút |
+@@ -5121,6 +5128,7 @@ Cột «Khoá» cho biết có cần `Authorization: Bearer <khoá quản trị>
+ | `WEB2API_COMBO_NGHI_GIAY` | `60` | Giây cầu chì mở trước khi cho MỘT lượt thăm dò (nửa mở); cũng là thời gian hạ bậc bước bị phân xử 400 |
+ | `WEB2API_COMBO_DINH_GIAY` | `900` | Giây giữ dính tài khoản (cùng hội thoại → cùng bước); `0` tắt dính |
+ | `WEB2API_COMBO_TOI_DA_GIAY` | `300` | Trần thời gian TỔNG của một lượt gọi combo qua các bước tới byte đầu; vượt → `504 combo_timeout` |
++| `WEB2API_COMBO_THU_LAI_NHANH_GIAY` | `10` | Trần «rớt nhanh» (giây): combo thử lại NGAY một lần khi kết nối rớt thoáng qua ở pha gọi (chỉ khi thời gian đã trôi qua dưới trần này); tối thiểu `0`. Đọc mỗi lần gọi |
+ | `WEB2API_GIT_REPO` | không | Kho git chứa module (`chủ/kho`), dùng khi chưa đặt qua API |
+ | `WEB2API_GIT_NHANH` | `main` | Nhánh git |
+ | `WEB2API_GIT_THU_MUC` | `modules` | Thư mục module trong kho |
+diff --git a/requirements.txt b/requirements.txt
+index 5cd9b17..712088b 100644
+--- a/requirements.txt
++++ b/requirements.txt
+@@ -16,6 +16,11 @@ noiseprotocol==0.3.1
+ protobuf==7.36.2
+ # Nhận và chuyển tiếp WebSocket hai chiều cho proxy noVNC (/novnc/.../websockify), Chuẩn C6; ghim đúng bản đã kiểm, 13/10/2026.
+ websockets==17.2
++# Cho module mqtt (NV151): thư viện MQTT (Eclipse Paho). Manifest khai
++# yeu_cau_goi=["paho"] và lõi kiểm bằng find_spec lúc cài — thiếu gói này thì
++# module không nạp được và test_moi_manifest_goi_thieu_rong đỏ. Đúng bản module
++# tự nêu trong thông báo lỗi khi thiếu (modules/mqtt/mqtt_lop.py).
++paho-mqtt==2.1.0
+ # Module youtube (NV277) chạy thẳng trong lõi nên cần trích xuất YouTube. Chủ máy duyệt 03/11/2026; ghim ĐÚNG
+ # phiên bản của dich-vu/youtube-phat (đã kiểm cùng nhau ở đó; tên, phiên bản khớp).
+ # - yt-dlp: tìm (ytsearch) + giải link âm thanh YouTube (Unlicense).
+diff --git a/scripts/kiem_module.py b/scripts/kiem_module.py
+index 7e786c5..5306696 100644
+--- a/scripts/kiem_module.py
++++ b/scripts/kiem_module.py
+@@ -38,6 +38,15 @@ HAM_NGUY_HIEM = {"eval", "exec", "compile", "__import__"}
+ DOC_ENV = {"getenv", "environ"}
+ # Khong gian ten loi: module duoc phep dung, khong can khai yeu_cau_goi.
+ BO_QUA_GOI = {"app"}
++# URL chỉ là ĐỊNH DANH, không phải đích gọi mạng: khoá claim trong JWT đã giải
++# mã cục bộ (OpenAI đặt email ở claim có tên dạng URL
++# «https://api.openai.com/profile» — module chỉ dùng làm khoá dict khi đọc
++# payload, không fetch; xem modules/chatgpt-web/lam_moi_jwt.py). Miền trong
++# đúng các URL này không tính là gọi mạng ra — thêm mục mới vào đây PHẢI kèm
++# lý do kiểm chứng (không fetch), như NGOAI_LE_DA_DUYET của NV187.
++URI_CHI_LA_DINH_DANH = frozenset({
++    "https://api.openai.com/profile",
++})
+ # (MAU_MIEN cũ đã bỏ: chỉ trích miền từ URL đầy đủ trong _mien_trong_chuoi.)
+ # Mau chuoi giong bi mat nhung cung: khoa/token/mat khau gan truc tiep.
+ MAU_BI_MAT = re.compile(
+@@ -132,12 +141,22 @@ class BoQuet(ast.NodeVisitor):
+     def _mien_trong_chuoi(self, s: str) -> None:
+         # Chỉ trích miền từ URL đầy đủ (có ://): đó mới là "gọi mạng".
+         # Chuỗi thường nhắc tên miền (vd kiểm tra redirect) không tính.
++        # Ngoại lệ: URL chỉ là định danh (URI_CHI_LA_DINH_DANH) — khoá claim
++        # trong JWT đã giải mã cục bộ, không phải đích gọi mạng.
+         for m in re.finditer(r"https?://([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?"
+                              r"(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+)",
+                              s, re.IGNORECASE):
+             mien = m.group(1).lower().rstrip(".")
+             nhan_cuoi = mien.rsplit(".", 1)[-1]
+             if len(nhan_cuoi) >= 2 and nhan_cuoi.isalpha():
++                # URL đầy đủ (kèm đường dẫn) để đối chiếu danh sách định danh:
++                # lấy từ đầu URL tới khoảng trắng/dấu quote/dấu backtick.
++                ket = m.end()
++                while ket < len(s) and s[ket] not in " \t\r\n'\"`<>":
++                    ket += 1
++                url_day_du = s[m.start():ket].rstrip("`.,;:!?)]}")
++                if url_day_du.lower() in URI_CHI_LA_DINH_DANH:
++                    continue
+                 self.kq.mien.add(mien)
+ 
+     def _quet_chuoi_doi_so(self, node: ast.Call) -> None:
+diff --git a/test/test_web2api_nv187_khoa_khong_tai_nhap.py b/test/test_web2api_nv187_khoa_khong_tai_nhap.py
+index 1c2b69d..6f5c391 100644
+--- a/test/test_web2api_nv187_khoa_khong_tai_nhap.py
++++ b/test/test_web2api_nv187_khoa_khong_tai_nhap.py
+@@ -36,6 +36,12 @@ NGOAI_LE_DA_DUYET: dict[tuple[str, str], str] = {
+     ("app/combo.py", "_ghi_loi"):
+         "che_chuoi/nhat_ky.ghi chạm khoá khác (ham_khoa._KHOA_LUONG qua chuỗi "
+         "khoa_quan_tri → lay_khoa_chinh), không quay lại self._lock.",
++    ("app/do_tai_nguyen.py", "ghi_chi_phi_nap"):
++        "_KHOA_TRANG_THAI là khoá module riêng của do_tai_nguyen (threading.Lock, "
++        "chỉ giữ ở đây); trong with chỉ đọc/ghi tệp trạng thái (_doc_trang_thai "
++        "đọc tệp thuần túy, write_text) và log.warning khi ghi lỗi — log qua bộ "
++        "lọc che_log toàn cục → che_chuoi → khoa_quan_tri → lay_khoa_chinh chỉ "
++        "giữ ham_khoa._KHOA_LUONG (khoá khác) → không quay lại _KHOA_TRANG_THAI.",
+     ("app/gioi_han.py", "kiem_tra"):
+         "self._khoa_luong là khoá riêng từng BoGioiHan; nhat_ky.ghi chỉ giữ "
+         "ham_khoa._KHOA_LUONG (khoá khác) → không quay lại cùng khoá.",
+@@ -69,6 +75,10 @@ NGOAI_LE_DA_DUYET: dict[tuple[str, str], str] = {
+     ("dich-vu/antigravity-cau-noi/cau_noi.py", "cap_nhat_han_muc"):
+         "log.warning qua filter → khoá khác (ham_khoa._KHOA_LUONG); _chay là tiến "
+         "trình con, phan_tich_usage thuần túy → không quay lại self._dang_doc.",
++    ("dich-vu/antigravity-cau-noi/cau_noi.py", "kiem_tra_phien"):
++        "Như cap_nhat_han_muc: log.warning chạm khoá khác (ham_khoa._KHOA_LUONG); "
++        "_chay là tiến trình con, phan_tich_usage thuần túy, _doc_email chỉ đọc "
++        "một dòng tệp → không quay lại self._dang_doc.",
+     ("dich-vu/trinh-duyet/server.py", "gianh_dieu_khien"):
+         "log.info qua filter → khoá khác (ham_khoa._KHOA_LUONG), không quay lại self.khoa.",
+     ("dich-vu/trinh-duyet/server.py", "nha_dieu_khien"):
+@@ -79,6 +89,28 @@ NGOAI_LE_DA_DUYET: dict[tuple[str, str], str] = {
+         "Như mo: log.info chạm khoá khác, không quay lại self.khoa.",
+     ("dich-vu/trinh-duyet/server.py", "don_idle"):
+         "Như mo: log.info chạm khoá khác, không quay lại self.khoa.",
++    ("modules/chatgpt-web/module.py", "_thay_token_jwt"):
++        "self._khoa là khoá riêng từng thể hiện Module chatgpt-web (threading.Lock); "
++        "trong with chỉ gọi hàm thuần túy + app.kho (doc_modules/doc_cau_hinh/ "
++        "ghep_cau_hinh/luu_cai_dat — kho dùng RLock riêng, không log, không chạm "
++        "self._khoa) và log.warning khi lưu lỗi → chỉ giữ ham_khoa._KHOA_LUONG "
++        "(khoá khác) → không quay lại self._khoa.",
++    ("modules/chatgpt-web/module.py", "_them_token_ben"):
++        "Như _thay_token_jwt: self._khoa riêng từng thể hiện; trong with chỉ gọi "
++        "hàm thuần túy + app.kho (RLock riêng, không chạm self._khoa) và "
++        "log.warning khi lưu lỗi → chỉ giữ ham_khoa._KHOA_LUONG (khoá khác).",
++    ("modules/mikrotik-routeros/module.py", "_lam_moi_neu_can"):
++        "self._khoa_lam_moi là asyncio.Lock riêng từng thể hiện; trong async with "
++        "chỉ tạo future/luồng phụ + await (luồng phụ chạy _lam_moi_dong_bo, hàm này "
++        "không hề nhắc _khoa_lam_moi — chỉ nhắc ở dòng kiểm tra/lấy khoá) và "
++        "log.warning khi quá 2.5s → chỉ giữ ham_khoa._KHOA_LUONG (khoá khác) → "
++        "không quay lại self._khoa_lam_moi.",
++    ("modules/muse2api/module.py", "_thay_cookie"):
++        "self._khoa_thay_cookie là khoá riêng từng thể hiện Module muse2api "
++        "(threading.Lock); trong with chỉ gọi hàm thuần túy + app.kho "
++        "(doc_modules/doc_cau_hinh/ghep_cau_hinh/luu_cai_dat — RLock riêng, không "
++        "chạm self._khoa_thay_cookie) và log.warning khi lưu lỗi → chỉ giữ "
++        "ham_khoa._KHOA_LUONG (khoá khác) → không quay lại self._khoa_thay_cookie.",
+     ("modules/mqtt/mqtt_lop.py", "start"):
+         "log.info qua filter → khoá khác (ham_khoa._KHOA_LUONG), không quay lại self._khoa.",
+     ("modules/zte-e2633/module.py", "cai"):
+diff --git a/test/test_web2api_nv85_kiem_module.py b/test/test_web2api_nv85_kiem_module.py
+index a939405..f7cbef9 100644
+--- a/test/test_web2api_nv85_kiem_module.py
++++ b/test/test_web2api_nv85_kiem_module.py
+@@ -91,6 +91,23 @@ def test_goi_mang_mien_chua_khai(tmp_path):
+     assert "la.example" in kq.stdout
+ 
+ 
++def test_claim_jwt_dang_url_khong_tinh_la_goi_mang(tmp_path):
++    """Claim JWT có tên dạng URL chỉ là khoá dict trong payload đã giải mã cục
++    bộ — không phải đích gọi mạng (chatgpt-web: _CLAIM_HO_SO =
++    «https://api.openai.com/profile», chỉ payload.get(...), không fetch)."""
++    noi = dung_module_mau(tmp_path / "claim", MANIFEST_TOT, {
++        "lam_moi.py": (
++            '_CLAIM_HO_SO = "https://api.openai.com/profile"\n\n\n'
++            "def email_cua(payload):\n"
++            '    """Email trong claim `https://api.openai.com/profile`; không có → ""."""\n'
++            "    ho_so = payload.get(_CLAIM_HO_SO)\n"
++            '    return ho_so.get("email", "") if isinstance(ho_so, dict) else ""\n'
++        ),
++    })
++    kq = chay(noi)
++    assert kq.returncode == 0, kq.stdout + kq.stderr
++
++
+ def test_goi_la_khong_khai(tmp_path):
+     noi = dung_module_mau(tmp_path / "goi-la", MANIFEST_TOT, {
+         "client.py": "import goi_la_xyz\n\ngoi_la_xyz.goi()\n",
+-- 
+2.43.0
+
