@@ -7,10 +7,10 @@ Chủ máy đã duyệt cả bốn quyền. Trạng thái thật, đo trên máy
 | Q-A | ĐÃ CÓ | MCP `tai_khoan` trả thêm `dang_nhap_bang`, `cach_dang_nhap`, `dang_nhap_lan_cuoi` (`trang_thai`, `luc`, `ma_loi`, `co_phien`). Không có email, không có giá trị phiên. |
 | Q-D | ĐÃ BẬT | MCP `chan_doan_dang_nhap` (`so_buoc` 1–100): bước điều hướng (tên miền + đường dẫn, không query) và bước bấm kèm selector đã thử + kết quả `bam_duoc` / `khong_thay` / `loi`. Giới hạn: selector chỉ có ở luồng ChatGPT và Grok; Claude và Gemini hiện chỉ có điều hướng. Vòng đệm chung 300 bước, gồm cả lượt của chủ máy. |
 | Q-B | ĐÃ BẬT, CÓ HẠN | MCP `man_hinh_dang_nhap`: trả ảnh JPEG (khối `image`). Hết hạn **2026-11-10 02:12 UTC** (tự tắt, chủ máy gia hạn). Chỉ chụp được khi cổng MCP đang chạy (hoặc vừa chạy ≤ 2 phút) một lượt `dang_nhap_bat_dau`; cách nhau ≥ 3 giây; mỗi lần xem ghi nhật ký. Chỉ xem, không bấm/gõ được. |
-| Q-C | CHƯA LÀM ĐƯỢC | Chờ chủ máy: lưu tài khoản Claude và Gemini ở chế độ «dùng hồ sơ Google đã đăng nhập», chuyển Grok về chế độ đó và bỏ tạm dừng, rồi thêm 3 id vào danh sách cho phép. Hiện danh sách vẫn chỉ có ChatGPT `tk-21045e6bd2684c5f@chatgpt-web` và Google `tk-b7b85b75867aac4c@gemini-web`. |
+| Q-C | ĐÃ DUYỆT TRƯỚC | web2api main `5c86930` (đã chạy 09/11 10:25): cổng cho phép đăng nhập thật MỌI tài khoản lưu ở module `claude-web`, `gemini-web`, `grok-web` (qua `may-dang-nhap`), kể cả tài khoản lưu sau này — không cần thêm id. Đã xác nhận trong container. Vẫn cần chủ máy: lưu tài khoản Claude và Gemini ở chế độ «dùng hồ sơ Google đã đăng nhập», bỏ tạm dừng Grok. Hiện kho chưa có tài khoản Claude; `tai_khoan` có cờ `cho_phep_dang_nhap_mcp` để Muse tự thấy tài khoản nào đã được phép. Mọi hãm giữ nguyên (một phiên, nghỉ 1 giờ, dừng sau 2 lần hỏng, 3 lần thành công/ngày). |
 | Q-E | ĐƯỢC PHÉP, CÓ GIỚI HẠN | Sau mỗi lần web2api dựng lại có đổi phần đăng nhập, Muse được tự kiểm lại các tài khoản đã cho phép. Giới hạn cứng bên dưới. |
 
-## Lỗi đang chưa sửa được (đo 09/11/2026 trên main `4eb5d2b`)
+## Lỗi đang chưa sửa được (đo 09/11/2026 trên main `5c86930`)
 
 Đây là danh sách để Muse nhắm vào khi tự kiểm. Mỗi mục ghi rõ đã kiểm bằng cách nào; mục nào chỉ lấy từ báo cáo `nv309-doi-chieu` của Muse thì ghi «theo báo cáo».
 
@@ -34,7 +34,7 @@ Chủ máy đã duyệt cả bốn quyền. Trạng thái thật, đo trên máy
 - `test_nv151_mqtt`: 51 test đỏ + 8 lỗi (môi trường thiếu gói).
 - Chập chờn khi tải cao (xanh khi chạy riêng): `nv36_phien_giao_dien`, `nv261_do_tai_nguyen`, `nv297_khu`.
 
-**Chưa làm được vì chờ chủ máy:** Q-C (tài khoản Claude, Gemini, Grok), mốc xác nhận bằng tay các selector «chưa xác nhận bằng tay» của NV309.
+**Chờ chủ máy:** lưu tài khoản Claude/Gemini (hồ sơ Google) và bỏ tạm dừng Grok để chạy chuỗi Q-C; mốc xác nhận bằng tay các selector «chưa xác nhận bằng tay» của NV309.
 
 ## Giới hạn cứng khi tự kiểm (Q-E)
 
