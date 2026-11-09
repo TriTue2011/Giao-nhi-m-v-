@@ -1,0 +1,995 @@
+{
+  "tong": 38,
+  "tai_khoan": [
+    {
+      "id": "tk-533b0186b574db97",
+      "nhom": "grok",
+      "loai_tai_khoan": "",
+      "dich_dung": "",
+      "bac_goi": "khong_biet",
+      "module_id": "grok-web",
+      "trang_thai": "tam_dung",
+      "trang_thai_duong": {},
+      "dung": {
+        "hom_nay": 0,
+        "7_ngay": 0
+      },
+      "han_muc": "khong_biet",
+      "dang_nhap_bang": "",
+      "cach_dang_nhap": "email",
+      "dang_nhap_lan_cuoi": {
+        "trang_thai": "can_xu_ly",
+        "luc": 1793696703,
+        "ma_loi": "gap_captcha",
+        "co_phien": null
+      },
+      "co_mat_khau": true,
+      "co_totp": true,
+      "cho_phep_dang_nhap_mcp": true
+    },
+    {
+      "id": "tk-f18c5153591199c1",
+      "nhom": "google",
+      "loai_tai_khoan": "",
+      "dich_dung": "",
+      "bac_goi": "khong_biet",
+      "module_id": "gemini-web",
+      "trang_thai": "",
+      "trang_thai_duong": {},
+      "dung": {
+        "hom_nay": 0,
+        "7_ngay": 0
+      },
+      "han_muc": "khong_biet",
+      "dang_nhap_bang": "",
+      "cach_dang_nhap": "email",
+      "dang_nhap_lan_cuoi": {
+        "trang_thai": "can_xu_ly",
+        "luc": 1793696961,
+        "ma_loi": "blocked_captcha_window",
+        "co_phien": null
+      },
+      "co_mat_khau": true,
+      "co_totp": true,
+      "cho_phep_dang_nhap_mcp": true
+    },
+    {
+      "id": "tk-b7b85b75867aac4c",
+      "nhom": "google",
+      "loai_tai_khoan": "",
+      "dich_dung": "",
+      "bac_goi": "khong_biet",
+      "module_id": "gemini-web",
+      "trang_thai": "",
+      "trang_thai_duong": {},
+      "dung": {
+        "hom_nay": 0,
+        "7_ngay": 0
+      },
+      "han_muc": "khong_biet",
+      "dang_nhap_bang": "",
+      "cach_dang_nhap": "email",
+      "dang_nhap_lan_cuoi": {
+        "trang_thai": "ok",
+        "luc": 1794195397,
+        "ma_loi": "",
+        "co_phien": true
+      },
+      "co_mat_khau": true,
+      "co_totp": true,
+      "cho_phep_dang_nhap_mcp": true
+    },
+    {
+      "id": "tk-de74a85501c34f26",
+      "nhom": "google",
+      "loai_tai_khoan": "",
+      "dich_dung": "",
+      "bac_goi": "khong_biet",
+      "module_id": "gemini-web",
+      "trang_thai": "",
+      "trang_thai_duong": {},
+      "dung": {
+        "hom_nay": 0,
+        "7_ngay": 0
+      },
+      "han_muc": "khong_biet",
+      "dang_nhap_bang": "",
+      "cach_dang_nhap": "email",
+      "dang_nhap_lan_cuoi": {
+        "trang_thai": "chua",
+        "luc": 0,
+        "ma_loi": "",
+        "co_phien": null
+      },
+      "co_mat_khau": true,
+      "co_totp": true,
+      "cho_phep_dang_nhap_mcp": true
+    },
+    {
+      "id": "tk-50829177578d4810",
+      "nhom": "google",
+      "loai_tai_khoan": "",
+      "dich_dung": "",
+      "bac_goi": "khong_biet",
+      "module_id": "gemini-web",
+      "trang_thai": "",
+      "trang_thai_duong": {},
+      "dung": {
+        "hom_nay": 0,
+        "7_ngay": 0
+      },
+      "han_muc": "khong_biet",
+      "dang_nhap_bang": "",
+      "cach_dang_nhap": "email",
+      "dang_nhap_lan_cuoi": {
+        "trang_thai": "chua",
+        "luc": 0,
+        "ma_loi": "",
+        "co_phien": null
+      },
+      "co_mat_khau": true,
+      "co_totp": true,
+      "cho_phep_dang_nhap_mcp": true
+    },
+    {
+      "id": "tk-7823a0e2795c461f",
+      "nhom": "google",
+      "loai_tai_khoan": "",
+      "dich_dung": "",
+      "bac_goi": "khong_biet",
+      "module_id": "gemini-web",
+      "trang_thai": "",
+      "trang_thai_duong": {},
+      "dung": {
+        "hom_nay": 0,
+        "7_ngay": 0
+      },
+      "han_muc": "khong_biet",
+      "dang_nhap_bang": "",
+      "cach_dang_nhap": "email",
+      "dang_nhap_lan_cuoi": {
+        "trang_thai": "chua",
+        "luc": 0,
+        "ma_loi": "",
+        "co_phien": null
+      },
+      "co_mat_khau": true,
+      "co_totp": true,
+      "cho_phep_dang_nhap_mcp": true
+    },
+    {
+      "id": "tk-c16032faf65d0210",
+      "nhom": "google",
+      "loai_tai_khoan": "",
+      "dich_dung": "",
+      "bac_goi": "khong_biet",
+      "module_id": "gemini-web",
+      "trang_thai": "",
+      "trang_thai_duong": {},
+      "dung": {
+        "hom_nay": 0,
+        "7_ngay": 0
+      },
+      "han_muc": "khong_biet",
+      "dang_nhap_bang": "",
+      "cach_dang_nhap": "email",
+      "dang_nhap_lan_cuoi": {
+        "trang_thai": "chua",
+        "luc": 0,
+        "ma_loi": "",
+        "co_phien": null
+      },
+      "co_mat_khau": true,
+      "co_totp": true,
+      "cho_phep_dang_nhap_mcp": true
+    },
+    {
+      "id": "tk-b030c7d05883b15f",
+      "nhom": "google",
+      "loai_tai_khoan": "",
+      "dich_dung": "",
+      "bac_goi": "khong_biet",
+      "module_id": "gemini-web",
+      "trang_thai": "",
+      "trang_thai_duong": {},
+      "dung": {
+        "hom_nay": 0,
+        "7_ngay": 0
+      },
+      "han_muc": "khong_biet",
+      "dang_nhap_bang": "",
+      "cach_dang_nhap": "email",
+      "dang_nhap_lan_cuoi": {
+        "trang_thai": "chua",
+        "luc": 0,
+        "ma_loi": "",
+        "co_phien": null
+      },
+      "co_mat_khau": true,
+      "co_totp": true,
+      "cho_phep_dang_nhap_mcp": true
+    },
+    {
+      "id": "tk-21045e6bd2684c5f",
+      "nhom": "chatgpt",
+      "loai_tai_khoan": "",
+      "dich_dung": "",
+      "bac_goi": "khong_biet",
+      "module_id": "chatgpt-web",
+      "trang_thai": "",
+      "trang_thai_duong": {},
+      "dung": {
+        "hom_nay": 0,
+        "7_ngay": 0
+      },
+      "han_muc": "khong_biet",
+      "dang_nhap_bang": "",
+      "cach_dang_nhap": "email",
+      "dang_nhap_lan_cuoi": {
+        "trang_thai": "ok",
+        "luc": 1794194520,
+        "ma_loi": "",
+        "co_phien": true
+      },
+      "co_mat_khau": true,
+      "co_totp": true,
+      "cho_phep_dang_nhap_mcp": true
+    },
+    {
+      "id": "tk-2f54a422b56a5e5d",
+      "nhom": "chatgpt",
+      "loai_tai_khoan": "",
+      "dich_dung": "",
+      "bac_goi": "khong_biet",
+      "module_id": "chatgpt-web",
+      "trang_thai": "",
+      "trang_thai_duong": {},
+      "dung": {
+        "hom_nay": 0,
+        "7_ngay": 0
+      },
+      "han_muc": "khong_biet",
+      "dang_nhap_bang": "",
+      "cach_dang_nhap": "email",
+      "dang_nhap_lan_cuoi": {
+        "trang_thai": "ok",
+        "luc": 1793641427,
+        "ma_loi": "",
+        "co_phien": true
+      },
+      "co_mat_khau": true,
+      "co_totp": true,
+      "cho_phep_dang_nhap_mcp": false
+    },
+    {
+      "id": "tk-3ea166dc99c9e948",
+      "nhom": "chatgpt",
+      "loai_tai_khoan": "",
+      "dich_dung": "",
+      "bac_goi": "khong_biet",
+      "module_id": "chatgpt-web",
+      "trang_thai": "",
+      "trang_thai_duong": {},
+      "dung": {
+        "hom_nay": 0,
+        "7_ngay": 0
+      },
+      "han_muc": "khong_biet",
+      "dang_nhap_bang": "",
+      "cach_dang_nhap": "email",
+      "dang_nhap_lan_cuoi": {
+        "trang_thai": "ok",
+        "luc": 1793648977,
+        "ma_loi": "",
+        "co_phien": true
+      },
+      "co_mat_khau": true,
+      "co_totp": true,
+      "cho_phep_dang_nhap_mcp": false
+    },
+    {
+      "id": "tk-5561651bfdd4cc65",
+      "nhom": "chatgpt",
+      "loai_tai_khoan": "",
+      "dich_dung": "",
+      "bac_goi": "khong_biet",
+      "module_id": "chatgpt-web",
+      "trang_thai": "",
+      "trang_thai_duong": {},
+      "dung": {
+        "hom_nay": 0,
+        "7_ngay": 0
+      },
+      "han_muc": "khong_biet",
+      "dang_nhap_bang": "",
+      "cach_dang_nhap": "email",
+      "dang_nhap_lan_cuoi": {
+        "trang_thai": "chua",
+        "luc": 0,
+        "ma_loi": "",
+        "co_phien": null
+      },
+      "co_mat_khau": true,
+      "co_totp": true,
+      "cho_phep_dang_nhap_mcp": false
+    },
+    {
+      "id": "tk-65e48832d09db344",
+      "nhom": "chatgpt",
+      "loai_tai_khoan": "",
+      "dich_dung": "",
+      "bac_goi": "khong_biet",
+      "module_id": "chatgpt-web",
+      "trang_thai": "",
+      "trang_thai_duong": {},
+      "dung": {
+        "hom_nay": 0,
+        "7_ngay": 0
+      },
+      "han_muc": "khong_biet",
+      "dang_nhap_bang": "",
+      "cach_dang_nhap": "email",
+      "dang_nhap_lan_cuoi": {
+        "trang_thai": "chua",
+        "luc": 0,
+        "ma_loi": "",
+        "co_phien": null
+      },
+      "co_mat_khau": true,
+      "co_totp": true,
+      "cho_phep_dang_nhap_mcp": false
+    },
+    {
+      "id": "tk-4e25d8a471af76bb",
+      "nhom": "chatgpt",
+      "loai_tai_khoan": "",
+      "dich_dung": "",
+      "bac_goi": "khong_biet",
+      "module_id": "chatgpt-web",
+      "trang_thai": "",
+      "trang_thai_duong": {},
+      "dung": {
+        "hom_nay": 0,
+        "7_ngay": 0
+      },
+      "han_muc": "khong_biet",
+      "dang_nhap_bang": "",
+      "cach_dang_nhap": "email",
+      "dang_nhap_lan_cuoi": {
+        "trang_thai": "chua",
+        "luc": 0,
+        "ma_loi": "",
+        "co_phien": null
+      },
+      "co_mat_khau": true,
+      "co_totp": true,
+      "cho_phep_dang_nhap_mcp": false
+    },
+    {
+      "id": "tk-bf7b546dcc61e9cf",
+      "nhom": "chatgpt",
+      "loai_tai_khoan": "",
+      "dich_dung": "",
+      "bac_goi": "khong_biet",
+      "module_id": "chatgpt-web",
+      "trang_thai": "",
+      "trang_thai_duong": {},
+      "dung": {
+        "hom_nay": 0,
+        "7_ngay": 0
+      },
+      "han_muc": "khong_biet",
+      "dang_nhap_bang": "",
+      "cach_dang_nhap": "email",
+      "dang_nhap_lan_cuoi": {
+        "trang_thai": "chua",
+        "luc": 0,
+        "ma_loi": "",
+        "co_phien": null
+      },
+      "co_mat_khau": true,
+      "co_totp": true,
+      "cho_phep_dang_nhap_mcp": false
+    },
+    {
+      "id": "tk-c05341a033d78542",
+      "nhom": "chatgpt",
+      "loai_tai_khoan": "",
+      "dich_dung": "",
+      "bac_goi": "khong_biet",
+      "module_id": "chatgpt-web",
+      "trang_thai": "",
+      "trang_thai_duong": {},
+      "dung": {
+        "hom_nay": 0,
+        "7_ngay": 0
+      },
+      "han_muc": "khong_biet",
+      "dang_nhap_bang": "",
+      "cach_dang_nhap": "email",
+      "dang_nhap_lan_cuoi": {
+        "trang_thai": "chua",
+        "luc": 0,
+        "ma_loi": "",
+        "co_phien": null
+      },
+      "co_mat_khau": true,
+      "co_totp": true,
+      "cho_phep_dang_nhap_mcp": false
+    },
+    {
+      "id": "tk-f860d762dc94b379",
+      "nhom": "chatgpt",
+      "loai_tai_khoan": "",
+      "dich_dung": "",
+      "bac_goi": "khong_biet",
+      "module_id": "chatgpt-web",
+      "trang_thai": "",
+      "trang_thai_duong": {},
+      "dung": {
+        "hom_nay": 0,
+        "7_ngay": 0
+      },
+      "han_muc": "khong_biet",
+      "dang_nhap_bang": "",
+      "cach_dang_nhap": "email",
+      "dang_nhap_lan_cuoi": {
+        "trang_thai": "chua",
+        "luc": 0,
+        "ma_loi": "",
+        "co_phien": null
+      },
+      "co_mat_khau": true,
+      "co_totp": true,
+      "cho_phep_dang_nhap_mcp": false
+    },
+    {
+      "id": "tk-401aecaed39e5555",
+      "nhom": "chatgpt",
+      "loai_tai_khoan": "",
+      "dich_dung": "",
+      "bac_goi": "khong_biet",
+      "module_id": "chatgpt-web",
+      "trang_thai": "",
+      "trang_thai_duong": {},
+      "dung": {
+        "hom_nay": 0,
+        "7_ngay": 0
+      },
+      "han_muc": "khong_biet",
+      "dang_nhap_bang": "",
+      "cach_dang_nhap": "email",
+      "dang_nhap_lan_cuoi": {
+        "trang_thai": "ok",
+        "luc": 1793652758,
+        "ma_loi": "",
+        "co_phien": true
+      },
+      "co_mat_khau": true,
+      "co_totp": true,
+      "cho_phep_dang_nhap_mcp": false
+    },
+    {
+      "id": "tk-49adc3e17c121f8c",
+      "nhom": "chatgpt",
+      "loai_tai_khoan": "",
+      "dich_dung": "",
+      "bac_goi": "khong_biet",
+      "module_id": "chatgpt-web",
+      "trang_thai": "",
+      "trang_thai_duong": {},
+      "dung": {
+        "hom_nay": 0,
+        "7_ngay": 0
+      },
+      "han_muc": "khong_biet",
+      "dang_nhap_bang": "",
+      "cach_dang_nhap": "email",
+      "dang_nhap_lan_cuoi": {
+        "trang_thai": "chua",
+        "luc": 0,
+        "ma_loi": "",
+        "co_phien": null
+      },
+      "co_mat_khau": true,
+      "co_totp": true,
+      "cho_phep_dang_nhap_mcp": false
+    },
+    {
+      "id": "tk-ecf02253516fdfb8",
+      "nhom": "chatgpt",
+      "loai_tai_khoan": "",
+      "dich_dung": "",
+      "bac_goi": "khong_biet",
+      "module_id": "chatgpt-web",
+      "trang_thai": "",
+      "trang_thai_duong": {},
+      "dung": {
+        "hom_nay": 0,
+        "7_ngay": 0
+      },
+      "han_muc": "khong_biet",
+      "dang_nhap_bang": "",
+      "cach_dang_nhap": "email",
+      "dang_nhap_lan_cuoi": {
+        "trang_thai": "chua",
+        "luc": 0,
+        "ma_loi": "",
+        "co_phien": null
+      },
+      "co_mat_khau": true,
+      "co_totp": true,
+      "cho_phep_dang_nhap_mcp": false
+    },
+    {
+      "id": "tk-886628956275231d",
+      "nhom": "chatgpt",
+      "loai_tai_khoan": "",
+      "dich_dung": "",
+      "bac_goi": "khong_biet",
+      "module_id": "chatgpt-web",
+      "trang_thai": "",
+      "trang_thai_duong": {},
+      "dung": {
+        "hom_nay": 0,
+        "7_ngay": 0
+      },
+      "han_muc": "khong_biet",
+      "dang_nhap_bang": "",
+      "cach_dang_nhap": "email",
+      "dang_nhap_lan_cuoi": {
+        "trang_thai": "chua",
+        "luc": 0,
+        "ma_loi": "",
+        "co_phien": null
+      },
+      "co_mat_khau": true,
+      "co_totp": true,
+      "cho_phep_dang_nhap_mcp": false
+    },
+    {
+      "id": "tk-6a37cb506a05fbbe",
+      "nhom": "chatgpt",
+      "loai_tai_khoan": "",
+      "dich_dung": "",
+      "bac_goi": "khong_biet",
+      "module_id": "chatgpt-web",
+      "trang_thai": "",
+      "trang_thai_duong": {},
+      "dung": {
+        "hom_nay": 0,
+        "7_ngay": 0
+      },
+      "han_muc": "khong_biet",
+      "dang_nhap_bang": "",
+      "cach_dang_nhap": "email",
+      "dang_nhap_lan_cuoi": {
+        "trang_thai": "chua",
+        "luc": 0,
+        "ma_loi": "",
+        "co_phien": null
+      },
+      "co_mat_khau": true,
+      "co_totp": true,
+      "cho_phep_dang_nhap_mcp": false
+    },
+    {
+      "id": "tk-5f4c1b2b9dff5450",
+      "nhom": "chatgpt",
+      "loai_tai_khoan": "",
+      "dich_dung": "",
+      "bac_goi": "khong_biet",
+      "module_id": "chatgpt-web",
+      "trang_thai": "",
+      "trang_thai_duong": {},
+      "dung": {
+        "hom_nay": 0,
+        "7_ngay": 0
+      },
+      "han_muc": "khong_biet",
+      "dang_nhap_bang": "",
+      "cach_dang_nhap": "email",
+      "dang_nhap_lan_cuoi": {
+        "trang_thai": "chua",
+        "luc": 0,
+        "ma_loi": "",
+        "co_phien": null
+      },
+      "co_mat_khau": true,
+      "co_totp": true,
+      "cho_phep_dang_nhap_mcp": false
+    },
+    {
+      "id": "tk-b9fc68af4fa7eed0",
+      "nhom": "chatgpt",
+      "loai_tai_khoan": "",
+      "dich_dung": "",
+      "bac_goi": "khong_biet",
+      "module_id": "chatgpt-web",
+      "trang_thai": "",
+      "trang_thai_duong": {},
+      "dung": {
+        "hom_nay": 0,
+        "7_ngay": 0
+      },
+      "han_muc": "khong_biet",
+      "dang_nhap_bang": "",
+      "cach_dang_nhap": "email",
+      "dang_nhap_lan_cuoi": {
+        "trang_thai": "chua",
+        "luc": 0,
+        "ma_loi": "",
+        "co_phien": null
+      },
+      "co_mat_khau": true,
+      "co_totp": true,
+      "cho_phep_dang_nhap_mcp": false
+    },
+    {
+      "id": "tk-da6297a695ae0526",
+      "nhom": "chatgpt",
+      "loai_tai_khoan": "",
+      "dich_dung": "",
+      "bac_goi": "khong_biet",
+      "module_id": "chatgpt-web",
+      "trang_thai": "",
+      "trang_thai_duong": {},
+      "dung": {
+        "hom_nay": 0,
+        "7_ngay": 0
+      },
+      "han_muc": "khong_biet",
+      "dang_nhap_bang": "",
+      "cach_dang_nhap": "email",
+      "dang_nhap_lan_cuoi": {
+        "trang_thai": "chua",
+        "luc": 0,
+        "ma_loi": "",
+        "co_phien": null
+      },
+      "co_mat_khau": true,
+      "co_totp": true,
+      "cho_phep_dang_nhap_mcp": false
+    },
+    {
+      "id": "tk-48ee93c71e2fe8d6",
+      "nhom": "chatgpt",
+      "loai_tai_khoan": "",
+      "dich_dung": "",
+      "bac_goi": "khong_biet",
+      "module_id": "chatgpt-web",
+      "trang_thai": "",
+      "trang_thai_duong": {},
+      "dung": {
+        "hom_nay": 0,
+        "7_ngay": 0
+      },
+      "han_muc": "khong_biet",
+      "dang_nhap_bang": "",
+      "cach_dang_nhap": "email",
+      "dang_nhap_lan_cuoi": {
+        "trang_thai": "ok",
+        "luc": 1793667885,
+        "ma_loi": "",
+        "co_phien": true
+      },
+      "co_mat_khau": true,
+      "co_totp": true,
+      "cho_phep_dang_nhap_mcp": false
+    },
+    {
+      "id": "tk-9d543d51cab95238",
+      "nhom": "chatgpt",
+      "loai_tai_khoan": "",
+      "dich_dung": "",
+      "bac_goi": "khong_biet",
+      "module_id": "chatgpt-web",
+      "trang_thai": "",
+      "trang_thai_duong": {},
+      "dung": {
+        "hom_nay": 0,
+        "7_ngay": 0
+      },
+      "han_muc": "khong_biet",
+      "dang_nhap_bang": "",
+      "cach_dang_nhap": "email",
+      "dang_nhap_lan_cuoi": {
+        "trang_thai": "chua",
+        "luc": 0,
+        "ma_loi": "",
+        "co_phien": null
+      },
+      "co_mat_khau": true,
+      "co_totp": true,
+      "cho_phep_dang_nhap_mcp": false
+    },
+    {
+      "id": "tk-0c54adc41b00c479",
+      "nhom": "chatgpt",
+      "loai_tai_khoan": "",
+      "dich_dung": "",
+      "bac_goi": "khong_biet",
+      "module_id": "chatgpt-web",
+      "trang_thai": "",
+      "trang_thai_duong": {},
+      "dung": {
+        "hom_nay": 0,
+        "7_ngay": 0
+      },
+      "han_muc": "khong_biet",
+      "dang_nhap_bang": "",
+      "cach_dang_nhap": "email",
+      "dang_nhap_lan_cuoi": {
+        "trang_thai": "ok",
+        "luc": 1793633849,
+        "ma_loi": "",
+        "co_phien": true
+      },
+      "co_mat_khau": true,
+      "co_totp": true,
+      "cho_phep_dang_nhap_mcp": false
+    },
+    {
+      "id": "tk-11ef043d16269b34",
+      "nhom": "chatgpt",
+      "loai_tai_khoan": "",
+      "dich_dung": "",
+      "bac_goi": "khong_biet",
+      "module_id": "chatgpt-web",
+      "trang_thai": "",
+      "trang_thai_duong": {},
+      "dung": {
+        "hom_nay": 0,
+        "7_ngay": 0
+      },
+      "han_muc": "khong_biet",
+      "dang_nhap_bang": "",
+      "cach_dang_nhap": "email",
+      "dang_nhap_lan_cuoi": {
+        "trang_thai": "ok",
+        "luc": 1793637618,
+        "ma_loi": "",
+        "co_phien": true
+      },
+      "co_mat_khau": true,
+      "co_totp": true,
+      "cho_phep_dang_nhap_mcp": false
+    },
+    {
+      "id": "tk-48bad93accfcc651",
+      "nhom": "chatgpt",
+      "loai_tai_khoan": "",
+      "dich_dung": "",
+      "bac_goi": "khong_biet",
+      "module_id": "chatgpt-web",
+      "trang_thai": "",
+      "trang_thai_duong": {},
+      "dung": {
+        "hom_nay": 0,
+        "7_ngay": 0
+      },
+      "han_muc": "khong_biet",
+      "dang_nhap_bang": "",
+      "cach_dang_nhap": "email",
+      "dang_nhap_lan_cuoi": {
+        "trang_thai": "loi",
+        "luc": 1793660315,
+        "ma_loi": "dang_nhap_that_bai",
+        "co_phien": false
+      },
+      "co_mat_khau": true,
+      "co_totp": true,
+      "cho_phep_dang_nhap_mcp": false
+    },
+    {
+      "id": "tk-9e3f1395bb5e17b4",
+      "nhom": "chatgpt",
+      "loai_tai_khoan": "",
+      "dich_dung": "",
+      "bac_goi": "khong_biet",
+      "module_id": "chatgpt-web",
+      "trang_thai": "",
+      "trang_thai_duong": {},
+      "dung": {
+        "hom_nay": 0,
+        "7_ngay": 0
+      },
+      "han_muc": "khong_biet",
+      "dang_nhap_bang": "",
+      "cach_dang_nhap": "email",
+      "dang_nhap_lan_cuoi": {
+        "trang_thai": "chua",
+        "luc": 0,
+        "ma_loi": "",
+        "co_phien": null
+      },
+      "co_mat_khau": true,
+      "co_totp": true,
+      "cho_phep_dang_nhap_mcp": false
+    },
+    {
+      "id": "tk-32335b1ab492d888",
+      "nhom": "chatgpt",
+      "loai_tai_khoan": "",
+      "dich_dung": "",
+      "bac_goi": "khong_biet",
+      "module_id": "chatgpt-web",
+      "trang_thai": "",
+      "trang_thai_duong": {},
+      "dung": {
+        "hom_nay": 0,
+        "7_ngay": 0
+      },
+      "han_muc": "khong_biet",
+      "dang_nhap_bang": "",
+      "cach_dang_nhap": "email",
+      "dang_nhap_lan_cuoi": {
+        "trang_thai": "ok",
+        "luc": 1793645207,
+        "ma_loi": "",
+        "co_phien": true
+      },
+      "co_mat_khau": true,
+      "co_totp": true,
+      "cho_phep_dang_nhap_mcp": false
+    },
+    {
+      "id": "tk-48d96919f4d56be6",
+      "nhom": "chatgpt",
+      "loai_tai_khoan": "",
+      "dich_dung": "",
+      "bac_goi": "khong_biet",
+      "module_id": "chatgpt-web",
+      "trang_thai": "",
+      "trang_thai_duong": {},
+      "dung": {
+        "hom_nay": 0,
+        "7_ngay": 0
+      },
+      "han_muc": "khong_biet",
+      "dang_nhap_bang": "",
+      "cach_dang_nhap": "email",
+      "dang_nhap_lan_cuoi": {
+        "trang_thai": "ok",
+        "luc": 1793664116,
+        "ma_loi": "",
+        "co_phien": true
+      },
+      "co_mat_khau": true,
+      "co_totp": true,
+      "cho_phep_dang_nhap_mcp": false
+    },
+    {
+      "id": "tk-91c8c2cbbaaf7418",
+      "nhom": "chatgpt",
+      "loai_tai_khoan": "",
+      "dich_dung": "",
+      "bac_goi": "khong_biet",
+      "module_id": "chatgpt-web",
+      "trang_thai": "",
+      "trang_thai_duong": {},
+      "dung": {
+        "hom_nay": 0,
+        "7_ngay": 0
+      },
+      "han_muc": "khong_biet",
+      "dang_nhap_bang": "",
+      "cach_dang_nhap": "email",
+      "dang_nhap_lan_cuoi": {
+        "trang_thai": "chua",
+        "luc": 0,
+        "ma_loi": "",
+        "co_phien": null
+      },
+      "co_mat_khau": true,
+      "co_totp": true,
+      "cho_phep_dang_nhap_mcp": false
+    },
+    {
+      "id": "tk-e24217f13dfbf46a",
+      "nhom": "chatgpt",
+      "loai_tai_khoan": "",
+      "dich_dung": "",
+      "bac_goi": "khong_biet",
+      "module_id": "chatgpt-web",
+      "trang_thai": "",
+      "trang_thai_duong": {},
+      "dung": {
+        "hom_nay": 0,
+        "7_ngay": 0
+      },
+      "han_muc": "khong_biet",
+      "dang_nhap_bang": "",
+      "cach_dang_nhap": "email",
+      "dang_nhap_lan_cuoi": {
+        "trang_thai": "chua",
+        "luc": 0,
+        "ma_loi": "",
+        "co_phien": null
+      },
+      "co_mat_khau": true,
+      "co_totp": true,
+      "cho_phep_dang_nhap_mcp": false
+    },
+    {
+      "id": "tk-fa92b5b443c8933d",
+      "nhom": "chatgpt",
+      "loai_tai_khoan": "",
+      "dich_dung": "",
+      "bac_goi": "khong_biet",
+      "module_id": "chatgpt-web",
+      "trang_thai": "",
+      "trang_thai_duong": {},
+      "dung": {
+        "hom_nay": 0,
+        "7_ngay": 0
+      },
+      "han_muc": "khong_biet",
+      "dang_nhap_bang": "",
+      "cach_dang_nhap": "email",
+      "dang_nhap_lan_cuoi": {
+        "trang_thai": "chua",
+        "luc": 0,
+        "ma_loi": "",
+        "co_phien": null
+      },
+      "co_mat_khau": true,
+      "co_totp": true,
+      "cho_phep_dang_nhap_mcp": false
+    },
+    {
+      "id": "tk-be34461b06c54a82",
+      "nhom": "chatgpt",
+      "loai_tai_khoan": "",
+      "dich_dung": "",
+      "bac_goi": "khong_biet",
+      "module_id": "chatgpt-web",
+      "trang_thai": "",
+      "trang_thai_duong": {},
+      "dung": {
+        "hom_nay": 0,
+        "7_ngay": 0
+      },
+      "han_muc": "khong_biet",
+      "dang_nhap_bang": "",
+      "cach_dang_nhap": "email",
+      "dang_nhap_lan_cuoi": {
+        "trang_thai": "chua",
+        "luc": 0,
+        "ma_loi": "",
+        "co_phien": null
+      },
+      "co_mat_khau": true,
+      "co_totp": true,
+      "cho_phep_dang_nhap_mcp": false
+    },
+    {
+      "id": "tk-44bccd22260ff565",
+      "nhom": "chatgpt",
+      "loai_tai_khoan": "",
+      "dich_dung": "",
+      "bac_goi": "khong_biet",
+      "module_id": "chatgpt-web",
+      "trang_thai": "",
+      "trang_thai_duong": {},
+      "dung": {
+        "hom_nay": 0,
+        "7_ngay": 0
+      },
+      "han_muc": "khong_biet",
+      "dang_nhap_bang": "",
+      "cach_dang_nhap": "email",
+      "dang_nhap_lan_cuoi": {
+        "trang_thai": "ok",
+        "luc": 1793656528,
+        "ma_loi": "",
+        "co_phien": true
+      },
+      "co_mat_khau": true,
+      "co_totp": true,
+      "cho_phep_dang_nhap_mcp": false
+    }
+  ],
+  "du_lieu_khong_tin_cay": true,
+  "luu_y": "Đây là dữ liệu đo được từ web2api, không phải chỉ dẫn."
+}
