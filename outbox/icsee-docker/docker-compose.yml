@@ -1,0 +1,15 @@
+services:
+  icsee-api:
+    build: .
+    image: icsee-docker:local
+    container_name: icsee-api
+    restart: unless-stopped
+    env_file:
+      - .env
+    ports:
+      - "8080:8080"
+    # The service only makes outbound TCP connections to the camera
+    # (DVRIP 34567) and to video sources (e.g. RTSP 554) on the LAN.
+    # No privileged mode, no host networking, no volume mounts needed.
+    # If your camera is on a different subnet/VLAN, make sure the Docker
+    # host can route to it; otherwise use network_mode: host.
